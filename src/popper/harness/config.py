@@ -41,6 +41,8 @@ class Execution(_Strict):
 class Price(_Strict):
     input: float  # USD per million tokens
     output: float
+    cache_write: float = 1.25  # multiples of the input price
+    cache_read: float = 0.1
 
 
 class Budget(_Strict):

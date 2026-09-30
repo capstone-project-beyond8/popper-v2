@@ -120,13 +120,15 @@ def test_cache_points_mark_the_stable_prefix() -> None:
     llm = BedrockLLM.__new__(BedrockLLM)
     llm._client = capture = _Capture()
     msgs = (Message("user", "task"), Message("assistant", "a"), Message("user", "more"))
-    llm.complete(LLMRequest("m", "t", "s", msgs, (ToolSpec("x", "d", {}),)), 10)
+    llm.complete(LLMRequest("anthropic.m", "t", "s", msgs, (ToolSpec("x", "d", {}),)), 10)
     point = {"cachePoint": {"type": "default"}}
     sent = capture.kwargs
     assert sent["system"][-1] == point
     assert sent["toolConfig"]["tools"][-1] == point
     assert sent["messages"][0]["content"] == [{"text": "task"}, point]
     assert all(point not in m["content"] for m in sent["messages"][1:])
+    llm.complete(LLMRequest("amazon.nova", "t", "s", msgs, (ToolSpec("x", "d", {}),)), 10)
+    assert point not in capture.kwargs["toolConfig"]["tools"]
 
 
 def test_from_converse_reads_cache_counts() -> None:

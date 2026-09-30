@@ -27,8 +27,6 @@ T = TypeVar("T", bound=BaseModel)
 R = TypeVar("R")
 _MAX_ATTEMPTS = 5
 _BACKOFF_SECONDS = 2.0
-_CACHE_WRITE_RATE = 1.25  # cache writes cost 1.25x the input price
-_CACHE_READ_RATE = 0.1  # cache reads cost 0.1x the input price
 _FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 
@@ -115,8 +113,8 @@ class Harness:
         price = budget.price(model)
         usd = (
             done.input_tokens * price.input
-            + done.cache_write_tokens * price.input * _CACHE_WRITE_RATE
-            + done.cache_read_tokens * price.input * _CACHE_READ_RATE
+            + done.cache_write_tokens * price.input * price.cache_write
+            + done.cache_read_tokens * price.input * price.cache_read
             + done.output_tokens * price.output
         ) / 1e6
         self.spent_usd += usd

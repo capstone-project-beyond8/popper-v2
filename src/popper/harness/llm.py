@@ -148,21 +148,22 @@ class BedrockLLM:
         )
 
         # Cache the stable prefix: system, tools and the task in the first user message.
+        # Only Anthropic models accept a cache point in the tool list.
         kwargs: dict[str, Any] = {}
         if req.tools:
-            kwargs["toolConfig"] = {
-                "tools": [
-                    {
-                        "toolSpec": {
-                            "name": t.name,
-                            "description": t.description,
-                            "inputSchema": {"json": t.schema},
-                        }
+            specs: list[dict[str, Any]] = [
+                {
+                    "toolSpec": {
+                        "name": t.name,
+                        "description": t.description,
+                        "inputSchema": {"json": t.schema},
                     }
-                    for t in req.tools
-                ]
-                + [_CACHE_POINT]
-            }
+                }
+                for t in req.tools
+            ]
+            if "anthropic" in req.model:
+                specs.append(_CACHE_POINT)
+            kwargs["toolConfig"] = {"tools": specs}
         messages = _to_converse(req.messages)
         first_user = next(m for m in messages if m["role"] == "user")
         first_user["content"].append(_CACHE_POINT)
