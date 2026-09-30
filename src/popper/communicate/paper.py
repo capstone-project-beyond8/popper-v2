@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -60,11 +61,6 @@ class Writeup(BaseModel):
     figures: list[FigureRef]
 
 
-def _write_log(tex: Path, output: bytes | None) -> None:
-    text = (output or b"").decode("utf-8", errors="replace")
-    (tex.parent / "compile.log").write_text(text, encoding="utf-8")
-
-
 _NONSTOP = ("-interaction=nonstopmode", "-halt-on-error")
 # (engine, arguments before the file name, runs); pdflatex runs twice to resolve references
 _ENGINES: tuple[tuple[str, tuple[str, ...], int], ...] = (
@@ -82,6 +78,22 @@ def compile_pdf(tex: Path) -> Path | None:
     )
     if found is None:
         return None
+    sequence = max((int(p.name[6:]) for p in tex.parent.glob('build-*') if p.name[6:].isdigit()), default=-1) + 1
+    build = tex.parent / f'build-{sequence:06d}'
+    with tempfile.TemporaryDirectory(prefix='popper-latex-') as directory:
+        scratch = Path(directory)
+        shutil.copyfile(tex, scratch / tex.name)
+        figures = tex.parent / 'figures'
+        if figures.exists():
+            shutil.copytree(figures, scratch / 'figures')
+        ok, output = _compile(scratch / tex.name, found)
+        (scratch / 'compile.log').write_text(output.decode('utf-8', errors='replace'), encoding='utf-8')
+        shutil.copytree(scratch, build)
+    pdf = build / tex.with_suffix('.pdf').name
+    return pdf if ok and pdf.exists() else None
+
+
+def _compile(tex: Path, found: tuple[str, tuple[str, ...], int]) -> tuple[bool, bytes]:
     path, args, runs = found
     output = b""
     ok = True
@@ -96,18 +108,15 @@ def compile_pdf(tex: Path) -> Path | None:
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            _write_log(tex, output + (exc.stdout or b""))
-            return None
+            return False, output + (exc.stdout or b'')
         output += done.stdout or b""
         if done.returncode != 0:
             ok = False
             break
-    _write_log(tex, output)
-    pdf = tex.with_suffix(".pdf")
-    return pdf if ok and pdf.exists() else None
+    return ok, output
 
 
-def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[str, str]]:
+def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node], report_dir: Path) -> list[dict[str, str]]:
     placed: list[dict[str, str]] = []
     for ref in writeup.figures:
         node = next((n for n in nodes if n.stage == ref.stage and ref.file in n.figures), None)
@@ -115,7 +124,7 @@ def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[
             h.journal.write("figure_missing", file=ref.file)
             continue
         name = f"{node.stage}-{ref.file}"
-        target = h.run.path("report", "figures", name)
+        target = report_dir / "figures" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(node.execution_dir / "figures" / ref.file, target)
         placed.append({"path": f"figures/{name}", "caption": ref.caption})
@@ -144,6 +153,11 @@ def write_paper(
     evidence: Path,
     data_node: Node,
 ) -> tuple[Path, Path | None, list[str]]:
+    committed = h.run.committed("report")
+    if committed:
+        record = json.loads(committed.read_text("utf-8"))
+        return h.run.path(record["tex"]), h.run.path(record["pdf"]) if record["pdf"] else None, record["missing"]
+    report_dir = h.run.new_attempt("report")
     manifest = json.loads(evidence.read_text("utf-8"))
     experiment = next(n for n in load_nodes(h, "main") if n.id == manifest["selected"]["main"])
     values = collect_values([data_node, explore, experiment])
@@ -172,7 +186,7 @@ def write_paper(
             "Fix them and reply again with the full JSON."
         )
         writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=retry)
-    placed = _copy_figures(h, writeup, [explore, experiment])
+    placed = _copy_figures(h, writeup, [explore, experiment], report_dir)
     tex, missing = fill_numbers(
         _ENV.get_template("paper.tex.j2").render(
             w=writeup,
@@ -193,5 +207,12 @@ def write_paper(
     )
     if missing:
         h.journal.write("numbers_missing", keys=missing)
-    path = h.run.write_text("report/paper.tex", tex)
-    return path, compile_pdf(path), missing
+    prefix = report_dir.relative_to(h.run.root).as_posix()
+    path = h.run.write_text(f"{prefix}/paper.tex", tex)
+    pdf = compile_pdf(path)
+    record_path = h.run.write_json(f"{prefix}/report.json", {
+        "tex": path.relative_to(h.run.root).as_posix(),
+        "pdf": pdf.relative_to(h.run.root).as_posix() if pdf else None, "missing": missing,
+    })
+    h.run.commit_artifact("report", record_path)
+    return path, pdf, missing

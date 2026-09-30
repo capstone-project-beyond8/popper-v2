@@ -24,7 +24,12 @@ class Framing(BaseModel):
 
 
 def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
-    h.run.write_json("understand/profile.json", profile)
+    committed = h.run.committed("framing")
+    if committed:
+        result: dict[str, Any] = json.loads(committed.read_text("utf-8"))
+        return result
+    attempt = h.run.new_attempt("understand").relative_to(h.run.root).as_posix()
+    h.run.write_json(f"{attempt}/profile.json", profile)
     draft = h.ask_model(
         "theorist",
         schema=Framing,
@@ -51,5 +56,6 @@ def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
         ),
     )
     framing = {**final.model_dump(), "supplied_by": "agent"}
-    h.run.write_json("understand/framing.json", framing)
+    path = h.run.write_json(f"{attempt}/framing.json", framing)
+    h.run.commit_artifact("framing", path)
     return framing

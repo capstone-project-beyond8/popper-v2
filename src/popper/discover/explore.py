@@ -30,6 +30,10 @@ def explore(h: Harness, framing: dict[str, Any]) -> Node:
 
 
 def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[str, Any]:
+    committed = h.run.committed("hypothesis")
+    if committed:
+        result: dict[str, Any] = json.loads(committed.read_text("utf-8"))[0]
+        return result
     context = json.dumps(framing, indent=2)
     hypothesis = h.ask_model(
         "theorist",
@@ -55,5 +59,7 @@ def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[
     result = Hypothesis(
         **hypothesis.model_dump(), id="hypothesis-001", source_nodes=[best.id], supplied_by="agent"
     ).model_dump(mode="json")
-    h.run.write_json("hypotheses.json", [result])
+    attempt = h.run.new_attempt("hypotheses").relative_to(h.run.root).as_posix()
+    path = h.run.write_json(f"{attempt}/hypotheses.json", [result])
+    h.run.commit_artifact("hypothesis", path)
     return result

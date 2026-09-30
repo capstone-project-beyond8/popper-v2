@@ -1,7 +1,6 @@
 """Data phase: a tree-search stage that cleans the raw data and records every change."""
 
 import json
-import shutil
 import stat
 from pathlib import Path
 from typing import Any
@@ -76,9 +75,6 @@ def prepare(h: Harness, framing: dict[str, Any]) -> Node:
         describe=_summarise,
     )
     best = run_stage(h, spec)
-    target = h.run.path("data", "processed.parquet")
-    if target.exists():
-        raise FileExistsError(target)
-    shutil.copyfile(best.execution_dir / "processed.parquet", target)
+    target = h.run.copy_once(best.execution_dir / "processed.parquet", "data/processed.parquet")
     target.chmod(stat.S_IREAD)
     return best

@@ -12,6 +12,7 @@ from popper.discover.explore import explore, propose_hypothesis
 from popper.ground.data import prepare
 from popper.harness.config import Config
 from popper.harness.llm import LLM
+from popper.harness.recovery import load_state, recorded_spend
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
@@ -47,12 +48,50 @@ def run(
     h = Harness(config, llm, store)
     if progress is not None:
         h.progress = progress
+    return _continue(h)
+
+
+def _outcome(store: RunStore) -> RunOutcome:
+    state = load_state(store)
+    tex = pdf = None
+    missing = state.get("missing", [])
+    report = store.committed("report")
+    if report:
+        record = json.loads(report.read_text("utf-8"))
+        tex = store.path(record["tex"])
+        pdf = store.path(record["pdf"]) if record["pdf"] else None
+        missing = record["missing"]
+    return RunOutcome(store.root, state["status"], tex, pdf, state.get("message", ""), missing)
+
+
+def resume(
+    run_dir: Path, *, llm: LLM, progress: Callable[[str], None] | None = None,
+) -> RunOutcome:
+    store = RunStore(run_dir)
+    metadata = json.loads(store.path("run.json").read_text("utf-8"))
+    if metadata.get("format_version") != 2:
+        raise ValueError("unsupported run format; older runs cannot reserve unseen data or resume")
+    state = load_state(store)
+    if state["status"] == "completed":
+        return _outcome(store)
+    config = Config.model_validate(metadata["config"])
+    h = Harness(config, llm, store, spent_usd=recorded_spend(store))
+    if progress is not None:
+        h.progress = progress
+    h.journal.write("resume", spent_usd=h.spent_usd)
+    return _continue(h)
+
+
+def _continue(h: Harness) -> RunOutcome:
+    store = h.run
     failed_stage: str | None = None
     status: Literal["completed", "failed", "budget_exceeded"] = "failed"
     message = ""
     tex = pdf = None
     missing: list[str] = []
     try:
+        if h.spent_usd >= h.config.budget.max_usd:
+            raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
         _phase(h, "framing")
         framing = frame(
             h, store.path("brief.md").read_text("utf-8"), profile_csv(store.path("data", "raw.csv"))
@@ -88,4 +127,4 @@ def run(
                 "missing": missing,
             },
         )
-    return RunOutcome(store.root, status, tex, pdf, message, missing)
+    return _outcome(store)

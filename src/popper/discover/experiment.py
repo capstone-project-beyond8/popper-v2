@@ -72,6 +72,9 @@ def run_experiment_stage(
 def experiment(
     h: Harness, framing: dict[str, Any], hypothesis: dict[str, Any], data_node: Node,
 ) -> Path:
+    committed = h.run.committed("evidence")
+    if committed:
+        return committed
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None)
     main = run_experiment_stage(h, "main", framing, hypothesis, baseline)
     plan = plan_robustness(h, hypothesis, main, data_node)

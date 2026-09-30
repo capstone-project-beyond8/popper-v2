@@ -93,6 +93,9 @@ def compute_stability(
 
 
 def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_node: Node) -> Path:
+    committed = h.run.committed("robustness_plan")
+    if committed:
+        return committed
     primary = hypothesis["primary_estimand"]
     steps = h.config.search.steps_for("robustness")
     proposal = h.ask_model(
@@ -113,16 +116,19 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_nod
         ),
         validation_context={"estimand": primary, "steps": steps, "min_variants": h.config.robustness.min_variants},
     )
-    return h.run.write_json("discover/robustness_plan.json", {
+    destination = h.run.new_attempt("discover/robustness").relative_to(h.run.root).as_posix()
+    path = h.run.write_json(f"{destination}/robustness_plan.json", {
         "format_version": 1, "main_node": main.id, "schedule": proposal.model_dump(mode="json"),
     })
+    h.run.commit_artifact("robustness_plan", path)
+    return path
 
 
 def collect_evidence(
     h: Harness, hypothesis: dict[str, Any], selected: Mapping[str, Node], plan: Path,
 ) -> Path:
     schedule = RobustnessPlan.model_validate(json.loads(plan.read_text("utf-8"))["schedule"])
-    nodes = [node for stage in ("baseline", "main", "robustness") for node in load_nodes(h, stage)]
+    nodes = [node for stage in ("baseline", "main", "robustness") for node in load_nodes(h, stage, include_abandoned=True)]
     main = ResultEntry.model_validate_json(json.dumps(selected["main"].results["primary_estimate"]))
     variants: list[ResultEntry | None] = []
     adversarial: list[ResultEntry | None] = []
@@ -138,21 +144,27 @@ def collect_evidence(
         min_variants=h.config.robustness.min_variants,
     )
     supporting = sum(supports(main, variant) for variant in variants)
-    h.run.write_json("discover/results.json", {
+    destination = h.run.new_attempt("discover/evidence").relative_to(h.run.root).as_posix()
+    summary = h.run.write_json(f"{destination}/results.json", {
         "variant_count": {"value": len(variants)}, "supporting_count": {"value": supporting},
         "supporting_share": {"value": supporting / len(variants) if variants else 0},
         "adversarial_count": {"value": len(adversarial)},
     })
-    return h.run.write_json("discover/evidence.json", {
-        "format_version": 1, "hypothesis": "hypotheses.json", "hypothesis_id": hypothesis["id"],
+    hypothesis_path = h.run.committed("hypothesis")
+    if hypothesis_path is None:
+        raise ValueError("selected hypothesis has not been committed")
+    path = h.run.write_json(f"{destination}/evidence.json", {
+        "format_version": 1, "hypothesis": hypothesis_path.relative_to(h.run.root).as_posix(), "hypothesis_id": hypothesis["id"],
         "selected": {stage: node.id for stage, node in selected.items()},
-        "plan": plan.relative_to(h.run.root).as_posix(), "summary": "discover/results.json",
+        "plan": plan.relative_to(h.run.root).as_posix(), "summary": summary.relative_to(h.run.root).as_posix(),
         "standing": "exploratory", "stability": label, "reasons": reasons, "specifications": outcomes,
         "nodes": [{
             "id": n.id, "stage": n.stage, "kind": n.kind, "attempt_id": n.attempt_id, "status": n.status,
             "results": (n.execution_dir / "results.json").relative_to(h.run.root).as_posix() if n.status == "ok" else None,
             "code": (n.execution_dir / "code.py").relative_to(h.run.root).as_posix() if n.code else None,
-            "analysis": (n.dir / "analysis.md").relative_to(h.run.root).as_posix(),
+            "analysis": (n.dir / "analysis.md").relative_to(h.run.root).as_posix() if (n.dir / 'analysis.md').exists() else None,
             "figures": [(n.execution_dir / "figures" / f).relative_to(h.run.root).as_posix() for f in n.figures],
         } for n in nodes],
     })
+    h.run.commit_artifact("evidence", path)
+    return path

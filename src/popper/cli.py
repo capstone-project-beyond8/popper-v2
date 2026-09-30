@@ -1,15 +1,17 @@
 """Command-line entry point."""
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 
 from popper import __version__
 from popper.communicate.paper import compile_pdf
-from popper.coordinator.run import run
+from popper.coordinator.run import resume, run
 from popper.harness.config import load_config
 from popper.harness.llm import BedrockLLM
+from popper.harness.store import RunStore
 
 _NO_PDF = "PDF not built (install tectonic, latexmk or pdflatex, or see {log})"
 
@@ -27,19 +29,41 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--quiet", action="store_true", help="do not print progress lines")
     pdf_p = sub.add_parser("pdf", help="build the PDF for an existing run")
     pdf_p.add_argument("run_dir", type=Path, help="run folder containing report/paper.tex")
+    resume_p = sub.add_parser("resume", help="continue an interrupted run from committed evidence")
+    resume_p.add_argument("run_dir", type=Path)
+    resume_p.add_argument("--quiet", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "resume":
+        try:
+            outcome = resume(
+                args.run_dir, llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
+                progress=None if args.quiet else lambda line: print(line, file=sys.stderr, flush=True),
+            )
+        except (OSError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(outcome.run_dir)
+        if outcome.status != "completed":
+            print(outcome.message, file=sys.stderr)
+            return 1
+        print(outcome.pdf or outcome.tex)
+        return 0
     if args.command == "pdf":
         tex = args.run_dir / "report" / "paper.tex"
+        store = RunStore(args.run_dir)
+        report = store.committed('report')
+        if report:
+            tex = store.path(json.loads(report.read_text('utf-8'))['tex'])
         if not tex.is_file():
             parser.error(f"file not found: {tex}")
         pdf = compile_pdf(tex)
         if pdf is None:
-            print(_NO_PDF.format(log=tex.parent / "compile.log"), file=sys.stderr)
+            print(_NO_PDF.format(log=tex.parent / 'build-*' / 'compile.log'), file=sys.stderr)
             return 1
         print(pdf)
         return 0
@@ -76,5 +100,5 @@ def main(argv: list[str] | None = None) -> int:
         print(outcome.pdf)
     else:
         print(outcome.tex)
-        print(_NO_PDF.format(log=outcome.run_dir / "report" / "compile.log"), file=sys.stderr)
+        print(_NO_PDF.format(log=outcome.tex.parent / 'build-*' / 'compile.log' if outcome.tex else outcome.run_dir), file=sys.stderr)
     return 0

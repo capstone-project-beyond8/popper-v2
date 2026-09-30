@@ -91,6 +91,10 @@ def run_script(
             _kill_tree(proc)
             proc.wait()
             exit_code, timed_out = None, True
+        except BaseException:
+            _kill_tree(proc)
+            proc.wait()
+            raise
     seconds = time.perf_counter() - start
 
     out, err = _read(workdir / "stdout.txt"), _read(workdir / "stderr.txt")

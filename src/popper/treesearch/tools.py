@@ -63,10 +63,12 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         scratch += 1
         with tempfile.TemporaryDirectory(prefix="popper-scratch-") as temp:
             workdir = Path(temp)
-            r = h.execute(
-                str(args["code"]), workdir, inputs=inputs, node=node_dir.name, purpose="scratch",
-            )
-            shutil.copytree(workdir, evidence)
+            try:
+                r = h.execute(
+                    str(args["code"]), workdir, inputs=inputs, node=node_dir.name, purpose="scratch",
+                )
+            finally:
+                shutil.copytree(workdir, evidence)
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         if r.exit_code != 0 or r.timed_out:

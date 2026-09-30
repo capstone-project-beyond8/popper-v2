@@ -144,9 +144,13 @@ def test_end_to_end(tmp_path: Path) -> None:
     slope = json.loads(results.read_text(encoding="utf-8"))["primary_estimate"]["value"]
     assert f"{slope:.3g}" in tex and r"\textbf{??}" in tex
     assert "exploratory --- autonomously generated" in tex and "\\usepackage{amsmath}" in tex
-    framing = json.loads((out.run_dir / "understand" / "framing.json").read_text(encoding="utf-8"))
+    framing_path = RunStore(out.run_dir).committed("framing")
+    assert framing_path is not None
+    framing = json.loads(framing_path.read_text(encoding="utf-8"))
     assert framing["supplied_by"] == "agent"
-    hypotheses = json.loads((out.run_dir / "hypotheses.json").read_text(encoding="utf-8"))
+    hypotheses_path = RunStore(out.run_dir).committed("hypothesis")
+    assert hypotheses_path is not None
+    hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))
     assert hypotheses and all(x["supplied_by"] == "agent" for x in hypotheses)
     brief = (EXAMPLE / "brief.md").read_text(encoding="utf-8")
     request = next(r for r in llm.calls if r.tag == "framing")

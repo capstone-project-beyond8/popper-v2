@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import os
 import secrets
 import shutil
 import stat
@@ -47,7 +48,7 @@ def file_hash(path: Path) -> str:
 
 class RunStore:
     def __init__(self, root: Path) -> None:
-        self.root = root
+        self.root = root.resolve()
 
     @classmethod
     def create(
@@ -104,3 +105,36 @@ class RunStore:
         })
         Journal(self.path("journal.jsonl")).write("state_commit", path=rel)
         return path
+
+    def new_attempt(self, folder: str) -> Path:
+        base = self.path(folder)
+        sequence = max((int(p.name.removeprefix("attempt-")) for p in base.glob("attempt-*")
+                        if p.name.removeprefix("attempt-").isdigit()), default=-1) + 1
+        target = base / f"attempt-{sequence:06d}"
+        target.mkdir(parents=True)
+        return target
+
+    def commit_artifact(self, name: str, path: Path) -> None:
+        rel = path.resolve().relative_to(self.root).as_posix()
+        Journal(self.path("journal.jsonl")).write("artifact_commit", name=name, path=rel, sha256=file_hash(path))
+
+    def committed(self, name: str) -> Path | None:
+        events = [e for e in read_events(self.root) if e["event"] == "artifact_commit" and e.get("name") == name]
+        if not events:
+            return None
+        event = events[-1]
+        path = self.path(str(event["path"])).resolve()
+        if not path.is_relative_to(self.root) or file_hash(path) != event["sha256"]:
+            raise ValueError(f"committed {name} artifact was changed or escaped the run directory")
+        return path
+
+    def copy_once(self, source: Path, rel: str) -> Path:
+        target = self.path(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if file_hash(source) != file_hash(target):
+                raise ValueError(f"existing export differs from its source: {rel}")
+            return target
+        # A hard link publishes a complete file atomically without overwriting an existing target.
+        os.link(source, target)
+        return target
