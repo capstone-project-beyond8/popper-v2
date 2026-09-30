@@ -7,7 +7,7 @@ from typing import Any
 
 from popper.treesearch.engine import Node
 
-_REF = re.compile(r"\\(R|CI|N)\{([^}]*)\}")
+_REF = re.compile(r"\\R\{([^}]*)\}")
 _ESCAPES = {
     "\\": r"\textbackslash{}",
     "&": r"\&",
@@ -26,11 +26,22 @@ def latex_escape(text: str) -> str:
     return "".join(_ESCAPES.get(c, c) for c in text)
 
 
-def collect_values(nodes: Sequence[Node]) -> dict[str, dict[str, Any]]:
-    return {f"{n.stage}.{name}": entry for n in nodes for name, entry in n.results.items()}
+def collect_values(nodes: Sequence[Node]) -> dict[str, Any]:
+    """Every citable number by key: `stage.name`, plus `stage.name.ci` and `stage.name.n`."""
+    values: dict[str, Any] = {}
+    for node in nodes:
+        for name, entry in node.results.items():
+            key = f"{node.stage}.{name}"
+            values[key] = entry["value"]
+            for part in ("ci", "n"):
+                if part in entry:
+                    values[f"{key}.{part}"] = entry[part]
+    return values
 
 
 def _number(v: Any) -> str:
+    if isinstance(v, list):
+        return f"{_number(v[0])}--{_number(v[1])}"
     if isinstance(v, float):
         return f"{v:.3g}"
     if isinstance(v, str):
@@ -38,37 +49,20 @@ def _number(v: Any) -> str:
     return str(v)
 
 
-def _render(kind: str, entry: Mapping[str, Any]) -> str | None:
-    if kind == "R":
-        return _number(entry["value"])
-    if kind == "CI" and "ci" in entry:
-        lo, hi = entry["ci"]
-        return f"{_number(lo)}--{_number(hi)}"
-    if kind == "N" and "n" in entry:
-        return _number(entry["n"])
-    return None
-
-
-def explain_missing(ref: str, values: Mapping[str, Mapping[str, Any]]) -> str:
-    """Say why a macro from `fill_numbers`' missing list has no value, naming the closest key."""
+def explain_missing(ref: str, values: Mapping[str, Any]) -> str:
+    """Name the closest known key for a macro from `fill_numbers`' missing list."""
     match = _REF.fullmatch(ref)
-    if match is None:
-        return ref
-    kind, key = match.groups()
-    if key in values:
-        return f"{ref}: {key} has no {'interval' if kind == 'CI' else 'n'}"
+    key = match.group(1) if match else ref
     close = difflib.get_close_matches(key, list(values), n=1)
     return f"{ref}: no key {key}" + (f" (did you mean {close[0]}?)" if close else "")
 
 
-def fill_numbers(tex: str, values: Mapping[str, Mapping[str, Any]]) -> tuple[str, list[str]]:
+def fill_numbers(tex: str, values: Mapping[str, Any]) -> tuple[str, list[str]]:
     missing: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
-        entry = values.get(match.group(2))
-        text = None if entry is None else _render(match.group(1), entry)
-        if text is not None:
-            return text
+        if match.group(1) in values:
+            return _number(values[match.group(1)])
         if match.group(0) not in missing:
             missing.append(match.group(0))
         return r"\textbf{??}"

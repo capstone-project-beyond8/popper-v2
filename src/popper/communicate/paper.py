@@ -121,15 +121,6 @@ def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[
     return placed
 
 
-def _describe(entry: dict[str, Any]) -> str:
-    text = str(entry["value"])
-    if "ci" in entry:
-        text += f", 95% CI {entry['ci'][0]} to {entry['ci'][1]}"
-    if "n" in entry:
-        text += f", n = {entry['n']}"
-    return text
-
-
 def write_paper(
     h: Harness,
     framing: dict[str, Any],
@@ -144,7 +135,7 @@ def write_paper(
     prompt = load_prompt(
         "popper.communicate",
         "writeup.md",
-        keys="\n".join(f"- {k} = {_describe(v)}" for k, v in values.items()),
+        keys="\n".join(f"- {k} = {v}" for k, v in values.items()),
         framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS),
         hypothesis=json.dumps(hypothesis, indent=2),
         analyses=part(
