@@ -135,26 +135,30 @@ def write_paper(
 ) -> tuple[Path, Path | None, list[str]]:
     values = collect_values([data_node, explore, experiment])
     figures = {n.stage: n.figures for n in (explore, experiment)}
-    writeup = h.ask_model(
-        "writer",
-        schema=Writeup,
-        tag="writeup",
-        system=_SYSTEM,
-        prompt=load_prompt(
-            "popper.communicate",
-            "writeup.md",
-            keys="\n".join(f"- {k} = {_describe(v)}" for k, v in values.items()),
-            framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS),
-            hypothesis=json.dumps(hypothesis, indent=2),
-            analyses=part(
-                "Analyses",
-                f"Exploration:\n{explore.analysis}\n\nExperiment:\n{experiment.analysis}",
-                ARTIFACT_CHARS,
-                untrusted=True,
-            ),
-            figures=json.dumps(figures),
+    prompt = load_prompt(
+        "popper.communicate",
+        "writeup.md",
+        keys="\n".join(f"- {k} = {_describe(v)}" for k, v in values.items()),
+        framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS),
+        hypothesis=json.dumps(hypothesis, indent=2),
+        analyses=part(
+            "Analyses",
+            f"Exploration:\n{explore.analysis}\n\nExperiment:\n{experiment.analysis}",
+            ARTIFACT_CHARS,
+            untrusted=True,
         ),
+        figures=json.dumps(figures),
     )
+    writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=prompt)
+    prose = "\n".join(str(v) for k, v in writeup.model_dump().items() if k != "figures")
+    _, unresolved = fill_numbers(prose, values)
+    if unresolved:
+        retry = (
+            f"{prompt}\n\nYour previous reply used macros with no value: {', '.join(unresolved)}. "
+            r"Use only listed keys, and \CI or \N only where the key lists an interval or n. "
+            "Reply again with the full JSON."
+        )
+        writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=retry)
     placed = _copy_figures(h, writeup, [explore, experiment])
     tex, missing = fill_numbers(
         _ENV.get_template("paper.tex.j2").render(
