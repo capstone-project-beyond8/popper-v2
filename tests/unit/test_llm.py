@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 from popper.harness.llm import (
     BedrockLLM,
     FakeLLM,
+    LLMError,
     LLMRequest,
     Message,
     ToolCall,
@@ -83,8 +84,9 @@ def test_transient_errors_are_classified(code: str, status: int, transient: bool
     llm = BedrockLLM.__new__(BedrockLLM)
     llm._client = _Raises(code, status)
     req = LLMRequest("m", "t", "s", (Message("user", "p"),))
-    with pytest.raises(TransientLLMError if transient else ClientError):
+    with pytest.raises(LLMError) as err:
         llm.complete(req, 10)
+    assert isinstance(err.value, TransientLLMError) == transient
 
 
 def test_fake_llm_replays_tool_calls() -> None:
@@ -92,3 +94,12 @@ def test_fake_llm_replays_tool_calls() -> None:
     done = fake.complete(LLMRequest("m", "t", "s", (Message("user", "p"),)), 10)
     assert done.stop_reason == "tool_use"
     assert done.tool_calls[0].name == "submit"
+
+
+def test_tool_results_precede_text_and_blank_text_is_dropped() -> None:
+    result = (ToolResult("t1", text="out"),)
+    wire = _to_converse(
+        [Message("user", "note", tool_results=result), Message("user", "\n\n", tool_results=result)]
+    )
+    assert [next(iter(b)) for b in wire[0]["content"]] == ["toolResult", "text"]
+    assert [next(iter(b)) for b in wire[1]["content"]] == ["toolResult"]

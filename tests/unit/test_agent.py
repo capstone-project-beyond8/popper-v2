@@ -7,7 +7,7 @@ import pytest
 
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.config import load_config
-from popper.harness.llm import LLM, Completion, FakeLLM, LLMRequest, ToolCall
+from popper.harness.llm import LLM, Completion, FakeLLM, LLMRequest, ToolCall, _to_converse
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 
@@ -119,3 +119,23 @@ def test_tool_calls_are_journaled(tmp_path: Path) -> None:
     calls = [e for e in map(json.loads, lines) if e["event"] == "tool_call"]
     assert [c["tool"] for c in calls] == ["echo", "submit"]
     assert calls[0]["result"] == "echoed"
+
+
+def test_truncation_after_tool_results_keeps_results_first(tmp_path: Path) -> None:
+    turns = iter(
+        [
+            Completion("", 0, 0, "tool_use", (ToolCall("a1", "echo", {}),)),
+            Completion("", 0, 0, "max_tokens", (ToolCall("a2", "submit", {}),)),
+            Completion("", 0, 0, "tool_use", (ToolCall("a3", "submit", {}),)),
+        ]
+    )
+    calls: list[LLMRequest] = []
+
+    class _LLM:
+        def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
+            calls.append(req)
+            return next(turns)
+
+    assert _run(_harness(tmp_path, _LLM())) == {}
+    last = _to_converse(calls[2].messages)[-1]["content"]
+    assert [next(iter(b)) for b in last] == ["toolResult", "text"]

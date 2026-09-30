@@ -3,6 +3,7 @@
 import json
 import secrets
 import shutil
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,6 +20,7 @@ class RunStore:
         shutil.copyfile(brief, store.root / "brief.md")
         (store.root / "data").mkdir()
         shutil.copyfile(data, store.root / "data" / "raw.csv")
+        (store.root / "data" / "raw.csv").chmod(stat.S_IREAD)
         return store
 
     def path(self, *parts: str) -> Path:

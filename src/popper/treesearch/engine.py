@@ -14,6 +14,7 @@ from popper.harness.agent import agent_loop
 from popper.harness.config import Search
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.interpreter import run_script
+from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 from popper.treesearch.tools import node_tools
@@ -176,17 +177,22 @@ def _step(
         outputs="\n".join(f"- {o}" for o in spec.required_outputs),
         task=_task(spec, kind, parent),
     )
-    submitted = agent_loop(
-        h,
-        "analyst",
-        tag=f"analyst:{spec.name}",
-        system=_SYSTEM,
-        task=prompt,
-        tools=node_tools(h, spec.inputs, node.dir),
-        max_turns=max_turns,
-    )
+    try:
+        submitted = agent_loop(
+            h,
+            "analyst",
+            tag=f"analyst:{spec.name}",
+            system=_SYSTEM,
+            task=prompt,
+            tools=node_tools(h, spec.inputs, node.dir),
+            max_turns=max_turns,
+        )
+    except LLMError as exc:
+        submitted, failure = None, f"model call failed: {exc}"
+    else:
+        failure = f"no submit within {max_turns} turns"
     if submitted is None:
-        node.analysis = f"no submit within {max_turns} turns"
+        node.analysis = failure
     elif not isinstance(submitted.get("code"), str) or not submitted["code"]:
         node.analysis = "submit without code"
     else:

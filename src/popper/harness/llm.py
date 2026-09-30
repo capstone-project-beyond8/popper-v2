@@ -59,7 +59,11 @@ class Completion:
     tool_calls: tuple[ToolCall, ...] = ()
 
 
-class TransientLLMError(Exception):
+class LLMError(Exception):
+    """A provider call failed."""
+
+
+class TransientLLMError(LLMError):
     """A provider failure worth retrying (throttling, timeouts, server errors)."""
 
 
@@ -79,13 +83,8 @@ _TRANSIENT_CODES = {
 def _to_converse(messages: Sequence[Message]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in messages:
-        content: list[dict[str, Any]] = [{"text": m.text}] if m.text else []
-        content += [
-            {"image": {"format": "png", "source": {"bytes": p.read_bytes()}}} for p in m.images
-        ]
-        content += [
-            {"toolUse": {"toolUseId": c.id, "name": c.name, "input": c.input}} for c in m.tool_calls
-        ]
+        # Tool results must come first in a user turn; empty text blocks are rejected.
+        content: list[dict[str, Any]] = []
         for r in m.tool_results:
             body: dict[str, Any] = (
                 {"image": {"format": "png", "source": {"bytes": r.image.read_bytes()}}}
@@ -93,6 +92,14 @@ def _to_converse(messages: Sequence[Message]) -> list[dict[str, Any]]:
                 else {"text": r.text}
             )
             content.append({"toolResult": {"toolUseId": r.call_id, "content": [body]}})
+        if m.text.strip():
+            content.append({"text": m.text})
+        content += [
+            {"image": {"format": "png", "source": {"bytes": p.read_bytes()}}} for p in m.images
+        ]
+        content += [
+            {"toolUse": {"toolUseId": c.id, "name": c.name, "input": c.input}} for c in m.tool_calls
+        ]
         out.append({"role": m.role, "content": content})
     return out
 
@@ -117,12 +124,13 @@ class BedrockLLM:
         self._client = boto3.client(
             "bedrock-runtime",
             region_name=region,
-            config=Config(read_timeout=600, retries={"mode": "standard", "total_max_attempts": 1}),
+            config=Config(read_timeout=300, retries={"mode": "standard", "total_max_attempts": 1}),
         )
 
     def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
         from botocore.exceptions import (
             ClientError,
+            ConnectionClosedError,
             ConnectTimeoutError,
             EndpointConnectionError,
             ReadTimeoutError,
@@ -155,8 +163,13 @@ class BedrockLLM:
             status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
             if code in _TRANSIENT_CODES or status >= 500:
                 raise TransientLLMError(str(exc)) from exc
-            raise
-        except (ReadTimeoutError, ConnectTimeoutError, EndpointConnectionError) as exc:
+            raise LLMError(str(exc)) from exc
+        except (
+            ReadTimeoutError,
+            ConnectTimeoutError,
+            ConnectionClosedError,
+            EndpointConnectionError,
+        ) as exc:
             raise TransientLLMError(str(exc)) from exc
         return _from_converse(resp)
 

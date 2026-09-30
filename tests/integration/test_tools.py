@@ -76,3 +76,14 @@ def test_read_artifact_reads_parent_results(tmp_path: Path) -> None:
     h.run.write_json("tree/data/data-000/results.json", {"m": {"value": 1}})
     out = str(_call(tools, "read_artifact", path="tree/data/data-000/results.json"))
     assert '"value": 1' in out
+
+
+def test_run_python_cannot_overwrite_run_inputs(tmp_path: Path) -> None:
+    h, _, node_dir = _setup(tmp_path)
+    raw = h.run.path("data", "raw.csv")
+    before = raw.read_bytes()
+    tools = {t.name: t for t in node_tools(h, {"raw": raw}, node_dir)}
+    code = "import os\nopen(os.environ['POPPER_INPUT_RAW'], 'w').write('x')"
+    out = str(_call(tools, "run_python", code=code))
+    assert "exit code 0" not in out
+    assert raw.read_bytes() == before

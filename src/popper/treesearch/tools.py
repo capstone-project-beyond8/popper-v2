@@ -74,6 +74,8 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             raise ValueError("only .png figures can be viewed")
         if not path.is_file():
             raise ValueError("figure does not exist")
+        if path.stat().st_size > 3_750_000:
+            raise ValueError("figure is larger than 3.75 MB")
         return path
 
     def read_artifact(args: dict[str, Any]) -> str:

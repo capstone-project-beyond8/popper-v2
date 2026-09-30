@@ -20,6 +20,7 @@ def test_version_flag_prints_version() -> None:
     assert "0.1.0" in result.stdout
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(("flags", "silent"), [(["--quiet"], True), ([], False)])
 def test_quiet_controls_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str], silent: bool

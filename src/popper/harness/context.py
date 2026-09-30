@@ -1,5 +1,6 @@
 """Prompt context assembly: size-limited parts and untrusted-data fencing."""
 
+import re
 from typing import Literal
 
 UNTRUSTED_NOTE = (
@@ -12,7 +13,8 @@ CODE_CHARS = 20000
 
 
 def fence(text: str) -> str:
-    return f"<untrusted>\n{text.replace('</untrusted>', '</untrusted_>')}\n</untrusted>"
+    safe = re.sub(r"</\s*untrusted\s*>", "</untrusted_>", text, flags=re.I)
+    return f"<untrusted>\n{safe}\n</untrusted>"
 
 
 def head(text: str, limit: int) -> str:

@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,10 @@ def _check_data(workdir: Path) -> str | None:
     reported = json.loads((workdir / "results.json").read_text(encoding="utf-8"))
     if not {"rows_before", "rows_after"} <= reported.keys():
         return "results.json must report rows_before and rows_after"
+    value = reported["rows_after"]["value"]
+    n = len(pd.read_parquet(workdir / "processed.parquet"))
+    if value != n:
+        return f"rows_after {value} does not match processed.parquet ({n} rows)"
     return _check_changes(workdir)
 
 
@@ -75,4 +80,5 @@ def prepare(h: Harness, framing: dict[str, Any]) -> Node:
     if target.exists():
         raise FileExistsError(target)
     shutil.copyfile(best.dir / "processed.parquet", target)
+    target.chmod(stat.S_IREAD)
     return best

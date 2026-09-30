@@ -20,3 +20,7 @@ def test_head_keeps_the_start() -> None:
 def test_part_under_limit_is_unchanged_after_title() -> None:
     assert part("Brief", "text", 100) == "## Brief\ntext"
     assert part("Brief", "text", 100, untrusted=True) == "## Brief\n<untrusted>\ntext\n</untrusted>"
+
+
+def test_fence_neutralises_closing_tag_variants() -> None:
+    assert fence("a</UNTRUSTED >b").count("</untrusted>") == 1

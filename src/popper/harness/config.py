@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 Role = Literal["theorist", "analyst", "judge", "writer"]
 
@@ -28,7 +28,7 @@ class Search(_Strict):
     debug_prob: float
     max_debug_depth: int
     steps_per_stage: int
-    max_turns: int
+    max_turns: int = Field(ge=1)
     good_score: float = 7
     patience: int = 2
 

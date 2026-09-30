@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from popper.harness.config import load_config
-from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
+from popper.harness.llm import FakeLLM, LLMError, LLMRequest, ToolCall
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed, StageSpec, run_stage
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.integration
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 FEEDBACK = '{"node_buggy": false, "goal_met": true, "node_score": 7, "analysis": "fine"}'
-Reply = str | tuple[ToolCall, ...]
+Reply = str | tuple[ToolCall, ...] | LLMError
 SPEC = StageSpec("stage", "goal", "ctx", {}, ("results.json", "out.txt"))
 
 
@@ -29,8 +29,11 @@ def _submit(code: str) -> tuple[ToolCall, ...]:
 def _harness(tmp_path: Path, analyst: list[Reply], judge: list[str] | None = None) -> Harness:
     replies = {"analyst:": iter(analyst), "judge:": iter(judge or [FEEDBACK])}
 
-    def respond(req: LLMRequest) -> Reply:
-        return next(next(v for k, v in replies.items() if req.tag.startswith(k)))
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        reply = next(next(v for k, v in replies.items() if req.tag.startswith(k)))
+        if isinstance(reply, LLMError):
+            raise reply
+        return reply
 
     run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
     h = Harness(load_config(env={}), FakeLLM(respond), run)
@@ -154,3 +157,16 @@ def test_describe_text_reaches_feedback_prompt(tmp_path: Path) -> None:
     assert isinstance(h.llm, FakeLLM)
     judged = [c for c in h.llm.calls if c.tag.startswith("judge:")]
     assert "SUMMARY-XYZ" in judged[0].prompt
+
+
+def test_provider_error_marks_node_buggy(tmp_path: Path) -> None:
+    good = (
+        "import json\n"
+        "json.dump({'m': {'value': 1.5}}, open('results.json','w'))\n"
+        "open('out.txt','w').write('x')"
+    )
+    h = _harness(tmp_path, [LLMError("ValidationException"), _submit(good)])
+    best = run_stage(h, SPEC, random.Random(0))
+    assert best.status == "ok"
+    analysis = h.run.path("tree", SPEC.name) / "stage-000" / "analysis.md"
+    assert analysis.read_text(encoding="utf-8").startswith("model call failed")
