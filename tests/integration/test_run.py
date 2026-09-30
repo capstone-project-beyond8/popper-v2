@@ -107,7 +107,7 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
 
 
 def _config() -> Config:
-    cfg = load_config(env={"POPPER_MODEL": "fake"})
+    cfg = load_config(env={"POPPER_MODEL": "fake-sonnet"})
     cfg.search.num_drafts = 1
     return cfg
 

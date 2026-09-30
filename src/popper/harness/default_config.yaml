@@ -18,5 +18,6 @@ execution:
   max_output_chars: 8000 # stdout/stderr returned to the model
 budget:
   max_usd: 5.0
-  usd_per_mtok_input: 3.0    # USD per million input tokens
-  usd_per_mtok_output: 15.0  # USD per million output tokens
+  prices:                    # USD per million tokens; a key matches a model id containing it
+    sonnet: {input: 3.0, output: 15.0}  # confirm against the Bedrock price list
+    haiku: {input: 1.0, output: 5.0}    # confirm against the Bedrock price list

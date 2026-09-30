@@ -38,10 +38,21 @@ class Execution(_Strict):
     max_output_chars: int
 
 
+class Price(_Strict):
+    input: float  # USD per million tokens
+    output: float
+
+
 class Budget(_Strict):
     max_usd: float
-    usd_per_mtok_input: float
-    usd_per_mtok_output: float
+    prices: dict[str, Price]
+
+    def price(self, model: str) -> Price:
+        """The price whose key is a substring of `model`; exactly one must match."""
+        keys = [k for k in self.prices if k in model]
+        if len(keys) != 1:
+            raise ValueError(f"model {model!r} matches price keys {keys}, expected exactly one")
+        return self.prices[keys[0]]
 
 
 class Config(_Strict):
@@ -72,4 +83,10 @@ def load_config(path: Path | None = None, env: Mapping[str, str] | None = None) 
     model = env.get("POPPER_MODEL")
     if model:
         data["models"] = dict.fromkeys(data["models"], model)
-    return Config.model_validate(data)
+    cfg = Config.model_validate(data)
+    for role, routed in cfg.models.model_dump().items():
+        try:
+            cfg.budget.price(routed)
+        except ValueError as exc:
+            raise ValueError(f"route {role}: {exc}") from None
+    return cfg

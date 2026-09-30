@@ -74,7 +74,9 @@ class _Costly:
 
     def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
         self.n += 1
-        return Completion("x", 1_000_000, 1_000_000)
+        return Completion(
+            "x", 1_000_000, 1_000_000, cache_read_tokens=1_000_000, cache_write_tokens=1_000_000
+        )
 
 
 def test_failed_call_is_journaled(tmp_path: Path) -> None:
@@ -93,9 +95,11 @@ def test_cost_is_accounted_and_capped(tmp_path: Path) -> None:
     h.llm = stub
     h.config.budget.max_usd = 10
     h.ask("analyst", tag="t", system="s", prompt="p")
-    assert h.spent_usd == 18.0
+    expected = 3.0 + 15.0 + 3.0 * 1.25 + 3.0 * 0.1  # sonnet price, cache write and read
+    assert h.spent_usd == pytest.approx(expected)
     entry = json.loads(h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert entry["usd"] == 18.0
+    assert entry["usd"] == pytest.approx(expected)
+    assert (entry["cache_read_tokens"], entry["cache_write_tokens"]) == (1_000_000, 1_000_000)
     with pytest.raises(BudgetExceeded):
         h.ask("analyst", tag="t", system="s", prompt="p")
     assert stub.n == 1

@@ -12,6 +12,7 @@ from popper.harness.llm import (
     Message,
     ToolCall,
     ToolResult,
+    ToolSpec,
     TransientLLMError,
     _from_converse,
     _to_converse,
@@ -103,3 +104,40 @@ def test_tool_results_precede_text_and_blank_text_is_dropped() -> None:
     )
     assert [next(iter(b)) for b in wire[0]["content"]] == ["toolResult", "text"]
     assert [next(iter(b)) for b in wire[1]["content"]] == ["toolResult"]
+
+
+class _Capture:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, Any] = {}
+
+    def converse(self, **kwargs: Any) -> Any:
+        self.kwargs = kwargs
+        usage = {"inputTokens": 1, "outputTokens": 1}
+        return {"output": {"message": {"content": [{"text": "ok"}]}}, "usage": usage}
+
+
+def test_cache_points_mark_the_stable_prefix() -> None:
+    llm = BedrockLLM.__new__(BedrockLLM)
+    llm._client = capture = _Capture()
+    msgs = (Message("user", "task"), Message("assistant", "a"), Message("user", "more"))
+    llm.complete(LLMRequest("m", "t", "s", msgs, (ToolSpec("x", "d", {}),)), 10)
+    point = {"cachePoint": {"type": "default"}}
+    sent = capture.kwargs
+    assert sent["system"][-1] == point
+    assert sent["toolConfig"]["tools"][-1] == point
+    assert sent["messages"][0]["content"] == [{"text": "task"}, point]
+    assert all(point not in m["content"] for m in sent["messages"][1:])
+
+
+def test_from_converse_reads_cache_counts() -> None:
+    resp: dict[str, Any] = {
+        "output": {"message": {"content": [{"text": "x"}]}},
+        "usage": {"inputTokens": 1, "outputTokens": 2},
+    }
+    assert (_from_converse(resp).cache_read_tokens, _from_converse(resp).cache_write_tokens) == (
+        0,
+        0,
+    )
+    resp["usage"] |= {"cacheReadInputTokens": 5, "cacheWriteInputTokens": 7}
+    done = _from_converse(resp)
+    assert (done.cache_read_tokens, done.cache_write_tokens) == (5, 7)

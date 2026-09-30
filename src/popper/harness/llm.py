@@ -57,6 +57,8 @@ class Completion:
     output_tokens: int
     stop_reason: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class LLMError(Exception):
@@ -78,6 +80,9 @@ _TRANSIENT_CODES = {
     "ModelNotReadyException",
     "ModelTimeoutException",
 }
+
+
+_CACHE_POINT = {"cachePoint": {"type": "default"}}
 
 
 def _to_converse(messages: Sequence[Message]) -> list[dict[str, Any]]:
@@ -112,7 +117,13 @@ def _from_converse(resp: dict[str, Any]) -> Completion:
     )
     usage = resp["usage"]
     return Completion(
-        text, usage["inputTokens"], usage["outputTokens"], resp.get("stopReason", ""), calls
+        text,
+        usage["inputTokens"],
+        usage["outputTokens"],
+        resp.get("stopReason", ""),
+        calls,
+        usage.get("cacheReadInputTokens", 0),
+        usage.get("cacheWriteInputTokens", 0),
     )
 
 
@@ -136,6 +147,7 @@ class BedrockLLM:
             ReadTimeoutError,
         )
 
+        # Cache the stable prefix: system, tools and the task in the first user message.
         kwargs: dict[str, Any] = {}
         if req.tools:
             kwargs["toolConfig"] = {
@@ -149,12 +161,16 @@ class BedrockLLM:
                     }
                     for t in req.tools
                 ]
+                + [_CACHE_POINT]
             }
+        messages = _to_converse(req.messages)
+        first_user = next(m for m in messages if m["role"] == "user")
+        first_user["content"].append(_CACHE_POINT)
         try:
             resp = self._client.converse(
                 modelId=req.model,
-                system=[{"text": req.system}],
-                messages=_to_converse(req.messages),
+                system=[{"text": req.system}, _CACHE_POINT],
+                messages=messages,
                 inferenceConfig={"maxTokens": max_tokens},
                 **kwargs,
             )
