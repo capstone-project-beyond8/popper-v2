@@ -1,5 +1,6 @@
 """Numbers in the report come from results.json files, never from the model."""
 
+import difflib
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -46,6 +47,18 @@ def _render(kind: str, entry: Mapping[str, Any]) -> str | None:
     if kind == "N" and "n" in entry:
         return _number(entry["n"])
     return None
+
+
+def explain_missing(ref: str, values: Mapping[str, Mapping[str, Any]]) -> str:
+    """Say why a macro from `fill_numbers`' missing list has no value, naming the closest key."""
+    match = _REF.fullmatch(ref)
+    if match is None:
+        return ref
+    kind, key = match.groups()
+    if key in values:
+        return f"{ref}: {key} has no {'interval' if kind == 'CI' else 'n'}"
+    close = difflib.get_close_matches(key, list(values), n=1)
+    return f"{ref}: no key {key}" + (f" (did you mean {close[0]}?)" if close else "")
 
 
 def fill_numbers(tex: str, values: Mapping[str, Mapping[str, Any]]) -> tuple[str, list[str]]:

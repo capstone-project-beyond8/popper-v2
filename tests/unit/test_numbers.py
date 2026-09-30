@@ -1,6 +1,6 @@
 from typing import Any
 
-from popper.communicate.numbers import fill_numbers
+from popper.communicate.numbers import explain_missing, fill_numbers
 
 
 def test_fill_known_and_unknown() -> None:
@@ -33,3 +33,13 @@ def test_dotted_capital_key_is_reported_missing() -> None:
     tex, missing = fill_numbers(r"\R{experiment.R2}", {"experiment.r2": {"value": 1}})
     assert tex == r"\textbf{??}"
     assert missing == [r"\R{experiment.R2}"]
+
+
+def test_explain_missing_names_the_problem() -> None:
+    values: dict[str, dict[str, Any]] = {
+        "experiment.slope": {"value": 1.0},
+        "experiment.rows": {"value": 3},
+    }
+    assert explain_missing(r"\N{experiment.slope}", values).endswith("has no n")
+    assert explain_missing(r"\CI{experiment.slope}", values).endswith("has no interval")
+    assert "did you mean experiment.slope?" in explain_missing(r"\R{explore.slope}", values)

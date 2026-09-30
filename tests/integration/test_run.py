@@ -134,7 +134,7 @@ def test_end_to_end(tmp_path: Path) -> None:
     record = json.loads((out.run_dir / "run.json").read_text(encoding="utf-8"))
     assert record["status"] == "completed" and record["missing"] == [r"\R{experiment.nope}"]
     writer = [r for r in llm.calls if r.tag == "writeup"]
-    assert len(writer) == 2 and r"no value: \R{experiment.nope}" in writer[1].prompt
+    assert len(writer) == 3 and r"\R{experiment.nope}: no key experiment.nope" in writer[1].prompt
     lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
     events = [json.loads(line)["event"] for line in lines]
     assert events.count("phase") == 5 and "exec" in events

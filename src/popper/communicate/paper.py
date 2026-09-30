@@ -9,13 +9,19 @@ from typing import Any, Literal
 from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel, ConfigDict
 
-from popper.communicate.numbers import collect_values, fill_numbers, latex_escape
+from popper.communicate.numbers import (
+    collect_values,
+    explain_missing,
+    fill_numbers,
+    latex_escape,
+)
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node
 
 _SYSTEM = "You are a careful scientific writer. Reply with JSON only."
+_WRITER_RETRIES = 2  # re-asks when the prose cites numbers that have no value
 _ENV = Environment(
     loader=PackageLoader("popper.communicate", "templates"),
     block_start_string=r"\BLOCK{",
@@ -150,13 +156,15 @@ def write_paper(
         figures=json.dumps(figures),
     )
     writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=prompt)
-    prose = "\n".join(str(v) for k, v in writeup.model_dump().items() if k != "figures")
-    _, unresolved = fill_numbers(prose, values)
-    if unresolved:
+    for _ in range(_WRITER_RETRIES):
+        prose = "\n".join(str(v) for k, v in writeup.model_dump().items() if k != "figures")
+        _, unresolved = fill_numbers(prose, values)
+        if not unresolved:
+            break
+        problems = "\n".join(f"- {explain_missing(ref, values)}" for ref in unresolved)
         retry = (
-            f"{prompt}\n\nYour previous reply used macros with no value: {', '.join(unresolved)}. "
-            r"Use only listed keys, and \CI or \N only where the key lists an interval or n. "
-            "Reply again with the full JSON."
+            f"{prompt}\n\nYour previous reply cited numbers that have no value:\n{problems}\n"
+            "Use only the keys listed above. Reply again with the full JSON."
         )
         writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=retry)
     placed = _copy_figures(h, writeup, [explore, experiment])
