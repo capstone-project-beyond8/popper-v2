@@ -111,7 +111,10 @@ def write_paper(
         _ENV.get_template("paper.tex.j2").render(
             w=writeup,
             figures=placed,
-            changes=[latex_escape("; ".join(f"{k}: {v}" for k, v in c.items())) for c in changes],
+            changes=[
+                {k: latex_escape(str(c.get(k, ""))) for k in ("step", "rows_affected", "reason")}
+                for c in changes
+            ],
             data_code=data_node.code,
             experiment_code=experiment.code,
         ),

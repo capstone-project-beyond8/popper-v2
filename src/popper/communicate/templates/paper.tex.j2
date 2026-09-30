@@ -17,10 +17,12 @@
 \section{Data}
 \VAR{w.data}
 \BLOCK{if changes}
-\begin{longtable}{p{0.95\textwidth}}
+\begin{longtable}{p{0.3\textwidth}rp{0.5\textwidth}}
+\hline
+Step & Rows & Reason \\
 \hline
 \BLOCK{for c in changes}
-\VAR{c} \\
+\VAR{c.step} & \VAR{c.rows_affected} & \VAR{c.reason} \\
 \BLOCK{endfor}
 \hline
 \end{longtable}
