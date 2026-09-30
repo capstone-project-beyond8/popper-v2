@@ -1,0 +1,23 @@
+# Default run configuration. Values are read by popper.harness.config.
+# Model IDs are Bedrock inference-profile IDs enabled in your account; POPPER_MODEL overrides all roles.
+models:
+  theorist: global.anthropic.claude-sonnet-5-5      # frames the brief and proposes hypotheses
+  analyst: global.anthropic.claude-sonnet-5-5       # writes and debugs analysis scripts
+  judge: global.anthropic.claude-sonnet-5-5         # summarizes nodes, scores, chooses
+  writer: global.anthropic.claude-sonnet-5-5        # writes the LaTeX report
+search:
+  num_drafts: 3          # initial root nodes per stage
+  debug_prob: 0.5        # chance to debug a buggy node instead of improving the best one
+  max_debug_depth: 3     # consecutive debug attempts on one lineage
+  steps_per_stage: 6     # node budget per stage
+  max_turns: 12          # model turns per node agent
+  good_score: 7          # stop once the best node reaches this score...
+  patience: 2            # ...and has not improved for this many steps
+execution:
+  timeout_seconds: 300
+  max_output_chars: 8000 # stdout/stderr returned to the model
+budget:
+  max_usd: 5.0
+  prices:                    # USD per million tokens; a key matches a model id containing it
+    sonnet: {input: 3.0, output: 15.0}  # confirm against the Bedrock price list
+    haiku: {input: 1.0, output: 5.0}    # confirm against the Bedrock price list

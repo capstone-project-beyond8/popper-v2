@@ -1,30 +1,35 @@
 # Repository operating guide
 
-- Code is the source of truth. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes built behaviour and the rules the code keeps. [docs/ROADMAP.md](docs/ROADMAP.md) orders the work and holds the size caps.
+- Code is the source of truth. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the target design: components, contracts and invariants that specs and plans follow. [docs/ROADMAP.md](docs/ROADMAP.md) sets the product milestones, their acceptance criteria and rough size estimates.
 - Commands, dependencies and tool settings are in [pyproject.toml](pyproject.toml). Default run configuration is in [src/popper/harness/default_config.yaml](src/popper/harness/default_config.yaml).
 
 ## Layout
 
 | Path | Owns |
 |---|---|
-| `src/popper/harness/` | Model access, script execution, run store, journal, budget, config (defaults in `default_config.yaml`). No research logic |
+| `src/popper/harness/` | Model access, agent loop and tools, context assembly, script execution, run store, journal, budget, decision layer, config (defaults in `default_config.yaml`). No research logic |
 | `src/popper/treesearch/` | Generic stage engine: nodes, draft/debug/improve steps, scoring, best-node selection |
 | `src/popper/understand/` | Ideation & framing: data profile, framing |
 | `src/popper/ground/` | Data phase: preparation stage goals and checks |
 | `src/popper/discover/` | Exploration & hypothesis and experiment phases |
 | `src/popper/communicate/` | Publication: LaTeX write-up, figure aggregation, review |
-| `src/popper/coordinator/` | The playbook that runs the five phases in order |
+| `src/popper/coordinator/` | The PI: the playbook that runs the five phases in order |
 | `src/popper/cli.py` | Entry point |
 | `examples/` | Briefs and datasets for demos and evaluation |
+| `evals/` | Evaluation suites and comparisons (production code never imports it) |
 
 Function packages import only `harness` and `treesearch`, and never each other. Prompts live in `<package>/prompts/`.
 
 ## Rules
 
-- Stay inside the current milestone. Do not build deferred items (ARCHITECTURE §9) ahead of their milestone.
-- Watch the size cap. If a change would push `src/` past the milestone cap, stop and raise it.
-- Keep the always-on rules of ARCHITECTURE §7: record every execution, keep run files write-once, have code compute labels, and take numbers from `results.json`.
+- Stay inside the current milestone. Do not build items that ROADMAP places in a later milestone.
+- Keep code as small as the milestone outcome allows; the size estimates in ROADMAP are for planning, not limits.
+- Keep the always-on rules of ARCHITECTURE §2.1: record every execution, keep run files write-once, have code compute labels, and take numbers from `results.json`.
 - Never write credentials into run directories or pass them to generated scripts.
+- Specs and plans under `docs/superpowers/` are temporary artifacts. The whole folder is gitignored; never commit anything from it.
+- Code is the source of truth. Code, tests, and commits must never reference or mention planning artifacts or their symbols, including plans, specs, roadmap, milestones such as `M0`, slice numbers, catalog IDs, `§` references, or ledgers.
+- Keep a single source of truth with clear semantics and a traceable flow. Do not introduce duplicate logic, cross-dependencies, parallel legacy paths, ambiguous schemas, or stale tests and documentation.
+- After fully implementing every plan, run a simplify pass with a subagent before finishing the branch.
 
 ## Tests
 

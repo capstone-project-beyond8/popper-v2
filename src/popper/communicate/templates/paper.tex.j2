@@ -1,0 +1,61 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{longtable}
+\newcommand{\R}[1]{\textbf{??}}
+\lstset{basicstyle=\ttfamily\footnotesize, breaklines=true}
+\title{\VAR{w.title}}
+\date{}
+\begin{document}
+\maketitle
+\noindent\textit{exploratory --- autonomously generated}
+\begin{abstract}
+\VAR{w.abstract}
+\end{abstract}
+\section{Introduction}
+\VAR{w.introduction}
+\section{Data}
+\VAR{w.data}
+\BLOCK{if changes}
+{\small
+\begin{longtable}{p{0.32\textwidth}rp{0.48\textwidth}}
+\hline
+Step & Rows & Reason \\
+\hline
+\BLOCK{for c in changes}
+\VAR{c.step} & \VAR{c.rows_affected} & \VAR{c.reason} \\
+\BLOCK{endfor}
+\hline
+\end{longtable}
+}
+\BLOCK{endif}
+\section{Exploration}
+\VAR{w.exploration}
+\section{Hypothesis}
+\VAR{w.hypothesis}
+\section{Methods}
+\VAR{w.methods}
+\section{Results}
+\VAR{w.results}
+\BLOCK{for f in figures}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{\VAR{f.path}}
+\caption{\VAR{f.caption}}
+\end{figure}
+\BLOCK{endfor}
+\section{Limitations}
+\VAR{w.limitations}
+\appendix
+\section{Code}
+\subsection{Data preparation}
+\begin{lstlisting}
+\VAR{data_code}
+\end{lstlisting}
+\subsection{Experiment}
+\begin{lstlisting}
+\VAR{experiment_code}
+\end{lstlisting}
+\end{document}
