@@ -19,7 +19,7 @@ uv run popper --version
 
 ## Run
 
-The `run` command arrives with the first milestone:
+Run all phases on a brief and a CSV file:
 
 ```sh
 uv run --env-file .env popper run examples/student_performance
