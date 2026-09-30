@@ -1,89 +1,60 @@
 # Popper Architecture
 
-Popper is an AI scientist for quantitative tabular data. Given a research brief and a dataset, it frames the problem, prepares and explores the data, forms hypotheses from what it sees, tests them with analysis code it writes, runs and debugs itself, looks at its own figures, and writes the study up as a LaTeX paper. The researcher can choose, correct and redirect along the way.
+Target design of Popper, an AI scientist for quantitative tabular data. Specs and plans take their components, contracts, invariants and defaults from this document; [ROADMAP.md](ROADMAP.md) orders the build. A spec may refine a contract here but not contradict it. A change of contract changes this document first. Sources are numbered in §15; the design decisions behind each component are in §14.
 
 ![Popper architecture](images/architecture.svg)
 
-This document is the target design and the rules the code keeps. [ROADMAP.md](ROADMAP.md) says what is built and in which order. Sources are numbered and listed in §15.
+## 1. Scope
 
-## 1. Design stance
-
-Popper starts from one demonstrated system and adds only what the evidence says is missing.
-
-- **The base is AI Scientist-v2** [1]. It runs ideation, a staged best-first tree search over experiment code, figure review by a vision model, a LaTeX write-up with reflection, and an automated reviewer. It is compact and produces a readable paper end to end. One of its three workshop submissions passed peer review [1].
-- **Its documented weaknesses set the upgrades.**
-  - An independent evaluation found that 42% of its experiments failed on coding errors, and that papers contained fabricated numbers, placeholder text, and old or wrong citations [3].
-  - A 2026 survey of AI scientists finds that none of nine fully autonomous systems has externally validated verification, and that the bottleneck has moved "from task completion to claim verification" [18].
-  - Other work shows that agents narrow exploration toward their starting literature [19], and that iterating code until a result looks publishable is not validation [17].
-  - Systems run at scale report the same pattern. FARS produced 166 papers with "recurring failure modes: narrow experimental scope, methodological shortcomings, and integrity issues" [10]. ScientistTwo and Agents4Science rely on automated ablations and AI reviewers, whose judgments still need checking against the executed work [11, 12].
-- **The domain changes the pipeline.** Tabular research starts from a given dataset, and different reasonable analyses of the same data disagree [21]. So Popper puts data work first and treats analytic choices as something to measure (§5).
-- **Harness engineering decides the rest.** The loop, tools, context, sandbox, records and budgets follow published harness practice [31–37] (§7).
-
-The result is AI Scientist-v2's shape with four upgrades:
-1. every number is traced to the code that produced it;
-2. robustness is a measured multiverse, not a single check;
-3. critique tries to break results, not polish them;
-4. a harness that records everything, so claims can be verified afterwards.
+- **Input:** a research brief and one tabular dataset. **Output:** a run folder with a LaTeX paper, a claims file, and every attempt, execution and decision that produced them.
+- **In scope:** framing, data preparation, exploration, hypothesis generation, analysis by generated code, write-up, review, optional verification on held-back rows.
+- **Out of scope:** data collection, multiple datasets per run, non-tabular data, shared multi-user deployment.
+- **Quality attributes, in priority order:**
+  1. _Traceability_: every number and claim resolves to executed code.
+  2. _Honest labelling_: the standing of a result is computed, never asserted.
+  3. _Recoverability_: a run resumes and every node re-runs.
+  4. _Simplicity_: the smallest mechanism that meets 1–3.
 
 ## 2. Principles
 
-1. **Output first.** Every increment ends in a run that produces a paper someone can read. Infrastructure is added only when a run needs it.
-2. **Reproduce, then improve.** A mechanism from a reference system is first reproduced as published. An addition is a hypothesis about Popper, tested at equal model and budget (§13). A reference system's success does not prove Popper's.
-3. **Agents work, the harness records.** Agents use tools and write code. The harness runs the code, builds each agent's context and records every call as a side effect. Recording never asks an agent to declare anything.
-4. **Workflow where the steps are known, agents where they are not.** The phase order and stage sequence are fixed code. Inside a node, an agent decides freely. This follows the split between workflows and agents in [31].
-5. **Ground truth from execution.** A result is what a script produced when the harness re-ran it from scratch. What the agent said about it is not a result [31].
-6. **Labels, not locks.** Every result says how it was produced. Everything outside Verify is `exploratory`. Labels are computed by code, and no model or reviewer can raise them.
-7. **Numbers come from artifacts.** Every number in the paper is filled in from a result file written by executed code, never typed by a model [6].
-8. **Try to break it.** Every main result gets robustness variants and at least one adversarial check before it is written up [17, 7].
-9. **Executable rules over prose rules.** A rule that matters is enforced in code: a check, a label or a renderer. A prompt asks, and code makes sure [36, 37].
-10. **Measured restriction.** A new gate, reviewer, rule or topology change needs a failure seen in real runs and a comparison on the evaluation suites. Without evidence, the simpler version stays. Extra reviewer agents and long hand-off chains have lowered success in practice [37].
-11. **Append, never rewrite.** Run files are written once. A fix is a new node or a new assessment beside the old one.
-12. **One owner per concept.** Each concept is defined in one module and one section of this document.
+1. **Output first.** Every increment ends in a run that produces a readable paper. Infrastructure is added only when a run needs it.
+2. **Reproduce, then improve.** A mechanism taken from a published system is first built as published. An addition is a hypothesis tested at equal model and budget (§13).
+3. **Agents work, the harness records.** Recording is a side effect of the harness, never a duty of an agent.
+4. **Workflow where the steps are known, agents where they are not.** Phase order and stage sequence are code; work inside a node is an agent's [31].
+5. **Ground truth from execution.** A result is what a script produced when the harness re-ran it from scratch [31].
+6. **Labels, not locks.** Everything outside Verify is `exploratory`. Labels are computed by code and no model can raise them.
+7. **Numbers come from artifacts.** Paper numbers are rendered from result files, never typed by a model [6].
+8. **Try to break it.** Every main result meets robustness variants and at least one adversarial check [7, 17].
+9. **Executable rules over prose rules.** A rule that matters is a check, a label or a renderer [36, 37].
+10. **Measured restriction.** A new gate, reviewer or topology change needs an observed failure and an evaluation comparison [37].
+11. **Append, never rewrite.** Run files are written once.
+12. **One owner per concept.** Each concept has one module and one section here.
 
-### 2.1 Always-on rules
+### 2.1 Invariants
 
-These hold in every configuration and are enforced by code:
+Hold in every configuration; each is enforced by code and covered by a test.
 
-| Rule | How the code keeps it |
-|---|---|
-| Every execution is recorded | The harness journals every model call, tool call, execution and decision (§7.5) |
-| History is appended | Run files are write-once; a fix is a new node or a new assessment (§9) |
-| Labels are computed | `exploratory`, `stable`/`fragile` and `confirmed` come from code; the template prints them and no prompt can change them |
-| Numbers resolve to artifacts | Paper numbers are filled in from results files; unknown names are flagged (§10) |
-| Untrusted text is data | Brief, dataset strings, outputs and retrieved text are wrapped and never treated as instructions (§7.3) |
-| Secrets stay out | The run folder holds no credentials; scripts get no credential variables (§7.4) |
+| Invariant                                                             | Enforced by                                           |
+| --------------------------------------------------------------------- | ----------------------------------------------------- |
+| Every model call, tool call, execution and decision is journaled      | Harness (§7.5)                                        |
+| Run files are write-once; a fix is a new node or assessment           | Run store (§9)                                        |
+| `exploratory`, `stable`/`fragile`, `confirmed` are computed           | Label functions; the template prints them (§5.5, §11) |
+| Paper numbers resolve to named results; unknown names are flagged     | Renderer and audit (§10)                              |
+| Brief, dataset strings, outputs and retrieved text are untrusted data | Context assembly (§7.3)                               |
+| No credentials in the run folder or script environments               | Sandbox and run store (§7.4, §7.5)                    |
+| Holdout rows never reach a node or tool before the locked run         | Run store at ingest; Verify (§11)                     |
+| The Judge never sees effect estimates when scoring                    | Judge input redaction (§5.3)                          |
+| The dependency rules of §3 hold                                       | Import contract test (§3)                             |
 
-## 3. Phases
+## 3. Decomposition
 
-A run passes through five phases. This is AI Scientist-v2's pipeline (ideation → experiments → write-up) with a data phase inserted, because the dataset exists before the question is refined.
-
-| # | Phase | Function | Package | Does | Output |
-|---|---|---|---|---|---|
-| 1 | **Ideation & framing** | Understand | `understand/` | Read the brief and a structural profile of the data. Restate the problem, list research questions and the variables they need, sketch distinct directions. Self-reflection rounds | Framing |
-| 2 | **Data** | Ground | `ground/` | Search stage: fix types, missing values, duplicates, impossible values and categories; derive the variables the questions need; record every change and the rows it affected | Clean dataset, change log |
-| 3 | **Exploration & hypothesis** | Discover | `discover/` | Search stage of exploratory analysis. Observations become testable hypotheses, each with a planned test and the nodes it came from. The Critic challenges them, and the researcher (or the PI) chooses | Hypotheses |
-| 4 | **Experiment** | Discover | `discover/` | Staged search per chosen hypothesis: baseline → main → robustness | Best nodes, estimates, figures, stability labels |
-| 5 | **Publication** | Communicate | `communicate/` | Aggregate figures, write the paper, check numbers and figures, review, revise | Paper, claims file, review |
-| — | *Verify (optional)* | Verify | `verify/` | Re-run a locked analysis once on held-back rows; the outcome is computed by code | Verification records |
-
-The **PI** (package `coordinator/`) runs the phases. Its first form is a fixed playbook. Its agent form follows the same order by default, but can go back with a recorded reason:
-- an experiment result may add or revise a hypothesis (4 → 3);
-- a data problem found later reopens the data stage as a new child node (3/4 → 2).
-
-A phase never edits another phase's output. Results pass between phases as files in the run directory.
-
-## 4. Subsystems
-
-| Subsystem | Package | Owns | Section |
-|---|---|---|---|
-| **Research phases** | `understand/`, `ground/`, `discover/`, `communicate/`, `verify/` | Goals, prompts and outputs of each phase | §3, §9, §11 |
-| **Search engine** | `treesearch/` | Nodes, steps, checks, selection, stage sequence, the Analyst's tools | §5 |
-| **Agent team** | role prompts in their phase packages; PI in `coordinator/` | Who does what, with which tools and model, in which session | §6 |
-| **Harness** | `harness/` | Model access, agent loop and tool mechanism, context, sandbox, journal, run store, budgets, failures, config | §7 |
-| **Decision layer** | `harness/` | Typed Judge answers, an optional second answerer, modes, disagreement records | §8 |
-| **State and memory** | the run directory | Artifacts, assessments, working memory, attribution | §9 |
-| **Knowledge** | `understand/` | Prior work for framing, hypotheses and related work | §12 |
-| **Evaluation** | `evals/` | Suites, metrics, comparisons, adoption decisions | §13 |
+| Subsystem       | Package                                                          | Owns                                                                                                             | Section    |
+| --------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
+| Coordinator     | `coordinator/`                                                   | The playbook: phase order, transitions, run status                                                               | §4         |
+| Research phases | `understand/`, `ground/`, `discover/`, `communicate/`, `verify/` | Stage goals, role prompts, phase outputs                                                                         | §4, §10–12 |
+| Search engine   | `treesearch/`                                                    | Nodes, step policy, node evaluation, selection, the Analyst's tools                                              | §5         |
+| Harness         | `harness/`                                                       | Model client, agent loop, tools mechanism, context, sandbox, journal, run store, budgets, config, decision layer | §7, §8     |
+| Evaluation      | `evals/`                                                         | Suites, metrics, comparisons, adoption records                                                                   | §13        |
 
 ```text
 cli ──► coordinator ──► understand · ground · discover · communicate · (verify)
@@ -92,304 +63,290 @@ cli ──► coordinator ──► understand · ground · discover · communic
                            treesearch ──► harness
 ```
 
+Dependency rules:
+
 - `harness` imports nothing else in Popper and holds no research logic.
-- `treesearch` imports only `harness`. It knows nodes, steps and scoring, but no stage goals.
-- Phase packages import only `harness` and `treesearch`, and never each other.
-- `coordinator` is the only package that knows the playbook.
-- `evals/` may import anything, and production code never imports `evals/`.
-- Prompts live next to the code that uses them (`<package>/prompts/`). Default configuration ships inside `harness/`. A `--config` file overrides it key by key, and `POPPER_MODEL` overrides every model route.
+- `treesearch` imports only `harness`; it knows no stage goals.
+- Phase packages import only `harness` and `treesearch`, never each other.
+- Only `coordinator` knows the playbook.
+- `evals/` may import anything; production code never imports `evals/`.
+- These rules are an import contract checked in CI, not a convention [36].
+- Prompts live in `<package>/prompts/`. Default config ships in `harness/`; `--config` overrides key by key; `POPPER_MODEL` overrides every model route.
+
+## 4. Run lifecycle
+
+| #   | Phase                    | Package        | Contract                                                                                                                                 | Output                                           |
+| --- | ------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 1   | Ideation & framing       | `understand/`  | Brief + structural data profile → problem statement, research questions, required variables, distinct directions; self-reflection rounds | framing                                          |
+| 2   | Data                     | `ground/`      | Search stage `data` (§5.4)                                                                                                               | clean dataset, change log                        |
+| 3   | Exploration & hypothesis | `discover/`    | Search stage `explore`; observations → hypotheses in the contract below; Critic challenge; selection by researcher or PI                 | hypotheses                                       |
+| 4   | Experiment               | `discover/`    | Per chosen hypothesis: stages `baseline` → `main` → `robustness`                                                                         | best nodes, estimates, figures, stability labels |
+| 5   | Publication              | `communicate/` | Pipeline of §10                                                                                                                          | paper, claims file, review                       |
+| —   | Verify (optional)        | `verify/`      | Contract of §11                                                                                                                          | verification records                             |
+
+- **Hypothesis contract** [7]: one primary estimand (outcome, exposure, contrast, population), expected direction, the result that would refute it, planned test, source nodes, `supplied_by`. Interactions and moderators are secondary estimands of a hypothesis, never its primary one.
+- Phases exchange data only as files in the run folder. A phase never edits another phase's output.
+- The PI runs the phases. Form 1 is a fixed playbook. Form 2 (agent) keeps the same default order and may go back with a journaled reason: experiment → hypothesis (4 → 3), or a late data problem reopens `data` as a new child node (3/4 → 2).
+- Run status: `running`, `completed`, `budget_exceeded`, `failed:<stage>`.
 
 ## 5. Search engine
 
-The engine adapts AI Scientist-v2's best-first tree search [1], which itself follows AIDE's search over code [13]. One engine runs every search stage; only the goal, inputs and required outputs change.
+One engine runs every search stage; a stage supplies only its goal, inputs and required outputs.
 
 ### 5.1 Node
 
-A node is one attempt at the stage goal.
-- An **Analyst** agent (§6) builds it. The Analyst inspects the inputs, tries snippets, fixes errors, and then submits one self-contained script.
-- The harness **re-runs the submitted script from scratch** in the sandbox. Only that run's outputs count: a results file, figures and a log. So a node has no hidden state and can always be re-run.
-- The node records its parent, kind, status, score, debug depth and a one-line reason for existing.
-
-In AI Scientist-v2 a node is one generated program. In Popper the Analyst can look at the data and test snippets before it commits. This targets the high share of runs that failed on coding errors [3], at the cost of more tokens per node, and the trade is measured (§13).
+- One attempt at the stage goal, built by one Analyst session (§6), which ends by submitting one self-contained script.
+- The harness re-runs the submitted script from scratch in the sandbox. Only that run's results file, figures and log count.
+- **Results file** `results.json`: named results `{name: {value, ci?, n?, note?}}`, names matching `[A-Za-z][A-Za-z0-9_]*`. A stage declares the names it requires (e.g. `rows_before`, `rows_after` in `data`); a missing one fails the code checks. Rendering, audits, specification curves and Verify read only this file.
+- Metadata: `id`, `parent`, `stage`, `kind` (`draft`, `debug`, `improve`, `variant`, `adversarial`), `status` (`ok`, `buggy`), `score`, `debug_depth`, `reason` (one line).
 
 ### 5.2 Step policy
 
-Each step runs one Analyst, with a task set by the action:
-1. If the stage has fewer than `num_drafts` first attempts, **draft** a new approach. A draft sees summaries of the earlier drafts and must take a different approach, because agents otherwise cluster near their starting point [19].
-2. Otherwise, with probability `debug_prob`, pick a broken leaf below `max_debug_depth` and **debug** it.
-3. Otherwise, **improve** the best working node.
+Each step starts one Analyst with a task chosen by:
 
-The defaults are AI Scientist-v2's: 3 drafts, debug probability 0.5, debug depth 3 [1]. A stage ends when it reaches its step budget, when an `ok` node meets the goal, or when the best score stops improving.
+1. fewer than `num_drafts` drafts → **draft**; the Analyst sees summaries of earlier drafts and must take a different approach;
+2. else with probability `debug_prob` → **debug** a `buggy` leaf with `debug_depth < max_debug_depth`;
+3. else → **improve** the best `ok` node.
 
-### 5.3 Checks, then the Judge
+Defaults: `num_drafts = 3`, `debug_prob = 0.5`, `max_debug_depth = 3` [1]. A stage ends at its step budget, when an `ok` node meets the goal, or after `patience` steps without a better score.
 
-1. **Code checks first.** A non-zero exit, a timeout, a missing required output, an invalid results file, or a value outside a declared range makes the node `buggy` without a model call. This is the programmatic gate between steps recommended in [31].
-2. **Then the Judge** (§6) reads the code, output, results and figures in a separate session. It writes an analysis and gives typed answers (§8): is the node buggy, is the goal met, and a score.
-3. **Best node.** The highest-scoring `ok` node wins, and ties go to the earlier node. The best node of one stage seeds the next.
+### 5.3 Node evaluation
 
-Checks are tested both ways: they must fire on bad outputs and stay silent on good ones [37].
+1. **Code checks.** Non-zero exit, timeout, missing required output, invalid results file or out-of-range declared value → `buggy`, no model call.
+2. **Judge.** A separate session reads code, output, results and figures, writes an analysis, and returns the typed answers of §8. It scores validity, completeness and fidelity to the planned test, never the size, sign or significance of an effect: in experiment stages, code redacts `value` and `ci` of estimates from the results and output the Judge sees [24].
+3. **Selection.** Highest-scoring `ok` node; ties go to the earlier node. The best node seeds the next stage. Every `ok` node's estimate is still reported (§5.5), so selection cannot hide the spread of attempts.
+
+Each check has a test that it fires on a bad fixture and stays silent on a good one [37].
 
 ### 5.4 Stages
 
-| Stage | Phase | Goal | Seeds from | Required outputs |
-|---|---|---|---|---|
-| `data` | Data | Clean, validate and derive variables; document every change and the rows it affected | raw data, framing | clean dataset, change log, row counts |
-| `explore` | Exploration | Distributions, relations and group differences relevant to the questions; flag surprises | clean data | observations with figures |
-| `baseline` | Experiment | A simple, transparent model or test for the hypothesis | clean data, hypothesis | key estimate with interval, figure |
-| `main` | Experiment | The planned analysis, plus the follow-ups the results call for | best baseline | estimates with intervals, figures |
-| `robustness` | Experiment | The multiverse of §5.5, plus adversarial checks | best main | the main estimate under every variant |
+| Stage        | Phase       | Goal                                                                                  | Seeds from             | Required outputs                      |
+| ------------ | ----------- | ------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------- |
+| `data`       | Data        | Clean, validate, derive variables; log every change with rows affected                | raw data, framing      | clean dataset, change log, row counts |
+| `explore`    | Exploration | Distributions, relations, group differences relevant to the questions; flag surprises | clean data             | observations with figures             |
+| `baseline`   | Experiment  | Simple, transparent model or test for the hypothesis                                  | clean data, hypothesis | key estimate with interval, figure    |
+| `main`       | Experiment  | Planned analysis and the follow-ups results call for                                  | best `baseline`        | estimates with intervals, figures     |
+| `robustness` | Experiment  | Multiverse and adversarial checks (§5.5)                                              | best `main`            | main estimate under every variant     |
 
-AI Scientist-v2's four stages (preliminary, tuning, agenda, ablation) map to baseline, main and robustness. Hyperparameter tuning has no direct counterpart in inferential work, and ablation becomes part of robustness. The first build may run one combined experiment stage.
+A first build may merge the three experiment stages into one.
 
-### 5.5 Robustness as a multiverse
+### 5.5 Robustness and stability
 
-Different reasonable choices of cleaning, coding and specification can change the conclusion. Many analysts given one dataset reported odds ratios from 0.89 to 2.93 [21]. Popper therefore treats robustness as a small **multiverse** [22] instead of one extra check:
+- **Variants** [21, 22], each re-estimating the main effect: data choices (exclusions, outlier rules, missing-value handling, codings); model choices (covariates, functional form, estimator); resampling (bootstrap, subgroups).
+- **Adversarial checks**, at least one [7, 17]: placebo outcome, negative-control exposure, permutation of the key variable, or a confounding sensitivity bound such as the E-value [27].
+- **Specification curve** of sorted estimates with intervals across variants and across every `ok` node of the experiment stages [23].
+- **Stability label**, computed: `stable` iff the estimate keeps its sign with an interval excluding zero in ≥ `stability_share` (default 0.8) of variants and no adversarial check fails; else `fragile`.
 
-- **Variants.** The robustness stage enumerates reasonable alternatives:
-  - data choices (exclusions, outlier rules, missing-value handling, variable codings);
-  - model choices (covariate sets, functional forms, estimators);
-  - resampling (bootstrap, subgroups).
+### 5.6 Analysis checklist
 
-  Each variant re-estimates the main effect.
-- **Adversarial checks.** At least one variant tries to break the result [17, 7]:
-  - a placebo outcome;
-  - a negative-control exposure;
-  - a permutation of the key variable;
-  - a sensitivity bound for unmeasured confounding, such as the E-value [27].
-- **Specification curve.** The paper shows the sorted estimates with their intervals across variants [23].
-- **Stability label**, computed by code: `stable` when the estimate keeps its sign and its interval excludes zero in at least 80% of the variants, and no adversarial check fails; otherwise `fragile`. The label is printed next to the result, and no model sets it.
+Carried in the Analyst and Critic prompts [24, 26, 28]; enforcement is by checks and labels, not the prompt:
 
-### 5.6 Analysis practice
-
-The Analyst and Critic prompts carry a short checklist, drawn from research-methodology practice [24, 26, 28]:
 - justify a processing choice by validity, never by the relation it produces;
-- flag a derived variable that uses the outcome;
+- flag derived variables that use the outcome;
 - report every rule that drops rows;
 - prefer effect sizes with intervals over p-values alone;
-- keep association distinct from causation in an observational design.
+- keep association distinct from causation in observational designs.
 
-The checklist asks in prose. Code checks and labels are what enforce it.
+## 6. Roles
 
-## 6. Agent team
+A role is a prompt, a tool set and a model route. A role gets its own session only when it needs different tools or an independent context.
 
-A **role** is a prompt, a tool set and a model route. A role gets its own session only for one of two reasons:
-- it needs **different tools**;
-- it needs an **independent context**, so that it judges work without inheriting the author's reasoning.
+| Role         | Responsibility                                                                                      | Tools                                                         | Session reason                 |
+| ------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------ |
+| **PI**       | Runs phases; in agent form, chooses next work, goes back, asks the researcher                       | playbook; later stage, hypothesis, memory, ask-researcher     | Only writer of run-level files |
+| **Theorist** | Framing with self-reflection; hypotheses with planned tests from exploration                        | read artifact, literature search                              | No code tools                  |
+| **Analyst**  | Builds one node                                                                                     | inspect data, run snippet, view figure, read artifact, submit | Only role that runs code       |
+| **Judge**    | Scores one node with typed answers                                                                  | none                                                          | Independent of the author      |
+| **Critic**   | Tries to break hypotheses and main results; proposes adversarial checks; rubric review of the draft | read artifact, view figure                                    | Independent of the author      |
+| **Writer**   | Writes and revises the paper from artifacts, checks and critique                                    | read artifact, view figure, literature search                 | Long-form output, own template |
 
-| Role | Does | Tools | Why a separate session |
-|---|---|---|---|
-| **PI** | Runs the phases. In agent form, chooses next work from results and memory, goes back when needed, and asks the researcher | Playbook first; later stage, hypothesis, memory and ask-researcher tools | The only role that writes run-level files |
-| **Theorist** | Framing with self-reflection; turns exploration results into hypotheses with planned tests | read artifacts; literature search | Reasons over artifacts and needs no code tools |
-| **Analyst** | Builds one node: inspects, tries, submits a script | inspect data, run snippet, view figure, read artifact, submit | The only role that runs code |
-| **Judge** | Reads one node and scores it with typed answers | none; context only | Scores work it did not write |
-| **Critic** | Tries to break hypotheses and main results (confounders, alternative explanations, claims beyond the design), proposes adversarial checks, and reviews the draft paper against a rubric | read artifacts, view figures | Must not share the author's context |
-| **Writer** | Writes the paper from artifacts and revises from checks and critique | read artifacts, view figures; literature search | Long-form output with its own template |
+Topology constraints:
 
-**Topology.** One run has one PI, which starts role sessions one at a time and waits for their artifacts.
-- A node involves at most two hand-offs (Analyst → Judge), well below the chain length where multi-agent systems start to fail [37].
-- Roles never write each other's outputs.
-- Multi-agent systems use about 15 times the tokens of a chat [35]. So parallel Analysts per stage (AI Scientist-v2 runs four [1]) and hypothesis tournaments [4] are measured challengers, not defaults. The same holds for richer PI designs, such as hierarchical task graphs [14] or paired literature and analysis agents [9].
+- one PI per run; role sessions run one at a time and communicate only through artifacts;
+- at most two hand-offs per node (Analyst → Judge) [37];
+- no role writes another role's outputs;
+- parallel Analysts, hypothesis tournaments and hierarchical planners are evaluation challengers, not defaults (§14).
 
-**Researcher.** The researcher can pick hypotheses, edit framing and add notes. Every choice records who supplied it (`agent` or `researcher`), and researcher choices appear in the paper as `researcher_steered`. Human input at each stage improved output quality in Agent Laboratory [8] and data-to-paper [6].
+Researcher input (hypothesis choice, framing edits, notes) is recorded with `supplied_by: researcher` and shown in the paper as `researcher_steered` [6, 8].
 
 ## 7. Harness
 
-The harness is the environment every agent works in. Its job is to make free agent work **recorded, bounded and recoverable** without steering the research. It holds no research logic.
+Makes agent work recorded, bounded and recoverable. Holds no research logic.
 
 ### 7.1 Agent loop
 
-A session is a tool-use loop on the configured model.
-- A tool is a name, a JSON schema and a handler. The handler returns text or an image.
-- The loop ends when the agent calls its terminal tool (submit, finish or answer) or reaches its turn limit.
-- Transient provider errors (throttling, timeouts, 5xx) are retried with backoff inside the model client and journaled. They are never research steps.
+- A session is a tool-use loop on the configured model route.
+- A tool is a name, a JSON schema and a handler returning text or an image.
+- A session ends on its terminal tool (`submit`, `finish`, `answer`) or its turn limit.
+- Transient provider errors (throttling, timeouts, 5xx) are retried with backoff inside the model client and journaled; they are never research steps.
 
 ### 7.2 Tools
 
-The tool set is small and consolidated, following [33]:
+| Tool                | Contract                                                          | Limits                                    |
+| ------------------- | ----------------------------------------------------------------- | ----------------------------------------- |
+| `inspect_data`      | Schema, head, summary, missing counts of a stage input            | Stage inputs only                         |
+| `run_snippet`       | Runs scratch code in the node's scratch folder, returns output    | Sandbox of §7.4; recorded, never a result |
+| `view_figure`       | Sends a figure to the model                                       | Run folder only                           |
+| `read_artifact`     | Reads results, analyses, change logs, framing, hypotheses, memory | Run folder only; no raw rows              |
+| `submit`            | Terminal; the script run as the node                              | Once per Analyst session                  |
+| `search_literature` | Metadata and abstracts of prior work                              | Concepts only, never data values          |
 
-| Tool | Does | Limits |
-|---|---|---|
-| inspect data | Schema, head, summary and missing counts of a stage input | Stage inputs only |
-| run snippet | Runs scratch code in the node's scratch folder and returns its output | Same sandbox as nodes; recorded, never a result |
-| view figure | Sends a figure to the model | Run directory only |
-| read artifact | Reads results, analyses, change logs, framing, hypotheses, memory | Run directory only; no raw rows beyond inspect data |
-| submit | Terminal: the script the harness runs as the node | One per Analyst session |
-| literature search | Metadata and abstracts of prior work | Concepts only, never data values |
+Tool rules [33]: errors state the cause and a next step; long output is truncated with a hint to narrow it; paths are absolute; writes stay inside the calling node's folder.
 
-Tool design rules:
-- errors say what went wrong and what to try next;
-- long outputs are truncated with a hint on how to narrow them;
-- paths are absolute;
-- every tool writes only inside the calling node's folder [33].
+### 7.3 Context assembly
 
-### 7.3 Context engineering
+Each session's context is built fresh from the run folder, never inherited from another session [32].
 
-Each session's context is built fresh from the run directory, never carried over from another session's conversation [32].
-- **Just in time.** The context lists artifacts by name, and the agent reads what it needs through tools, instead of receiving everything up front.
-- **Structured notes.** Working memory (§9) is a file of short entries that cite node ids. It persists across sessions [32], as in Kosmos's shared world model [5].
-- **Condensed hand-offs.** The Judge's analysis is short, and it is what the next Analyst sees of its parent, not the parent's whole session.
-- **Budgets per part.** Each context part has a size limit. Truncation keeps the tail of logs and the head of files. Long Analyst sessions are compacted, keeping decisions and open errors.
-- **Untrusted content.** Brief text, dataset strings, script output and retrieved text are wrapped and marked as untrusted, and every system prompt states that they are data, never instructions.
+- **Just in time:** artifacts are listed by name and read through tools.
+- **Working memory:** short entries citing node ids, persisted across sessions [5, 32].
+- **Condensed hand-off:** an Analyst sees its parent through the Judge's analysis, not the parent's session.
+- **Size limits per part:** logs keep the tail, files keep the head; long Analyst sessions are compacted, keeping decisions and open errors.
+- **Untrusted content** is wrapped and marked; every system prompt states it is data, never instructions.
+- **Prompt caching:** the stable prefix of a session (system prompt, tool list, task) is marked for the provider's prompt cache; cache reads and writes are journaled.
 
 ### 7.4 Sandbox
 
-Each script runs in a fresh subprocess with the node folder as working directory and a time limit. Credentials are stripped from its environment, and inputs arrive as absolute paths in environment variables. The first form has no container or network isolation, which is acceptable for one researcher running their own data locally. Container isolation comes before shared use, as in Kosmos's managed sandboxes [5].
+- Fresh subprocess per script; working directory is the node folder; time limit from config.
+- Inputs arrive as absolute paths in environment variables; credentials are stripped from the environment.
+- No container or network isolation in single-user local use; container isolation is required before shared use [5].
 
-### 7.5 Recording and run store
+### 7.5 Journal and run store
 
-- **Journal.** Every model call (role, tokens, cost), tool call (arguments, truncated result), script execution (code hash, exit, duration), decision (§8) and phase event is appended to one journal. Recording is a side effect of the harness, never a duty of the agent.
-- **Run store.** One folder per run, with files written once (§9). The run's status file holds a configuration snapshot without secrets.
-- **Release by default.** Code, outputs, seeds and the journal stay in the run folder, so a run ships its own execution trace. Most AI scientists do not release traces [18].
+- **Journal:** one append-only file of events: model call (role, model, tokens including cache reads and writes, cost at that model's configured price), tool call (arguments, truncated result), execution (code hash, exit, duration), decision (§8), phase event.
+- **Run store:** one folder per run, write-once files (§9); `run.json` holds a secret-free config snapshot and status.
+- **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [18].
 
 ### 7.6 Budgets and failures
 
-Budgets:
-- *Resource budgets* (money, turns per session, steps per stage) end work safely and are shown as progress.
-- *Search budgets* (drafts, debug depth) are soft task structure.
-- *Error budgets* exist only inside Verify.
+| Budget   | Examples                                  | Effect                       |
+| -------- | ----------------------------------------- | ---------------------------- |
+| Resource | money, turns per session, steps per stage | Hard stop; shown as progress |
+| Search   | drafts, debug depth                       | Shapes the step policy       |
+| Error    | looks per result                          | Verify only (§11)            |
 
-| Failure class | Example | Handling |
-|---|---|---|
-| Technical | throttling, timeout, 5xx | Retry with backoff; journaled; not a research step |
-| Research | script error, missing output, no submit | The node becomes `buggy` and informs the next step |
-| Budget | money cap reached | Stop cleanly; the run status says `budget_exceeded` |
-| Terminal | a stage with no working node | Stop cleanly; the run status names the stage |
+| Failure class | Example                                 | Handling                               |
+| ------------- | --------------------------------------- | -------------------------------------- |
+| Technical     | throttling, timeout, 5xx                | Retry with backoff; journaled          |
+| Research      | script error, missing output, no submit | Node is `buggy`; informs the next step |
+| Budget        | money cap reached                       | Clean stop; status `budget_exceeded`   |
+| Terminal      | stage ends with no `ok` node            | Clean stop; status `failed:<stage>`    |
 
-No failure path edits a recorded artifact. Resuming after a crash restarts from the last completed node, using the run folder and journal as the progress record [34].
+No failure path edits a recorded artifact. Resume restarts from the last completed node, using the run folder and journal as the progress record [34].
 
 ### 7.7 Progress
 
-One terminal line per phase and per node, for example `[data] data-002 debug → ok score 7 · $0.41`. A quiet flag turns it off.
+One terminal line per phase and per node, e.g. `[data] data-002 debug → ok score 7 · $0.41`; `--quiet` disables it.
 
 ## 8. Decision layer
 
-The Judge's verdict is a **typed answer**, not free text:
+Judge verdicts are typed answers; code reads the fields, prose goes to the node analysis.
 
-| Question | Asked by | Type |
-|---|---|---|
-| `node_buggy` | Judge | yes/no |
-| `goal_met` | Judge | yes/no |
-| `node_score` | Judge | 1–10 |
+| Question          | Asked by        | Type             |
+| ----------------- | --------------- | ---------------- |
+| `node_buggy`      | Judge           | bool             |
+| `goal_met`        | Judge           | bool             |
+| `node_score`      | Judge           | int 1–10         |
 | `hypothesis_rank` | PI (agent form) | score per option |
 
-Code reads these fields, and the prose goes to the node's analysis.
+- **Answerers:** the LLM Judge (default, reference) or a decision model returning typed choices, probabilities and scores with confidence [38]. Adding one changes no interface.
+- **Modes per question:** `off` (Judge only); `shadow` (both answer, Judge used); `on` (decision model used above a confidence threshold, else Judge).
+- **Shadow records:** both answers and their inputs are journaled; evaluation computes agreement, calibration and cost, and a question moves to `on` only if the decision model matches or beats the Judge.
+- **Limits:** chooses among given options or scores given facts; never writes code or prose; never computes what code can; never overrides a code check or label.
+- **Fallback:** provider unavailable or malformed answer → Judge's answer, reason journaled.
 
-Because the answers are typed, **any answerer can fill them**: the LLM Judge, which is the default and the reference, or a decision model. TypeSafe Jev (System One) returns typed choices, yes/no probabilities and scores with a confidence [38]. Adopting a decision model changes no interface.
-
-- **Modes per question:**
-  - `off`: only the Judge answers;
-  - `shadow`: both answer, and the Judge's answer is used;
-  - `on`: the decision model's answer is used when its confidence clears a threshold, otherwise the Judge's.
-- **Disagreements become evaluation data.** In `shadow`, each run journals both answers and the facts they saw. Evaluation checks a sample of disagreements by hand and computes agreement, calibration and cost per question. A question goes `on` only if the decision model matches or beats the Judge.
-- **Limits:**
-  - a decision picks among given options or scores given facts;
-  - it never writes code or prose;
-  - it never computes a number that code can compute;
-  - it never overrides a code check or a label.
-- **Fallback.** An unavailable provider or a malformed answer falls back to the Judge's answer, and the reason is journaled. Popper works fully without a decision model.
-
-## 9. State and memory
-
-A run is a folder. There is no database. Files are written once, and a change creates a new file or a new node, never an edit.
+## 9. Data model
 
 ```text
 runs/<run_id>/
-  run.json                 configuration snapshot (no secrets), inputs, status, cost
-  journal.jsonl            append-only record of calls, executions, decisions and events
-  brief.md, data/          inputs (copied); held-back rows only when Verify is requested
+  run.json                 config snapshot (no secrets), inputs, status, cost
+  journal.jsonl            append-only events
+  brief.md, data/          copied inputs; data/holdout.csv set aside at ingest, never mounted
   understand/              data profile, framing
-  hypotheses.json          hypotheses with planned tests, source nodes, supplied_by
-  tree/<stage>/<node_id>/  code, log, results, figures, node metadata, the Judge's analysis
+  hypotheses.json          hypotheses with planned test, source nodes, supplied_by
+  tree/<stage>/<node_id>/  code, log, results, figures, node.json, Judge analysis
   memory.md                working memory citing node ids
   critiques/               Critic assessments citing node ids
   report/                  paper source and PDF, claims file, review, build log
 ```
 
-Three kinds of content:
+| Content kind    | Examples                                                           | Changed by                                 |
+| --------------- | ------------------------------------------------------------------ | ------------------------------------------ |
+| Source artifact | data versions, code, results, figures, logs                        | Never; a new node or version               |
+| Assessment      | Judge analyses, critiques, figure reviews, paper review, decisions | A new attributed assessment beside the old |
+| Working memory  | memory entries                                                     | Appended by the PI, each citing artifacts  |
 
-| Kind | Examples | Changes by |
-|---|---|---|
-| **Source artifact** | data versions, code, results, figures, logs | Never edited; a new node or version |
-| **Assessment** | Judge analyses, critiques, figure reviews, the paper review, decisions | A new attributed assessment beside the old one |
-| **Working memory** | memory entries | New entries appended by the PI, each citing artifacts |
-
-An assessment or memory entry cites the artifacts it rests on, so a wrong interpretation is corrected by a new assessment without touching the execution it interprets.
-
-**Node kinds:** `draft`, `debug`, `improve`, `variant` and `adversarial`. Each child records a one-line reason, so a reader sees why it exists.
+Every assessment and memory entry cites the artifacts it rests on.
 
 ## 10. Publication
 
-1. **Collect** the framing, data changes, exploration figures, hypotheses, best nodes, specification curves and stability labels.
-2. **Aggregate figures** in one plotting script run over the best nodes' saved outputs, so figures share a style and trace to code [1].
-3. **Write.** The Writer fills a fixed LaTeX template section by section: abstract, introduction, data, exploration, hypotheses, methods, results, robustness, limitations. It follows the observational reporting items of STROBE where they apply [28]. Numbers are written as references to named results, never as literals.
-4. **Render.** Named results are filled in from the results files [6]. An unknown name renders as `??` and produces a warning.
-5. **Check:**
-   - build errors are fed back to the Writer for a few rounds [1];
-   - the vision model checks each figure against its caption [1];
-   - the number audit lists every number in the prose that did not come from a named result;
-   - consistency checks recompute simple relations among reported values, such as means with sample sizes and tests with their statistics, in the spirit of GRIM and statcheck [29, 30];
-   - the Critic gives a rubric review, and the Writer revises once. AI Scientist's reviewer uses a rubric with reflection and an ensemble [2].
-6. **Claims file.** Beside the PDF, a small structured file lists each claim with the named results, nodes and label it rests on. A reader or a weaker model can check claims without parsing the PDF [20].
-7. **Claim language.** Negative and inconclusive results are reported with the same standing as positive ones. An observational design is described as association. A `fragile` result is described as fragile.
-8. **Appendix**, generated by code: data changes, a summary of the search tree, the code of reported nodes, researcher-steered choices and the labels.
-9. **Disclosure.** The paper states that it was generated by an AI system.
+1. **Collect** framing, change log, exploration figures, hypotheses, best nodes, specification curves, labels.
+2. **Aggregate figures** in one plotting script over best nodes' saved outputs [1].
+3. **Write** a fixed LaTeX template section by section (abstract, introduction, data, exploration, hypotheses, methods, results, robustness, limitations), following applicable STROBE items [28]. Numbers appear only as named-result references.
+4. **Render** named results from result files [6]; an unknown name renders `??` and warns.
+5. **Check:** build errors fed back to the Writer for up to `latex_rounds` rounds [1]; vision check of each figure against its caption [1]; number audit of literals not from named results; consistency checks on reported relations (means with n, tests with statistics) [29, 30]; Critic rubric review [2] and one Writer revision.
+6. **Claims file** beside the PDF: each claim with its named results, nodes and label [20].
+7. **Claim language:** negative and inconclusive results reported with equal standing; observational designs described as association; `fragile` results described as fragile.
+8. **Appendix** generated by code: change log, tree summary, code of reported nodes, researcher-steered choices, labels.
+9. **Disclosure** that the paper was generated by an AI system.
 
-The LaTeX source is compiled with the first engine found (`tectonic`, `latexmk`, then `pdflatex`). With no engine, the run still writes the source, and the PDF can be built later.
+LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; without one the run writes the source and `popper pdf` builds it later.
 
-## 11. Verify (optional)
+## 11. Verify
 
-Verify is one package with two touch points on the rest of the system:
-1. **Hold data back.** At run start, a fraction of rows is set aside, grouped by an id column when given. These rows never reach a node or a tool.
-2. **Verify a result:**
-   1. lock the data script and the analysis script that produced the result, and record a margin chosen before looking;
-   2. run both once on the held-back rows;
-   3. compute `confirmed`, `not_confirmed` or `inconclusive` in code. A failed run is `inconclusive` and is not re-run.
-
-Repeated adaptive looks at a holdout erode its validity [25], and sequential falsification needs stated assumptions [7]. So Verify allows one look per result, and its contract is strict when used: locked before looking, run once, outcome computed by code. No other package knows about exposure or error budgets.
+- **Holdout:** at ingest, before profiling, `holdout_fraction` (default 0.2; 0 disables) of rows is set aside, grouped by an id column when given. These rows never reach a node or tool. The split ships before Verify because exposure cannot be undone: a run without a holdout can never be verified.
+- **Verify a result:** lock the data and analysis scripts that produced it and a margin chosen before looking; run once on the holdout; compute `confirmed`, `not_confirmed` or `inconclusive`. A failed run is `inconclusive` and is not repeated.
+- One look per result [25]; assumptions are stated [7]. Exposure and error budgets exist only in `verify/`.
 
 ## 12. Knowledge
 
-Literature search returns metadata and abstracts of prior work for the Theorist and Writer.
+- `search_literature` returns metadata and abstracts for the Theorist and Writer.
 - Queries carry concepts, never data values.
-- Prior work shapes directions and related work. It is never evidence for this run's results.
-- Hypotheses record whether they replicate, extend or contradict prior findings. This describes search coverage, never a novelty claim. AI Scientist's novelty checks misjudged established ideas as new [3].
-- Citations come from retrieved records only. A reference that was not retrieved is not cited.
+- Prior work shapes directions and related work; it is never evidence for this run's results.
+- Hypotheses record `replicates`, `extends` or `contradicts` against retrieved work, as coverage, never a novelty claim [3].
+- Only retrieved records are cited.
 
 ## 13. Evaluation
 
-`evals/` runs Popper on suites and compares configurations at equal model and budget.
+`evals/` compares configurations at equal model and budget.
 
-| Suite | Contains | Measures |
-|---|---|---|
-| **Planted** | Synthetic data with known effects and planted data issues | Effect recovery (direction and magnitude), data-issue fix rate |
-| **Null** | Synthetic data with no real effect | How often an exploratory result is written as a finding, and whether it is labelled `fragile` |
-| **Reference** | Public datasets with known findings, and BLADE and DiscoveryBench tasks [15, 16] | Agreement with expert analyses and known findings |
+| Suite     | Contains                                                                     | Measures                                              |
+| --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Planted   | Synthetic data with known effects and planted data issues                    | Effect recovery, data-issue fix rate                  |
+| Null      | Synthetic data with no effect                                                | Rate of findings written up; share labelled `fragile` |
+| Reference | Public datasets with known findings; BLADE and DiscoveryBench tasks [15, 16] | Agreement with expert analyses                        |
 
-- **Every run reports:** node failure rate, share of numbers traced, audit and consistency warnings, Critic rubric score, draft diversity, cost and wall time.
-- **Comparisons:**
-  - agentic nodes vs single-shot nodes;
-  - one draft vs three, and diverse drafts vs free drafts;
-  - vision feedback on vs off;
-  - PI agent vs fixed playbook;
-  - Critic on vs off;
-  - multiverse robustness vs a single robustness check;
-  - for each Judge question, the decision model vs the LLM Judge, on disagreements collected in shadow.
-- **Decisions.** Each comparison ends in a record in `evals/decisions.md` (what changed, the result, the default kept). Evaluation never changes a run's results.
-- **Contamination.** Suites built on public data also run on perturbed copies. A gap between the original and the perturbed copy is reported as memorization, not capability.
+- **Headline metrics:** false-finding rate on the null suite and share of paper numbers traced to named results.
+- **Per-run metrics:** node failure rate, audit and consistency warnings, holdout gap (evaluation re-runs the reported script on `data/holdout.csv` after the run; the run never sees it), Critic rubric score, draft diversity, cost, wall time.
+- **Comparisons:** agentic vs single-shot nodes (`max_turns = 1`); one vs three drafts; diverse vs free drafts; vision feedback on vs off; PI agent vs playbook; Critic on vs off; multiverse vs single robustness check; decision model vs Judge per question.
+- A mechanism whose default is _measured_ (§14) is compared once the suite exists and before the next mechanism is added.
+- **Adoption record:** each comparison ends in an entry in `evals/decisions.md` (change, result, default kept).
+- **Contamination:** public-data suites also run on perturbed copies; a gap is reported as memorization.
+- Evaluation never changes a run's results.
 
-## 14. Positioning
+## 14. Design decisions
 
-What Popper reproduces from each system, what it changes, and the evidence behind the change. Every change is a claim to test (§13), not an assumed gain.
+Each decision names its sources and the alternative it rejects. Decisions marked _measured_ stay open to the comparisons of §13.
 
-| System | Reproduced | Popper's change | Evidence for the change |
-|---|---|---|---|
-| **AI Scientist-v2** [1] | Staged best-first tree search, debug limits, figure review by a vision model, LaTeX write-up with reflection, automated review | Data phase first; nodes built by a tool-using agent; code checks before the Judge; numbers traced; multiverse robustness; computed labels; optional Verify | Coding failures, fabricated numbers and weak citations [3]; the verification gap [18] |
-| **AIDE** [13] | Tree search over code with draft, debug and improve | Inferential goals and scientific checks in place of a leaderboard metric | Tabular science has no single score to optimize [15] |
-| **Co-Scientist** [4] | Generate, critique and rank hypotheses; researcher steering | Hypotheses grounded in explored data and tested in the same run; typed ranking | Ideas drift toward the starting literature [19] |
-| **Kosmos** [5] | A shared world model that shapes the next task; sandboxed code agents | Memory entries cite node ids; every attempt stays re-runnable | 79.4% of Kosmos statements were supported; traceability helps checking but does not validate interpretation [5] |
-| **data-to-paper** [6] | Numbers traced from code into the paper | Tracing covers the whole run, plus a claims file [20] | Human co-piloting is needed as complexity grows [6] |
-| **POPPER** [7] | Falsification tests of measurable implications | Adversarial checks in robustness; strict one-look Verify | Iterating until publishable is not validation [17] |
-| **Many-analysts, multiverse and specification-curve work** [21–23] | Enumerating reasonable analyses | The robustness stage and the stability label | Analytic choice changes conclusions [21] |
+| #   | Decision                                                                                     | Sources                 | Rejected alternative                                         | Status   |
+| --- | -------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------ | -------- |
+| D1  | Staged best-first search over code with draft/debug/improve                                  | [1, 2, 13]              | Linear pipeline with one attempt per step                    | fixed    |
+| D2  | Node built by a tool-using agent that tests before submitting                                | [3, 14]                 | One generated program per node                               | measured |
+| D3  | Data phase before exploration; analytic choices treated as measurable                        | [15, 16, 21]            | Question-first pipeline with fixed preprocessing             | fixed    |
+| D4  | Hypotheses grounded in explored data, challenged by a Critic, chosen by the researcher or PI | [4, 7, 8, 9]            | Hypotheses from literature alone; tournament ranking         | measured |
+| D5  | Diverse drafts                                                                               | [19]                    | Unconstrained drafts                                         | measured |
+| D6  | Robustness as a multiverse with adversarial checks and a computed stability label            | [17, 21, 22, 23, 27]    | A single robustness check; model-judged robustness           | measured |
+| D7  | Code checks before the Judge; typed Judge answers                                            | [31, 36, 37]            | Free-text verdicts parsed by code                            | fixed    |
+| D8  | Numbers rendered from named results; audit, consistency checks, claims file                  | [6, 20, 29, 30]         | Model-written numbers with post-hoc review                   | fixed    |
+| D9  | Computed labels; strict one-look Verify on held-back rows                                    | [7, 24, 25, 26]         | Model-assessed confidence; repeated holdout looks            | fixed    |
+| D10 | One PI, sequential roles, ≤ 2 hand-offs per node                                             | [5, 10, 11, 12, 35, 37] | Parallel agents or hierarchical planners by default          | measured |
+| D11 | Fresh, just-in-time context with working memory and condensed hand-offs                      | [5, 32]                 | Carrying full conversations between sessions                 | fixed    |
+| D12 | Small consolidated tool set with actionable errors                                           | [33]                    | Many fine-grained tools                                      | fixed    |
+| D13 | Journal and write-once run folder as the progress and release record                         | [18, 34]                | Database or mutable state                                    | fixed    |
+| D14 | Pluggable decision model behind typed questions, `shadow` before `on`                        | [38]                    | Replacing the Judge outright                                 | measured |
+| D15 | Evaluation suites with contamination checks decide every _measured_ default                  | [15, 16, 18]            | Adopting mechanisms because a reference system reports gains | fixed    |
+| D16 | Judge blind to effect estimates; every `ok` node reported                                    | [3, 24]                 | Best-first selection on a score that sees the result         | fixed    |
+| D17 | Hypothesis with one primary estimand and a stated refuting result                            | [7, 26]                 | Free-text hypotheses of any complexity                       | fixed    |
+| D18 | Holdout split at ingest, before Verify exists                                                | [25]                    | Holdout created only when verification is requested          | fixed    |
 
 ## 15. References
 
@@ -412,8 +369,8 @@ What Popper reproduces from each system, what it changes, and the evidence behin
 
 13. Jiang, Z., et al. (2025). [AIDE: AI-driven exploration in the space of code](https://arxiv.org/abs/2502.13138). arXiv.
 14. Hong, S., et al. (2024). [Data Interpreter: an LLM agent for data science](https://arxiv.org/abs/2402.18679). arXiv.
-15. Gu, K., et al. (2024). [BLADE: benchmarking language model agents for data-driven science](https://arxiv.org/abs/2408.09667). *EMNLP Findings*.
-16. Majumder, B. P., et al. (2025). [DiscoveryBench: towards data-driven discovery with large language models](https://proceedings.iclr.cc/paper_files/paper/2025/file/0d70af566e69f1dfb687791ecf955e28-Paper-Conference.pdf). *ICLR*.
+15. Gu, K., et al. (2024). [BLADE: benchmarking language model agents for data-driven science](https://arxiv.org/abs/2408.09667). _EMNLP Findings_.
+16. Majumder, B. P., et al. (2025). [DiscoveryBench: towards data-driven discovery with large language models](https://proceedings.iclr.cc/paper_files/paper/2025/file/0d70af566e69f1dfb687791ecf955e28-Paper-Conference.pdf). _ICLR_.
 
 **Critiques of AI scientists**
 
@@ -424,16 +381,16 @@ What Popper reproduces from each system, what it changes, and the evidence behin
 
 **Research methodology**
 
-21. Silberzahn, R., et al. (2018). [Many analysts, one data set: making transparent how variations in analytic choices affect results](https://journals.sagepub.com/doi/10.1177/2515245917747646). *Advances in Methods and Practices in Psychological Science*.
-22. Steegen, S., Tuerlinckx, F., Gelman, A., & Vanpaemel, W. (2016). [Increasing transparency through a multiverse analysis](https://journals.sagepub.com/doi/10.1177/1745691616658637). *Perspectives on Psychological Science*.
-23. Simonsohn, U., Simmons, J. P., & Nelson, L. D. (2020). [Specification curve analysis](https://www.nature.com/articles/s41562-020-0912-z). *Nature Human Behaviour*.
-24. Gelman, A., & Loken, E. (2013). *The garden of forking paths.* Columbia University working paper.
-25. Dwork, C., et al. (2015). [The reusable holdout: preserving validity in adaptive data analysis](https://www.science.org/doi/10.1126/science.aaa9375). *Science*.
-26. Mayo, D. G. (2018). *Statistical Inference as Severe Testing.* Cambridge University Press.
-27. VanderWeele, T. J., & Ding, P. (2017). Sensitivity analysis in observational research: introducing the E-value. *Annals of Internal Medicine*.
-28. von Elm, E., et al. (2007). The Strengthening the Reporting of Observational Studies in Epidemiology (STROBE) statement. *The Lancet*.
-29. Brown, N. J. L., & Heathers, J. A. J. (2017). The GRIM test: a simple technique detects numerous anomalies in the reporting of results in psychology. *Social Psychological and Personality Science*.
-30. Nuijten, M. B., et al. (2016). The prevalence of statistical reporting errors in psychology (1985–2013). *Behavior Research Methods*.
+21. Silberzahn, R., et al. (2018). [Many analysts, one data set: making transparent how variations in analytic choices affect results](https://journals.sagepub.com/doi/10.1177/2515245917747646). _Advances in Methods and Practices in Psychological Science_.
+22. Steegen, S., Tuerlinckx, F., Gelman, A., & Vanpaemel, W. (2016). [Increasing transparency through a multiverse analysis](https://journals.sagepub.com/doi/10.1177/1745691616658637). _Perspectives on Psychological Science_.
+23. Simonsohn, U., Simmons, J. P., & Nelson, L. D. (2020). [Specification curve analysis](https://www.nature.com/articles/s41562-020-0912-z). _Nature Human Behaviour_.
+24. Gelman, A., & Loken, E. (2013). _The garden of forking paths._ Columbia University working paper.
+25. Dwork, C., et al. (2015). [The reusable holdout: preserving validity in adaptive data analysis](https://www.science.org/doi/10.1126/science.aaa9375). _Science_.
+26. Mayo, D. G. (2018). _Statistical Inference as Severe Testing._ Cambridge University Press.
+27. VanderWeele, T. J., & Ding, P. (2017). Sensitivity analysis in observational research: introducing the E-value. _Annals of Internal Medicine_.
+28. von Elm, E., et al. (2007). The Strengthening the Reporting of Observational Studies in Epidemiology (STROBE) statement. _The Lancet_.
+29. Brown, N. J. L., & Heathers, J. A. J. (2017). The GRIM test: a simple technique detects numerous anomalies in the reporting of results in psychology. _Social Psychological and Personality Science_.
+30. Nuijten, M. B., et al. (2016). The prevalence of statistical reporting errors in psychology (1985–2013). _Behavior Research Methods_.
 
 **Harness engineering**
 

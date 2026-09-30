@@ -1,257 +1,199 @@
 # Roadmap
 
-Every milestone ends at a **demo gate**: one command that a person can run, producing output they can read. Each milestone also has a **size cap** on `src/` lines (counted by `wc -l` over `src/popper/**/*.py`, prompts and templates excluded). Going over the cap stops work for a review; the cap is never raised quietly. Design context lives in [ARCHITECTURE.md](ARCHITECTURE.md).
+Product milestones for Popper. Each milestone is a shippable increment: a researcher can run it and gets something more useful than the milestone before. [ARCHITECTURE.md](ARCHITECTURE.md) defines the components and contracts; this document decides which of them ship when, and what "done" means.
 
-## Overview
+## How milestones work
 
-| Milestone | Theme | Demo gate | Cap | Status |
-|---|---|---|---|---|
-| M0 | Mini scientist, end to end | `popper run examples/student_performance` → a paper with framing, data changes, exploration figures, one hypothesis and a tested result | 1,800 | todo |
-| M1 | Full experiment stages, figure feedback, decision layer | The paper has baseline, main and robustness results with a stability label; the judge reads figures; node decisions are recorded in shadow | 2,500 | todo |
-| M2 | Science loop (PI agent, Critic) | Several critiqued hypotheses; the researcher picks; a second round builds on the first; a data problem found later reopens the data stage | 3,200 | todo |
-| M3 | Write-up and review | Compiles without manual fixes on three datasets; `review.json` and `tree.html` | 3,600 | todo |
-| M4 | Evaluation | Table over planted, null and reference suites and configurations; Judge questions: decision model vs Judge on checked disagreements | + `evals/` | todo |
-| M5 | Literature | Framing, hypotheses and paper cite real prior work | 4,100 | todo |
-| M6 | Verify (optional) | `popper verify <run> <result>` → a confirmed or not-confirmed outcome on held-out rows | 4,600 | todo |
-| M7 | Evidence-led extensions | Only what M4 shows is needed | — | — |
+- **Outcome first.** A milestone is stated as what a researcher can do after it ships, then the capabilities that deliver it.
+- **Demo gate.** One command a person can run, producing output they can read. A milestone is done only when its gate and acceptance criteria pass on a real model.
+- **Size cap.** A limit on `src/` lines (`wc -l` over `src/popper/**/*.py`, prompts and templates excluded). Crossing it stops work for a design review; the cap is never raised quietly.
+- **From milestone to code.** Milestone → spec in `docs/specs/` (refines ARCHITECTURE contracts, never contradicts them) → implementation plan → build → close. A spec is removed once its milestone closes.
+- **Scope discipline.** Nothing is built ahead of its milestone. After M2, a new mechanism names the failure it fixes and its evaluation result.
 
-## How each phase grows
+## Product overview
 
-| Phase | M0 | M1 | M2 | M3 | M5 | M6 |
-|---|---|---|---|---|---|---|
-| **Ideation & framing** | Profile + framing with one reflection | — | Researcher confirms or edits the framing | — | Literature search shapes questions and directions | — |
-| **Data** | Agentic `data` stage; `processed.parquet` + `changes.json` | Before/after figures; checks on derived variables | Reopened as a new child when a later phase finds a data problem | — | — | Holdout split before any node reads data |
-| **Exploration & hypothesis** | Agentic `explore` stage; one hypothesis | Figures judged by the vision model | 3–5 hypotheses with reflection; the researcher picks; hypotheses revised from results | — | Hypotheses related to prior work | — |
-| **Experiment** | One combined agentic stage | `baseline` → `main` → `robustness`; replication by resampling | Several hypotheses, one tree each; results feed memory | — | — | Frozen re-run on the holdout |
-| **Publication** | Template paper, `\R{}` numbers, fixed label | Robustness section | Several hypotheses, rounds and steering history | Writer reflection, figure/caption check, Critic rubric review, `tree.html` | Related work and citations | Confirmed/not-confirmed labels |
-| **Harness** | Agent loop, node tools, context assembly with untrusted wrapping, retry, failure classes, progress, journal, budget | Vision in the Judge | PI tools, `memory.md` in context, human-input tool, per-phase budgets | — | `search_literature` tool | `verify` package |
-| **Agent team** | PI (fixed playbook), Theorist, Analyst, Judge, Writer | Judge reads figures | PI becomes an agent; Critic | Critic reviews the paper | Literature for Theorist and Writer | — |
-| **Decision layer** | Judge gives typed answers | Second answerer (Jev) in `shadow`, disagreements journaled | `hypothesis_rank` in `shadow` | — | — | — |
+| Milestone | Product outcome | Demo gate | Depends on | Cap | Status |
+|---|---|---|---|---|---|
+| **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | 1,800 | in progress |
+| **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | 2,500 | todo |
+| **M2** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, holdout gap and cost for two configurations | M1 | + `evals/` | todo |
+| **M3** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | 3,000 | todo |
+| **M4** Research loop | The researcher steers; results change what the run does next | Several critiqued hypotheses, researcher picks, a second round builds on the first, a late data problem reopens the data stage; eval compares it with the playbook | M2, M3 | 3,700 | todo |
+| **M5** Literature | Framing, hypotheses and related work grounded in real prior work | The demo paper cites resolved prior work | M4 | 4,200 | todo |
+| **M6** Verify | Confirm a chosen result once on held-back data | `popper verify <run> <result>` → a computed outcome | M2 | 4,600 | todo |
+| **M7** Long-term track | Deferred capabilities, each started when its trigger is met | Per item | M2 | per item | parked |
 
----
+## Capability growth
 
-## M0 — Mini scientist, end to end
-
-**Goal:** one complete pass, rough but real, through all five phases. Each tree node is an agent with tools.
-
-### Agent team
-PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Judge and Writer, each in its own session with its own tools (ARCHITECTURE §6).
-
-### Harness (runtime)
-- **config**: package default `src/popper/harness/default_config.yaml`, then a `--config` file key by key, then the `POPPER_MODEL` environment variable for every role.
-- **llm**: Bedrock Converse with text, images and tool use, plus token and cost accounting.
-  - Retry with exponential backoff (up to 5 attempts) on throttling, timeouts and 5xx; other errors are not retried.
-  - Retries are journaled and are not research steps.
-  - `FakeLLM` replays scripted text and tool calls for tests.
-- **agent loop**: `agent_loop(role, system, task, tools, max_turns)`.
-  - Tools are registered with a JSON schema and a handler.
-  - Every tool call and result is journaled.
-  - The loop ends when the agent calls `submit`, or when it reaches `max_turns` (the node is then `buggy`).
-- **interpreter**: runs a script in a subprocess with a timeout. Credentials are stripped from the environment, and inputs are passed as `POPPER_INPUT_<NAME>`.
-- **store**: a write-once run directory.
-- **journal**: append-only JSONL.
-- **budget**: a USD cap checked before every model call.
-- **context**: `harness/context.py` assembles each session's context from run files, with a character limit per part; brief, data strings and outputs are wrapped as untrusted.
-- **failure classes**: technical (retried), research (buggy node), budget and terminal (stop with status) — ARCHITECTURE §7.6.
-- **progress**: one terminal line per phase and per node (`[data] data-002 debug → ok score 7 · $0.41`); `--quiet` turns it off.
-
-### Tree search (`treesearch/`)
-- Draft, debug and improve steps as in ARCHITECTURE §5.2. Each step runs a **node agent** with these tools:
-
-| Tool | Does |
-|---|---|
-| `inspect_data(name)` | Schema, head, describe and missing counts of an input |
-| `run_python(code)` | Runs a scratch snippet in the node's `scratch/` folder and returns its output. Recorded, never a result |
-| `view_figure(path)` | Sends a PNG to the model |
-| `read_artifact(path)` | Reads files of the parent node or of earlier stages (`results.json`, `analysis.md`, `changes.json`, `framing.json`) |
-| `submit(code)` | The final script. The harness re-runs it from scratch as the node, and only its outputs count |
-
-- Code checks run before the feedback model is called (exit status, timeout, required outputs, `results.json` shape).
-- The feedback model scores the node 1–10 and says whether the goal is met. The best node is the highest-scoring `ok` one.
-
-### Phases
-1. **Ideation & framing**: a structural profile, then `framing.json` (problem, questions, key variables, directions, data concerns) with one reflection round.
-2. **Data**: the `data` stage writes `processed.parquet`, `changes.json` (step, rows affected, reason) and `rows_before`/`rows_after`.
-3. **Exploration & hypothesis**: the `explore` stage (distributions, relations, groups, at least two figures), then one model step producing one hypothesis with planned experiments and its source node.
-4. **Experiment**: one combined `experiment` stage testing the hypothesis, with estimates, intervals and n.
-5. **Publication**:
-   - fixed LaTeX template with sections following the phases;
-   - `\R{stage.name}` numbers from `results.json`, with unknown names shown as `??` and warned about;
-   - the fixed label `exploratory — autonomously generated`;
-   - an appendix with the data changes and the reported code;
-   - tectonic compile, falling back to `.tex` only.
-
-### CLI
-`popper run <example_dir | --brief B --data D> [--config C] [--runs-dir R] [--quiet]`
-
-### Tests
-- **Unit:** config merge; budget stop; JSON parse retry; model-call retry; tool-loop turn limit; node selection; `results.json` validation; number filling.
-- **Integration:** the interpreter (timeout, credentials, inputs); one stage with scripted tool calls (bad replies, then recovery, then failure); one end-to-end run with `FakeLLM`.
-
-### Exit criteria
-- The real-model demo on `student_performance`:
-  - reports the planted data issues it fixed (duplicates, `absent`, impossible values, income labels);
-  - finds a positive effect of study hours;
-  - has no `??`;
-  - costs under $5 and takes under 45 minutes.
-- The CI checks pass, and `src/` is ≤ 1,800 lines.
-
-**Out:** split experiment stages, vision in feedback, several hypotheses, researcher input, loops back, Critic, `tree.html`, holdout.
+| Area | M0 | M1 | M2 | M3 | M4 | M5 | M6 |
+|---|---|---|---|---|---|---|---|
+| **Ideation & framing** | Profile and framing with one reflection | — | — | — | Researcher confirms or edits framing | Prior work shapes questions | — |
+| **Data** | Agentic `data` stage, change log, row counts | Holdout set aside at ingest | — | Before/after figures, derived-variable checks | Reopened when a later phase finds a problem | — | — |
+| **Exploration & hypothesis** | Agentic `explore` stage, one hypothesis | Hypothesis contract (one primary estimand, refuting result) | — | — | 3–5 hypotheses, Critic, researcher choice, revision from results | Relation to prior work | — |
+| **Experiment** | One combined stage | `baseline` → `main` → `robustness`, multiverse, adversarial check, stability label | — | — | One tree per chosen hypothesis | — | Locked re-run on holdout |
+| **Search engine** | Draft/debug/improve, typed Judge answers | Judge blind to estimates, reads figures | — | — | — | — | — |
+| **Publication** | Template paper, named-result numbers, fixed label | Robustness section, specification curve | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results, research path | Related work, citations | Verified labels |
+| **Roles** | PI playbook, Theorist, Analyst, Judge, Writer | — | — | Critic reviews the paper | PI agent, Critic | Literature for Theorist and Writer | — |
+| **Harness** | Agent loop, tools, context, sandbox, journal, run store, budget, failure classes, progress | Vision input, resume, import contract | — | — | PI tools, working memory, researcher input, per-phase budgets | Literature tool | Verify package |
+| **Evaluation** | — | — | Planted and null suites, headline metrics, first comparisons, adoption records | Traced-number share | PI agent vs playbook, Critic on vs off | — | — |
 
 ---
 
-## M1 — Full experiment stages and figure feedback
+## M0 — Mini scientist
 
-**Goal:** the experiment phase follows Sakana's stages, and figures are judged, not just drawn.
+**Outcome.** A researcher gives a brief and a CSV and receives a complete, readable paper: what the data needed, what exploration showed, one hypothesis, and its test. Rough, but real end to end.
 
-- **Stages**: `baseline` → `main` → `robustness`. The best node of each seeds the next, and each stage has its own goal and required outputs (ARCHITECTURE §5.4).
-- **Stage end**: `steps_per_stage` is reached, or an `ok` node meets the goal. A per-stage override for `steps_per_stage` is added to the config.
-- **Robustness as a multiverse** (ARCHITECTURE §5.5):
-  - variants over the cleaning choices recorded in `changes.json`, alternative specifications, subgroups and resampling, each re-estimating the main effect;
-  - at least one adversarial check (placebo outcome, negative control or permutation);
-  - a specification-curve figure of the estimates across variants.
-- **Figure feedback**: the feedback model receives the node's figures as images. A misleading or unreadable figure lowers the score, and the reason goes into `analysis.md`.
-- **Data**: before/after distribution figures for changed columns, and checks that derived variables have plausible ranges.
-- **Stability label**: computed by code from the robustness outputs (`stable` or `fragile`, ARCHITECTURE §5.5) and printed beside the result.
-- **Diverse drafts**: each draft sees summaries of the earlier drafts and must take a different approach.
-- **Decision layer**:
-  - `harness/decisions.py` defines the typed questions, the `Answerer` interface and the modes (off, shadow, on);
-  - the Jev adapter (optional dependency; its key lives in `.env`) answers `node_buggy`, `goal_met` and `node_score` in `shadow` beside the Judge;
-  - every disagreement is journaled with both answers and the facts they saw;
-  - without a key, every question stays `off`.
-- **Publication**: a robustness section and a table of the main estimate across specifications.
-- **Tests:**
-  - stage chaining (seed code passed on) with `FakeLLM`;
-  - the feedback prompt receives images when figures exist.
-  - the stability label on fixture variants;
-  - a decision in shadow records both answers and keeps the rule result; an unavailable provider falls back.
-- **Exit:**
-  - the demo paper shows the study-hours estimate under at least three specifications;
-  - a fixture figure with unlabeled axes gets a lower score than a good one.
+**Scope.**
+- All five phases in order under a fixed PI playbook (ARCHITECTURE §4).
+- Roles PI, Theorist, Analyst, Judge, Writer, each in its own session (§6).
+- Search engine with draft/debug/improve, code checks, typed Judge answers and best-node selection (§5.1–5.3, §8).
+- Stages `data`, `explore` and one combined experiment stage (§5.4).
+- Harness: model client with retry, agent loop, the Analyst tools, context assembly with untrusted wrapping, sandbox, journal, write-once run store, money budget priced per model with prompt caching, failure classes, progress (§7).
+- Publication: fixed template, named-result numbers with `??` on unknown names, the fixed `exploratory` label, generated appendix, PDF when an engine exists (§10 steps 3, 4, 8).
+- CLI: `popper run <example_dir | --brief B --data D> [--config C] [--runs-dir R] [--quiet]`, and `popper pdf <run>`.
 
-**Out:** several hypotheses, researcher input, loops back.
+**Acceptance.**
+- On `student_performance` with a real model: the paper reports the planted data issues it fixed (duplicates, `absent`, impossible values, income labels), finds a positive effect of study hours, has no `??`, costs under $5 and finishes under 45 minutes.
+- Tests cover config merge, budget stop, model-call retry, turn limit, node selection, results validation, number rendering, the sandbox (timeout, credentials, inputs), a stage recovering from bad replies, and an end-to-end run with a scripted model.
+- CI gate passes; `src/` ≤ 1,800 lines.
+
+**Out.** Split experiment stages, figure judging, several hypotheses, researcher input, going back, Critic, search map, holdout.
+
+**Risks.** Agentic nodes cost more tokens per node than single-shot code; watch cost per run against the $5 gate.
 
 ---
 
-## M2 — Science loop (PI agent)
+## M1 — Trustworthy results
 
-**Goal:** results change what the run does next. The PI becomes an agent that uses the same tool loop.
+**Outcome.** A researcher can see whether the main result survives reasonable alternative analyses and how widely the attempts disagreed, the paper says so with a label no model sets, and the run keeps rows back so it can be verified later.
 
-- **PI tools:**
-  - `run_stage(stage, goal_note)`;
-  - `propose_hypotheses(n)`;
-  - `revise_hypothesis(id, reason)`;
-  - `reopen_data(issue)`, which starts a new `data` node whose parent is the previous best;
-  - `ask_researcher(question, options)`;
-  - `update_memory(text)`;
-  - `finish(reason)`.
-- **Playbook**: the five phases stay the default order, stated in the PI prompt. The PI may loop back with a recorded reason. Per-phase and total budgets bound the loop.
-- **Hypotheses**: 3–5 from exploration with one reflection round, each with a rationale, planned experiments and source nodes. Each chosen hypothesis gets its own experiment trees.
-- **Critic**: a separate session critiques each hypothesis before the choice, and each main result before publication (confounders, alternative explanations, claims beyond the design). The critique is written to `critiques/` as an assessment. It can prompt a robustness child or a limitation, but never changes a result.
-- **Decisions**: `hypothesis_rank` in `shadow`; the PI's ranking is the reference, and disagreements are journaled.
-- **Researcher input**: `ask_researcher` on the CLI (choose, edit, or add a note). `--auto` lets the PI pick. Every choice is labelled `researcher_steered` or `agent_supplied`.
-- **Working memory**: `memory.md`, updated after each stage. Each entry cites node ids, and it is read by the PI and by node agents (`read_artifact`).
-- **Publication**: one results subsection per tested hypothesis, plus a "research path" section generated from the journal (what was tried, why it changed).
-- **Tests:**
-  - a scripted PI run with a reopen and a revision;
-  - `--auto` makes no input calls.
-- **Exit:**
-  - on a fixture dataset with a data issue that only shows during experiments (a unit mismatch in one school), the run reopens the data stage and the paper reports it;
-  - a second-round hypothesis cites first-round results.
+**Scope.**
+- Experiment stages `baseline` → `main` → `robustness`, each seeding the next, with per-stage step budgets (§5.4).
+- Robustness as a multiverse: variants over recorded cleaning choices, specifications, subgroups and resampling; at least one adversarial check; computed stability label (§5.5).
+- Specification curve over the variants and every `ok` experiment node (§5.5).
+- Judge blind to effect estimates in experiment stages; Judge reads figures, and a misleading or unreadable figure lowers the score with a stated reason (§5.3).
+- Hypothesis contract: one primary estimand, expected direction, refuting result, planned test (§4).
+- Holdout set aside at ingest, grouped by an id column when given (§11). No verify command yet.
+- `popper resume <run>` restarts from the last completed node (§7.6).
+- Import contract for the dependency rules, checked in CI (§3).
+- `examples/student_performance_null`: the demo data with the outcome shuffled, a second demo where the right answer is "no effect".
+- Publication: robustness section and a table of the main estimate across specifications.
 
-**Out:** parallel trees, literature.
+**Acceptance.**
+- The demo paper shows the study-hours estimate under at least three specifications with a specification curve and a stability label.
+- On the demo data with the outcome shuffled, the paper claims no effect or labels the result `fragile`.
+- Tests cover stage chaining, estimate redaction in the Judge input, images reaching the Judge, the stability label on fixture variants, holdout rows never reaching a stage input, and resuming a run interrupted mid-stage.
+
+**Out.** Diverse drafts (a later challenger), decision layer, several hypotheses, researcher input, going back, data before/after figures.
+
+**Risks.** Variant count drives cost; the stage budget bounds it. The 80% stability share is a default to revisit in M2.
 
 ---
 
-## M3 — Write-up and review
+## M2 — Evidence baseline
 
-**Goal:** the paper is readable and checked the way Sakana's write-up is.
+**Outcome.** Every later change is judged by measurement. The team knows how often Popper reports an effect that is not there, how well it recovers one that is, and what a run costs.
 
-- **Figure aggregation**: one final plotting script per paper, run from the best nodes' saved outputs, producing consistent publication figures.
-- **Writer reflection**: compile errors and LaTeX warnings are fed back for up to three rounds. Section completeness is checked.
-- **Figure and caption check**: the vision model reads each figure with its caption and flags mismatches.
-- **Number audit**: every number in the prose that did not come from `\R{}` is listed as a warning in `review.json`.
-- **Consistency checks**: simple relations among reported values (means with sample sizes, tests with their statistics) are recomputed, and mismatches are listed in `review.json`.
-- **Claims file**: a structured file beside the PDF lists each claim with the named results, nodes and label it rests on.
-- **Disclosure**: the paper states that it was generated by an AI system.
-- **Critic rubric review** (separate session): the Critic scores the draft on a fixed rubric (soundness, clarity, limitations, faithfulness to results) and writes `review.json`; the Writer revises once from it.
-- **`tree.html`**: a static page of the experiment trees, showing each node's code, output, figures, score and kind.
-- **Tests:**
-  - the number audit on a fixture text;
-  - `tree.html` renders from a fixture run directory;
-  - consistency checks flag a fixture with a mismatched mean and pass a correct one.
-- **Exit:** on three datasets, the PDF compiles without manual fixes, `review.json` is written, and the audit reports at most 2 untraced numbers per paper.
+**Scope** (§13).
+- Suites: planted (2 synthetic datasets with known effects and planted data issues), null (1 dataset with no effect, several seeds).
+- Headline metrics: null false-finding rate, share of traced numbers. Per-run metrics: effect recovery, data-issue fix rate, holdout gap, node failure rate, cost, wall time.
+- Comparisons at equal model and budget, using existing config switches only: agentic vs single-shot nodes (`max_turns = 1`); 1 vs 3 drafts; figure judging on vs off.
+- Adoption record per comparison in `evals/decisions.md`.
+
+**Acceptance.** One command (`popper-eval`) generates the table, and the shipped defaults follow the recorded decisions.
+
+**Out.** Reference suites (BLADE, DiscoveryBench) and contamination checks, which join once the planted and null suites are stable.
 
 ---
 
-## M4 — Evaluation
+## M3 — Publication quality
 
-**Goal:** measure what helps before adding anything else.
+**Outcome.** The paper compiles without manual fixes and every number and claim can be checked against the run.
 
-- **Suites** (in `evals/`):
-  - **planted**: 3 synthetic datasets with known effects and data issues, of different kinds (grouped, time-ordered, nonlinear);
-  - **null**: 2 synthetic datasets with no real effect;
-  - **reference**: 1–2 public datasets with well-known findings, plus a few BLADE or DiscoveryBench tasks; public data also run on perturbed copies to expose memorization.
-- **Metrics:**
-  - planted-effect recovery (direction, and magnitude within a band);
-  - on null data, the share of runs that report a finding as if it held, and whether it is labelled `fragile`;
-  - data-issue fix rate;
-  - share of numbers traced to `\R{}`, and consistency warnings;
-  - draft diversity;
-  - Critic rubric score;
-  - cost, wall time and failure rate.
-- **Comparisons** at equal model and budget:
-  - agentic nodes vs single-shot nodes;
-  - `num_drafts` 1 vs 3;
-  - vision feedback on vs off;
-  - PI agent vs fixed playbook;
-  - Critic on vs off;
-  - multiverse robustness vs a single robustness check;
-  - diverse drafts vs free drafts;
-  - each Judge question: the decision model vs the LLM Judge on a hand-checked sample of shadow disagreements (agreement, calibration, cost); a question goes `on` only when the decision model matches or beats the Judge.
-- **Decisions**: each comparison ends in a short record in `evals/decisions.md`: what changed, the result, and the default kept.
-- **Exit:** the table is generated by one command (`popper-eval`), and the defaults in `default_config.yaml` follow the decisions.
+**Scope** (§10).
+- Figure aggregation from best nodes' saved outputs.
+- Writer reflection on build errors and section completeness.
+- Figure/caption check by the vision model.
+- Number audit and consistency checks, reported in the review file.
+- Claims file beside the PDF.
+- Critic rubric review (soundness, clarity, limitations, faithfulness) and one Writer revision.
+- Data stage adds before/after figures for changed columns and range checks on derived variables.
+- AI-generation disclosure.
+- Search map: a static page of the trees with each node's code, output, figures, score and kind.
+
+**Acceptance.**
+- On three datasets the PDF compiles without manual fixes, the review file is written, and the audit reports at most 2 untraced numbers per paper.
+- Tests cover the number audit, consistency checks (flag a mismatched mean, pass a correct one) and rendering the search map from a fixture run.
+
+---
+
+## M4 — Research loop
+
+**Outcome.** The run behaves like a research process: it proposes and challenges several hypotheses, lets the researcher choose, learns from results, and goes back when something is wrong.
+
+**Scope.**
+- PI becomes an agent on the same loop, with tools to run a stage, propose and revise hypotheses, reopen the data stage, ask the researcher, update memory and finish; the playbook stays the default order and every return is journaled with a reason (§4, §6).
+- 3–5 hypotheses with reflection, each in the hypothesis contract; one experiment tree per chosen hypothesis.
+- Critic challenges each hypothesis before the choice and each main result before publication; critiques are assessments and never change a result (§6, §9).
+- Researcher input on the CLI (choose, edit, note); `--auto` lets the PI choose; choices are attributed.
+- Working memory citing node ids, read by the PI and Analysts (§7.3).
+- Per-phase and total budgets.
+- Publication: one results subsection per tested hypothesis and a research-path section generated from the journal.
+- Evaluation: PI agent vs playbook and Critic on vs off, recorded in `evals/decisions.md`.
+
+**Acceptance.**
+- On a fixture with a data issue that only shows during experiments (a unit mismatch in one school), the run reopens the data stage and the paper reports it.
+- A second-round hypothesis cites first-round results.
+- `--auto` makes no researcher calls. A scripted PI run with a reopen and a revision passes.
+- The PI agent is the default only if the evaluation does not show it worse than the playbook.
+
+**Out.** Parallel trees, literature.
+
+**Risks.** An agent PI can loop; budgets and the default order bound it.
 
 ---
 
 ## M5 — Literature
 
-- **Tool**: `search_literature(query)` over OpenAlex, returning metadata and abstracts. It is available to the framing, hypothesis and writer agents.
-- Framing records related work. Hypotheses note whether they replicate, extend or contradict prior findings; this is "coverage", never a novelty claim.
-- **Paper**: a related-work section and BibTeX citations. Every citation resolves to a fetched record.
-- **Exit:** the demo paper cites at least five resolved works, with no unresolved citation keys.
+**Outcome.** Framing, hypotheses and the related-work section rest on real, retrieved prior work (§12).
+
+**Scope.** `search_literature` over OpenAlex for Theorist and Writer; hypotheses record replicate/extend/contradict as coverage; related-work section with BibTeX; only retrieved records are cited; queries carry concepts, never data values.
+
+**Acceptance.** The demo paper cites at least five resolved works with no unresolved keys.
 
 ---
 
-## M6 — Verify (optional)
+## M6 — Verify
 
-- `popper run --holdout 0.2` splits rows (grouped by an id column when given) before any node reads data. `data/holdout.csv` is never passed to a node.
-- `popper verify <run> <result>`:
-  1. freezes the processed-data script and the experiment script that produced the result;
-  2. records a margin chosen before the look;
-  3. runs both once on the holdout;
-  4. computes `confirmed`, `not_confirmed` or `inconclusive` in code.
-- The paper is regenerated with the new label on that result, and nothing else changes.
-- **Tests:**
-  - the holdout never reaches a node;
-  - a failed verify run is `inconclusive` and cannot be re-run.
-- **Exit:** on the demo dataset, the study-hours effect is confirmed on the holdout.
+**Outcome.** A researcher can confirm a chosen result once on data the search never saw (§11).
+
+**Scope.** `popper verify <run> <result>` locks the scripts and a margin, runs once on the holdout set aside since M1, computes the outcome, and regenerates the paper with only that label changed.
+
+**Acceptance.** Tests show a failed verify is `inconclusive` and cannot be repeated. On the demo dataset the study-hours effect is confirmed.
 
 ---
 
-## M7 — Evidence-led extensions
+## M7 — Long-term track
 
-Candidates, each adopted only when M4 shows the need:
-- parallel workers per stage;
-- container sandbox (required before shared use);
-- resume after crash;
-- multiple datasets and joins;
-- web UI and API;
-- runs across programs.
+Capabilities Popper keeps as goals but does not build yet. Each waits for its trigger; when the trigger is met it becomes a milestone of its own with an outcome, demo gate, cap and, where §1 excludes it today, an ARCHITECTURE scope change first. The M2 evaluation decides whether an item that adds a mechanism stays.
+
+| Item | Why it waits | Trigger to start | ARCHITECTURE |
+|---|---|---|---|
+| Decision layer (decision model answers Judge questions, `shadow` before `on`) | An optimization of Judge cost and calibration; nothing to calibrate against before M2 | M2 shows Judge cost or disagreement worth reducing | §8 |
+| Diverse drafts | Unmeasured benefit | M2 draft-diversity metric shows drafts collapsing onto one approach | §5.2 |
+| Hypothesis tournament (pairwise ranking of many hypotheses) | M4 handles 3–5 hypotheses without it | Runs routinely produce more hypotheses than the researcher can compare | §6 |
+| Parallel Analysts per stage | Sequential nodes are cheaper to debug; wall time is not yet the bottleneck | Wall time, not cost, blocks the demo gates | §6 |
+| Container sandbox and network isolation | Single-user local use only | Before any shared or hosted use | §7.4 |
+| Reference suites (BLADE, DiscoveryBench) and contamination checks | Planted and null suites come first | M2 suites stable across two milestones | §13 |
+| Working memory across runs | One run per question today | Researchers repeatedly rerun the same dataset with new questions | §7.3 |
+| Multiple datasets and joins per run | Out of scope in §1 | A real brief needs a second table | §1 scope change |
+| Non-tabular data (text, images) via feature extraction | Out of scope in §1 | Tabular pipeline and M2 metrics stable | §1 scope change |
+| Web UI and API | The CLI and search map serve one researcher | A user outside the team runs Popper | §1 scope change |
 
 ---
 
-## Rules for every milestone
+## Closing a milestone
 
-- Update the Status column and ARCHITECTURE.md in the same change that finishes a milestone. ARCHITECTURE.md describes built behaviour. Plans live in `docs/specs/` and are removed once done.
-- A mechanism added after M4 names the failure it fixes and its result on the evaluation set.
+- Set its Status here in the same change that finishes it.
+- If building it changed a contract, update ARCHITECTURE.md in that change.
+- Remove its spec and plan from `docs/specs/`.
