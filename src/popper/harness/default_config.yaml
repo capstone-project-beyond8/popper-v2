@@ -13,6 +13,10 @@ search:
   max_turns: 12          # model turns per node agent
   good_score: 7          # stop once the best node reaches this score...
   patience: 2            # ...and has not improved for this many steps
+  stage_steps:
+    baseline: 3
+    main: 6
+    robustness: 6
 execution:
   timeout_seconds: 300
   max_output_chars: 8000 # stdout/stderr returned to the model

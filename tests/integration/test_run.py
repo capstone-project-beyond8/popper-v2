@@ -25,8 +25,11 @@ FRAMING = {
 HYPOTHESIS = {
     "statement": "Scores rise with the log of weekly study hours.",
     "rationale": "Diminishing returns.",
-    "variables": ["study_hours_week", "exam_score"],
-    "planned_experiments": ["Regress score on log1p(study hours)"],
+    "primary_estimand": {"outcome": "exam_score", "exposure": "study_hours_week",
+                         "contrast": "study hours 10 to 11", "population": "eligible students",
+                         "unit": "exam score points"},
+    "expected_direction": "positive", "refuting_result": "a nonpositive contrast",
+    "planned_test": "Regress score on log1p(study hours); bootstrap the 10 to 11 contrast",
 }
 WRITEUP = {
     "title": "Study hours and exam scores",
@@ -36,7 +39,7 @@ WRITEUP = {
     "exploration": "e",
     "hypothesis": "h",
     "methods": "m",
-    "results": r"Slope \R{experiment.slope} and unknown \R{experiment.nope}.",
+    "results": r"Contrast \R{main.primary_estimate} and unknown \R{main.nope}.",
     "limitations": "l",
     "figures": [{"stage": "explore", "file": "scatter.png", "caption": "Scatter"}],
 }
@@ -89,8 +92,10 @@ ci = [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))]
 os.makedirs("figures", exist_ok=True)
 plt.scatter(x, y)
 plt.savefig("figures/fit.png")
-json.dump({"slope": {"value": float(slope), "ci": ci, "n": len(x)}}, open("results.json", "w"))
+scale = float(np.log(12) - np.log(11))
+json.dump({"primary_estimate": {"value": float(slope) * scale, "ci": [c * scale for c in ci], "n": len(x)}}, open("results.json", "w"))
 """
+EXPERIMENT += f"\njson.dump({HYPOTHESIS['primary_estimand']!r}, open('estimand.json','w'))\n"
 
 
 def _submit(code: str) -> tuple[ToolCall, ...]:
@@ -121,8 +126,8 @@ def test_end_to_end(tmp_path: Path) -> None:
     )
     assert out.status == "completed" and out.tex is not None
     tex = out.tex.read_text(encoding="utf-8")
-    results = next((out.run_dir / "tree" / "experiment").glob("*/execution/results.json"))
-    slope = json.loads(results.read_text(encoding="utf-8"))["slope"]["value"]
+    results = next((out.run_dir / "tree" / "main").glob("*/execution/results.json"))
+    slope = json.loads(results.read_text(encoding="utf-8"))["primary_estimate"]["value"]
     assert f"{slope:.3g}" in tex and r"\textbf{??}" in tex
     assert "exploratory --- autonomously generated" in tex and "\\usepackage{amsmath}" in tex
     framing = json.loads((out.run_dir / "understand" / "framing.json").read_text(encoding="utf-8"))
@@ -134,9 +139,9 @@ def test_end_to_end(tmp_path: Path) -> None:
     assert f"<untrusted>\n{brief}\n</untrusted>" in request.prompt
     assert (out.run_dir / "data" / "processed.parquet").exists()
     record = load_state(RunStore(out.run_dir))
-    assert record["status"] == "completed" and record["missing"] == [r"\R{experiment.nope}"]
+    assert record["status"] == "completed" and record["missing"] == [r"\R{main.nope}"]
     writer = [r for r in llm.calls if r.tag == "writeup"]
-    assert len(writer) == 3 and r"\R{experiment.nope}: no key experiment.nope" in writer[1].prompt
+    assert len(writer) == 3 and r"\R{main.nope}: no key main.nope" in writer[1].prompt
     lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
     events = [json.loads(line)["event"] for line in lines]
     assert events.count("phase") == 5 and "exec" in events

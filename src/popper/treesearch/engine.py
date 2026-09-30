@@ -57,6 +57,8 @@ class StageSpec:
     check: Callable[[Path], str | None] | None = None
     describe: Callable[[Path], str] | None = None
     blind_estimates: bool = False
+    steps: int | None = None
+    seed_node: str | None = None
 
 
 class ResultEntry(BaseModel):
@@ -270,7 +272,7 @@ def _plateaued(nodes: Sequence[Node], search: Search) -> bool:
 
 def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> Node:
     rng = rng or random.Random()
-    steps = h.config.search.steps_per_stage
+    steps = spec.steps or h.config.search.steps_for(spec.name)
     h.journal.write("stage_start", stage=spec.name, steps=steps)
     nodes: list[Node] = []
     for i in range(steps):

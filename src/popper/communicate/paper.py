@@ -40,7 +40,7 @@ _ENV = Environment(
 class FigureRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    stage: Literal["explore", "experiment"]
+    stage: Literal["explore", "baseline", "main", "robustness"]
     file: str
     caption: str
 

@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +31,10 @@ class Search(_Strict):
     max_turns: int = Field(ge=1)
     good_score: float = 7
     patience: int = 2
+    stage_steps: dict[Literal["data", "explore", "baseline", "main", "robustness"], Annotated[int, Field(ge=1)]] = Field(default_factory=dict)
+
+    def steps_for(self, stage: str) -> int:
+        return next((steps for name, steps in self.stage_steps.items() if name == stage), self.steps_per_stage)
 
 
 class Execution(_Strict):

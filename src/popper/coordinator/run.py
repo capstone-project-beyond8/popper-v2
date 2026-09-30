@@ -8,7 +8,7 @@ from typing import Literal
 
 from popper.communicate.paper import write_paper
 from popper.discover.experiment import experiment
-from popper.discover.explore import explore
+from popper.discover.explore import explore, propose_hypothesis
 from popper.ground.data import prepare
 from popper.harness.config import Config
 from popper.harness.llm import LLM
@@ -60,9 +60,10 @@ def run(
         _phase(h, "data")
         data_node = prepare(h, framing)
         _phase(h, "explore")
-        explore_node, hypothesis = explore(h, framing)
+        explore_node = explore(h, framing)
+        hypothesis = propose_hypothesis(h, framing, explore_node)
         _phase(h, "experiment")
-        experiment_node = experiment(h, framing, hypothesis, explore_node.code)
+        experiment_node = experiment(h, framing, hypothesis, data_node)
         _phase(h, "publication")
         changes = json.loads((data_node.execution_dir / "changes.json").read_text("utf-8"))
         tex, pdf, missing = write_paper(
