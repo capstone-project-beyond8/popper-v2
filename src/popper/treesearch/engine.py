@@ -1,6 +1,5 @@
 """Staged tree search adapted from AI-Scientist-v2: one node is one script run in a subprocess."""
 
-import json
 import random
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -16,6 +15,7 @@ from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
+from popper.treesearch.judge import judge_input, make_diagnostic
 from popper.treesearch.tools import node_tools
 
 NodeKind = Literal["draft", "debug", "improve"]
@@ -56,6 +56,7 @@ class StageSpec:
     min_figures: int = 0
     check: Callable[[Path], str | None] | None = None
     describe: Callable[[Path], str] | None = None
+    blind_estimates: bool = False
 
 
 class ResultEntry(BaseModel):
@@ -76,6 +77,7 @@ class Verdict(BaseModel):
     goal_met: bool
     node_score: float = Field(ge=1, le=10)
     analysis: str
+    figure_issues: list[str] = Field(default_factory=list)
 
 
 class StageFailed(Exception):
@@ -239,31 +241,21 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         node.analysis = f"Check failed: {failed}.\n{res.stderr}"
         return
     try:
-        summary = spec.describe(node.execution_dir) if spec.describe else "(none)"
-    except Exception as exc:  # describe runs harness code over model-written outputs
-        node.analysis = f"Check failed: could not summarise outputs: {exc}"
-        return
-    results = json.dumps(node.results, indent=2)
-    try:
+        if spec.blind_estimates:
+            make_diagnostic(h, node)
+        prompt, images = judge_input(spec, node, res)
         verdict = h.ask_model(
             "judge",
             schema=Verdict,
             tag=f"judge:{spec.name}",
             system=_SYSTEM,
-            prompt=load_prompt(
-                "popper.treesearch",
-                "judge.md",
-                goal=spec.goal,
-                code=part("Code", node.code, CODE_CHARS),
-                stdout=part("Output (tail)", res.stdout, limit, keep="tail", untrusted=True),
-                results=part("results.json", results, limit, untrusted=True),
-                summary=part("Independent summary", summary, limit, untrusted=True),
-            ),
+            prompt=prompt,
+            images=images,
         )
     except ValueError as exc:
         node.analysis = f"Invalid judge reply: {exc}"
         return
-    node.analysis = verdict.analysis
+    node.analysis = "\n".join([verdict.analysis, *verdict.figure_issues])
     if not verdict.node_buggy:
         node.status, node.score, node.goal_met = "ok", verdict.node_score, verdict.goal_met
 

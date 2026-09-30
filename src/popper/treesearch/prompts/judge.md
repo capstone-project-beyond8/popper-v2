@@ -19,4 +19,9 @@ the node buggy when it shows impossible values or unhandled missing values that 
 fixing.
 
 Reply with JSON only:
-{{"node_buggy": false, "goal_met": false, "node_score": 7, "analysis": "short reading of the outputs"}}
+{{"node_buggy": false, "goal_met": false, "node_score": 7, "analysis": "short reading of the outputs", "figure_issues": []}}
+
+Read attached figures. Unreadable axes, missing labels or misleading presentation lower the score;
+state the reason in analysis and figure_issues. Where estimates are withheld, assess methodology
+and the attached structural diagnostics only. Never score the size, direction or significance
+of an effect, and never infer them from missing numerical output.

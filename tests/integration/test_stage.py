@@ -170,3 +170,21 @@ def test_provider_error_marks_node_buggy(tmp_path: Path) -> None:
     assert best.status == "ok"
     analysis = h.run.path("tree", SPEC.name) / "stage-000" / "analysis.md"
     assert analysis.read_text(encoding="utf-8").startswith("model call failed")
+
+
+def test_judge_receives_figures_and_persists_quality_reason(tmp_path: Path) -> None:
+    code = _submit("""
+import json, os
+import matplotlib.pyplot as plt
+os.mkdir('figures')
+plt.plot([0, 1], [0, 1]); plt.savefig('figures/result.png')
+json.dump({'m': {'value': 1}}, open('results.json', 'w'))
+open('out.txt','w').write('x')
+""")
+    verdict = '{"node_buggy":false,"goal_met":true,"node_score":4,"analysis":"unreadable axis","figure_issues":["unreadable axis"]}'
+    h = _harness(tmp_path, [code], [verdict])
+    best = run_stage(h, SPEC)
+    assert best.score == 4 and "unreadable axis" in best.analysis
+    assert isinstance(h.llm, FakeLLM)
+    request = next(req for req in h.llm.calls if req.tag.startswith("judge:"))
+    assert request.messages[0].images == (best.execution_dir / "figures" / "result.png",)

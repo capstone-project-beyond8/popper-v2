@@ -166,21 +166,25 @@ class Harness:
         return done.text
 
     def _ask_parsed(
-        self, role: Role, tag: str, system: str, prompt: str, parse: Callable[[str], R]
+        self, role: Role, tag: str, system: str, prompt: str, parse: Callable[[str], R],
+        images: Sequence[Path] = (),
     ) -> R:
         try:
-            return parse(self.ask(role, tag=tag, system=system, prompt=prompt))
+            return parse(self.ask(role, tag=tag, system=system, prompt=prompt, images=images))
         except ValueError as err:  # JSON, schema and truncation errors all derive from ValueError
             retry = (
                 f"{prompt}\n\nYour previous reply was not valid JSON for this task ({err}). "
                 "Reply with JSON only."
             )
-            return parse(self.ask(role, tag=tag, system=system, prompt=retry))
+            return parse(self.ask(role, tag=tag, system=system, prompt=retry, images=images))
 
     def ask_json(self, role: Role, *, tag: str, system: str, prompt: str) -> dict[str, Any]:
         return self._ask_parsed(role, tag, system, prompt, _parse_json)
 
-    def ask_model(self, role: Role, *, schema: type[T], tag: str, system: str, prompt: str) -> T:
+    def ask_model(
+        self, role: Role, *, schema: type[T], tag: str, system: str, prompt: str,
+        images: Sequence[Path] = (),
+    ) -> T:
         return self._ask_parsed(
-            role, tag, system, prompt, lambda text: schema.model_validate(_parse_json(text))
+            role, tag, system, prompt, lambda text: schema.model_validate(_parse_json(text)), images,
         )

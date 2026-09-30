@@ -169,3 +169,17 @@ def test_system_prompt_carries_untrusted_note(tmp_path: Path) -> None:
     h, _ = _flaky_harness(tmp_path, llm)
     h.ask("analyst", tag="t", system="s", prompt="p")
     assert llm.requests[0].system.endswith(UNTRUSTED_NOTE)
+
+
+def test_schema_retry_keeps_image_attachments(tmp_path: Path) -> None:
+    replies = iter(["invalid", '{"a": 3}'])
+    fake = FakeLLM(lambda req: next(replies))
+    h = _harness(tmp_path, fake)
+    image = tmp_path / "safe.png"
+
+    class Shape(BaseModel):
+        a: int
+
+    result = h.ask_model("judge", schema=Shape, tag="judge", system="s", prompt="p", images=(image,))
+    assert result.a == 3
+    assert all(request.messages[0].images == (image,) for request in fake.calls)
