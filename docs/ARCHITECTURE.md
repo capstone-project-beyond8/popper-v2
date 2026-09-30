@@ -29,7 +29,7 @@ A run passes through five phases. This is the AI Scientist-v2 pipeline (ideation
 | 5 | **Publication** | Communicate | `communicate/` | Aggregate figures, write the LaTeX paper, check figures and numbers, review | `report/paper.pdf`, `review.json` |
 | — | *Verify (optional)* | Verify | `verify/` (M6) | Re-run a frozen experiment once on held-out rows; the outcome is computed by code | `verify/*.json` |
 
-The **coordinator** runs the phases in order. Until M2 it is a fixed playbook. From M2 it is an agent (§3.2) that follows the same order by default, but can loop back with a recorded reason:
+The **PI** (package `coordinator/`) runs the phases in order. Until M2 it is a fixed playbook. From M2 it is an agent (§3.2) that follows the same order by default, but can loop back with a recorded reason:
 - an experiment result may add or revise a hypothesis (4 → 3);
 - a data problem found later reopens the data stage as a new child node (3/4 → 2).
 
@@ -38,9 +38,9 @@ The **coordinator** runs the phases in order. Until M2 it is a fixed playbook. F
 | Subsystem | Package | Owns | Section |
 |---|---|---|---|
 | **Research phases** | `understand/`, `ground/`, `discover/`, `communicate/`, `verify/` | Goals, prompts and outputs of each phase | §2, §6, §7, §9 |
-| **Agent team** | role prompts in their phase packages; coordinator in `coordinator/` | Who does what, with which tools and model, and in which session | §3.2 |
+| **Agent team** | role prompts in their phase packages; PI in `coordinator/` | Who does what, with which tools and model, and in which session | §3.2 |
 | **Harness** | `harness/` | Model access, agent loop, tools, context assembly, execution, recording, budgets, failure handling, config | §3.3 |
-| **Decision layer** | `harness/decisions.py` (M1) | Typed bounded judgments with rule fallback, off/shadow/on modes, and a record of every judgment | §3.4 |
+| **Decision layer** | `harness/decisions.py` (M1) | Typed Judge answers, a second answerer (Jev), off/shadow/on modes, and disagreement records | §3.4 |
 | **Tree search** | `treesearch/` | The generic stage engine: nodes, steps, checks, selection | §6 |
 | **State and memory** | the run directory, written through `harness/store.py` | Artifacts, assessments, working memory, attribution | §5 |
 | **Knowledge** | `understand/literature.py` (M5) | Prior work for framing, hypotheses and related work | §10 |
@@ -65,21 +65,22 @@ cli ──► coordinator ──► understand · ground · discover · communic
 
 ### 3.2 Agent team
 
-Popper works as a small research group. Each **role** is a prompt, a tool set and a model route (`ideation`, `code`, `feedback`, `vision`, `writeup`). A role runs in its own agent session, so its context holds only what that role needs. Critics never inherit the author's reasoning as fact.
+A **role** is a prompt, a tool set and a model route. v2 creates a separate role only for one of two reasons:
+- it needs different tools;
+- it needs an **independent context**, so that it judges work without inheriting the author's reasoning.
 
-| Role | Does | Tools | Session | From |
+That gives six roles instead of v1's ten profiles.
+
+| Role | Does | Tools | Why separate | From |
 |---|---|---|---|---|
-| **Framer** | Framing, with self-reflection | `read_artifact` (profile), `search_literature` (M5) | one per run | M0 |
-| **Analyst** (node agent) | Builds one tree node: inspects, tries, submits a script. Its task is set by the stage and the action (draft, debug, improve) | `inspect_data`, `run_python`, `view_figure`, `read_artifact`, `submit` | one per node | M0 |
-| **Judge** | Reads a node's code, output and results; writes `analysis.md`; answers the node decisions (§3.4) | none; context only | one per node | M0 |
-| **Figure reviewer** | Reads figures as images; flags unreadable or misleading plots | `view_figure` | inside the judge step | M1 |
-| **Theorist** | Turns exploration results into hypotheses with planned experiments | `read_artifact` | one per round | M0 |
-| **Skeptic** | Independent critique of hypotheses and main results: confounders, alternative explanations, claims beyond the design | `read_artifact`, `view_figure` | separate session | M2 |
-| **PI** (coordinator agent) | Chooses the next work from results and memory; loops back; asks the researcher; keeps working memory | `run_stage`, `propose_hypotheses`, `revise_hypothesis`, `reopen_data`, `ask_researcher`, `update_memory`, `finish` | one per run | M2 |
-| **Writer** | Writes the paper from artifacts; revises from checks and review | `read_artifact`, `view_figure`, `search_literature` (M5) | one per paper | M0 |
-| **Reviewer** | Rubric review of the draft (soundness, clarity, limitations, faithfulness) | `read_artifact`, `view_figure` | separate session | M3 |
+| **PI** | Runs the playbook. From M2 it chooses next work from results and memory, loops back, and asks the researcher | M0: none (fixed playbook). M2: `run_stage`, `propose_hypotheses`, `revise_hypothesis`, `reopen_data`, `ask_researcher`, `update_memory`, `finish` | Only role that writes run-level files | M0 / M2 |
+| **Theorist** | Framing with self-reflection; turns exploration results into hypotheses with planned experiments | `read_artifact`, `search_literature` (M5) | Reasons over artifacts and needs no code tools | M0 |
+| **Analyst** | Builds one tree node: inspects, tries, submits a script | `inspect_data`, `run_python`, `view_figure`, `read_artifact`, `submit` | The only role that runs code | M0 |
+| **Judge** | Reads a node's code, output, results and (M1) figures; writes `analysis.md`; answers the node questions (§3.4) | none; context only | Scores work it did not write | M0 |
+| **Critic** | Independent critique: confounders, alternative explanations, claims beyond the design. Applied to hypotheses and main results (M2) and to the draft paper (M3, rubric review) | `read_artifact`, `view_figure` | Must not share the author's context | M2 |
+| **Writer** | Writes the paper from artifacts and revises from checks and critique | `read_artifact`, `view_figure`, `search_literature` (M5) | Long-form output with its own template | M0 |
 
-**Topology.** One run has one coordinator (playbook or PI). The coordinator starts role sessions and waits for their artifacts, and only the coordinator writes run-level files. Workers never write each other's outputs. Several analysts working one stage in parallel (Sakana uses four) is a measured extension (M7). Tournament ranking of hypotheses (Co-Scientist) is a candidate for M4 comparison, not a default.
+**Topology.** One run has one PI. The PI starts role sessions one at a time and waits for their artifacts. Roles never write each other's outputs. Parallel analysts per stage (Sakana uses four) and hypothesis tournaments (Co-Scientist) are M4 comparisons, not defaults.
 
 ### 3.3 Harness
 
@@ -98,10 +99,10 @@ The harness is the environment every agent works in. Its job is to make free age
 | `view_figure(path)` | Sends a PNG to the model | Run directory only |
 | `read_artifact(path)` | Reads run files: `results.json`, `analysis.md`, `changes.json`, `framing.json`, `hypotheses.json`, `memory.md` | Run directory only; no raw data rows beyond `inspect_data` |
 | `submit(code)` | Terminal: the script the harness runs as the node | One per node agent |
-| Coordinator tools (M2) | Listed in §3.2 | Coordinator only |
+| PI tools (M2) | Listed in §3.2 | PI only |
 | `search_literature(query)` (M5) | OpenAlex metadata and abstracts | Concepts only, never data values |
 
-Tools read the run directory and write only inside the calling node's folder. Stage outputs are created only by submitted scripts, and run-level files only by the coordinator.
+Tools read the run directory and write only inside the calling node's folder. Stage outputs are created only by submitted scripts, and run-level files only by the PI.
 
 **Context assembly.** Each agent's context is built from the run directory, never carried over from another agent's conversation.
 - `harness/context.py` assembles the role prompt, the task, the relevant artifacts and working memory (M2).
@@ -132,27 +133,31 @@ No failure path edits a recorded artifact. Resume after a crash is deferred (M7)
 
 ### 3.4 Decision layer (M1 shadow, M4 measured)
 
-Some judgments are bounded: a yes/no or a score on a known scale, over facts code has already gathered. The decision layer answers them as **typed questions**, so each one can be measured, compared across models, and replaced.
+The Judge's verdict is a **typed answer**, not free text:
 
-| Decision class | Type | Rule fallback | Used by |
-|---|---|---|---|
-| `node_buggy` | yes/no | the judge LLM's `is_buggy` | treesearch (M1) |
-| `goal_met` | yes/no | the judge LLM's `goal_met` | treesearch (M1) |
-| `node_score` | score 1–10 | the judge LLM's score | treesearch (M1) |
-| `figure_ok` | yes/no | the figure reviewer's verdict | treesearch (M1) |
-| `hypothesis_rank` | score per option | the Theorist/Skeptic order | coordinator (M2) |
-| `continue_or_stop` | yes/no | the playbook's budget rule | coordinator (M2) |
+| Question | Type |
+|---|---|
+| `node_buggy` | yes/no |
+| `goal_met` | yes/no |
+| `node_score` | 1–10 |
 
-**Rules**, adapted from v1:
-1. **Choose, do not generate.** No code, hypothesis or prose goes through a decision.
-2. **Judge, do not compute.** Counts, estimates and intervals come from code and are given to the question as facts.
-3. **No authority widening.** A decision never raises a label, passes a code check, or changes a recorded result.
-4. **Fallback and abstention.** An unavailable provider, malformed output, or confidence below the class threshold gives the rule result, and the reason is recorded.
-5. **Modes per class.** `off` makes no call. `shadow` asks and records while the rule decides. `on` uses the answer with fallback. New classes start in `shadow`.
-6. **Measured before `on`.** A class goes `on` only after M4 shows agreement with checked cases, calibration, and cost at least as good as the LLM judge.
-7. **Record.** Each judgment writes a `decision` journal line with the options, the answer, the confidence, the rule result, the model and the final choice.
+From M2 the PI also answers `hypothesis_rank`, a score per option. Code reads these fields; the prose goes to `analysis.md`.
 
-**Provider.** The interface is `DecisionModel.yes_probability(question, instructions, state)` and `.score(question, instructions, criteria, state)`. The first adapter is TypeSafe **Jev** (System One, as in v1's `adapters/jev.py`), and the LLM judge serves as the reference. Popper works fully without Jev: the default mode for every class is `off` until M1 ships it in `shadow`.
+Because the answers are typed, **any answerer can fill them**: the LLM Judge (the default and the reference) or a decision model such as TypeSafe **Jev** (System One). This keeps v1's decision-layer idea but changes where it sits. v1 placed decisions as a separate layer on pipeline steps. In v2 the decision model is a second answerer for the same questions the Judge already answers, so adopting it changes no interface.
+
+- **Modes per question**:
+  - `off`: only the Judge answers;
+  - `shadow`: both answer, and the Judge's answer is used;
+  - `on`: the decision model's answer is used when its confidence clears the threshold, otherwise the Judge's.
+
+  Every question starts `off`, and M1 ships them in `shadow`.
+- **Every disagreement becomes evaluation data.** In `shadow`, each run appends both answers and the facts they saw to the journal. M4 checks a sample of disagreements by hand and computes agreement, calibration and cost per question. A question goes `on` only if the decision model matches or beats the Judge. This is the main improvement over v1: v1 required calibration evidence but had no built-in way to collect it.
+- **Limits** (kept from v1):
+  - a decision picks among given options or scores given facts;
+  - it never writes code or prose;
+  - it never computes a number that code can compute;
+  - it never overrides a code check or a label.
+- **Fallback**: an unavailable provider or malformed answer uses the Judge's answer, and the reason is journaled. Popper works fully without Jev.
 
 ## 4. Positioning
 
@@ -189,7 +194,7 @@ runs/<run_id>/
     figures/*.png
     analysis.md            the judge's reading (an assessment)
   memory.md                working memory citing node ids (M2)
-  critiques/*.md           Skeptic assessments citing node ids (M2)
+  critiques/*.md           Critic assessments citing node ids (M2)
   report/paper.tex  report/paper.pdf  report/compile.log  report/review.json
 ```
 
@@ -199,7 +204,7 @@ Three kinds of content, adopted from v1:
 |---|---|---|
 | **Source artifact** | data versions, `code.py`, `results.json`, figures, outputs | Never edited; a new node or version |
 | **Assessment** | `analysis.md`, critiques, figure reviews, `review.json`, decisions | A new attributed assessment beside the old one |
-| **Working memory** | `memory.md` (M2) | New entries appended by the coordinator, each citing artifacts |
+| **Working memory** | `memory.md` (M2) | New entries appended by the PI, each citing artifacts |
 
 An assessment or memory entry cites the artifacts it rests on. A wrong interpretation is corrected by a new assessment, without touching the execution it interprets.
 
@@ -211,18 +216,18 @@ An assessment or memory entry cites the artifacts it rests on. A wrong interpret
 
 The engine adapts the AI Scientist-v2 `bfts` loop.
 
-**Node.** Each node is built by an **analyst** agent (§3.2) and ends with one self-contained Python script. The script reads the stage inputs, writes `results.json` and figures into its node folder, and prints a short log. The harness re-runs the submitted script from scratch, and only that run's outputs are the node's result. So there is no hidden state, and every node can be re-run.
+**Node.** Each node is built by an **Analyst** agent (§3.2) and ends with one self-contained Python script. The script reads the stage inputs, writes `results.json` and figures into its node folder, and prints a short log. The harness re-runs the submitted script from scratch, and only that run's outputs are the node's result. So there is no hidden state, and every node can be re-run.
 
-**Step.** Each step runs one analyst, with the task set by the action:
+**Step.** Each step runs one Analyst, with the task set by the action:
 1. If the stage has fewer than `num_drafts` root nodes, **draft** a new approach.
 2. Otherwise, with probability `debug_prob`, pick a buggy leaf whose debug depth is below `max_debug_depth` and **debug** it.
 3. Otherwise, **improve** the best working node (in the robustness stage, add a **robustness** child).
 
-The analyst gets the stage goal, the context, and for debug or improve the parent's code, errors and analysis. It uses its tools within `max_turns`, then calls `submit`. An analyst that never submits yields a `buggy` node.
+The Analyst gets the stage goal, the context, and for debug or improve the parent's code, errors and analysis. It uses its tools within `max_turns`, then calls `submit`. An Analyst that never submits yields a `buggy` node.
 
 **Checks, then the judge.**
 1. **Code checks first.** A non-zero exit, a timeout, a missing required output or an invalid `results.json` makes the node `buggy` without a model call.
-2. **Then the judge** (§3.2) reads the code, output and results, and from M1 the figures. It writes `analysis.md` and answers `node_buggy`, `goal_met` and `node_score`, through the decision layer from M1.
+2. **Then the judge** (§3.2) reads the code, output and results, and from M1 the figures. It writes `analysis.md` and gives typed answers to `node_buggy`, `goal_met` and `node_score` (§3.4).
 3. **Best node.** The highest-scoring `ok` node wins; ties go to the earlier node.
 
 Scripts receive inputs through `POPPER_INPUT_<NAME>` (absolute paths). `results.json` maps snake_case names to `{"value": number | string, "ci": [low, high]?, "n": int?, "note": str?}`.
@@ -241,7 +246,7 @@ A stage ends when it reaches `steps_per_stage`, or earlier when an `ok` node mee
 
 **Stability label (M1).** Code computes a label from the robustness outputs, adopted from v1: `stable` when the main estimate keeps its sign and its interval excludes zero in at least 80% of the variants, `fragile` otherwise. The label is printed next to the result in the paper, and no model sets it.
 
-**Analysis practice.** The analyst and Skeptic prompts carry a short checklist adopted from v1's methodology:
+**Analysis practice.** The Analyst and Critic prompts carry a short checklist adopted from v1's methodology:
 - justify a processing choice by validity, never by the relation it produces;
 - flag a derived variable that uses the outcome;
 - report every rule that drops rows;
@@ -258,8 +263,8 @@ A stage ends when it reaches `steps_per_stage`, or earlier when an `ok` node mee
    - feed compile errors back to the writer;
    - have the vision model check each figure with its caption;
    - audit numbers (any number in the prose not produced by `\R{}` is listed);
-   - get the reviewer's `review.json` and revise once.
-5. **Claim language.** The writer and reviewer follow the checklist of §6. Negative and inconclusive results are reported with the same standing as positive ones, and an observational design is described as association.
+   - get the Critic's rubric review as `review.json` and revise once.
+5. **Claim language.** The Writer and Critic follow the checklist of §6. Negative and inconclusive results are reported with the same standing as positive ones, and an observational design is described as association.
 6. **Appendix**, generated by code: the data changes, the experiment tree summary, the code of reported nodes, researcher-steered choices, and the label.
 
 The LaTeX source is compiled with the first engine found, in the order `tectonic`, `latexmk`, `pdflatex` (run twice). Its output goes to `report/compile.log`. With no engine, or on a failed compile, the run still writes `paper.tex`; `popper pdf RUN_DIR` rebuilds the PDF later.
@@ -289,7 +294,7 @@ The contract comes from v1 (frozen before read, run once, outcome by code) and i
 
 ## 10. Knowledge and evaluation
 
-**Knowledge (M5).** `search_literature` returns OpenAlex metadata and abstracts for the framer, theorist and writer.
+**Knowledge (M5).** `search_literature` returns OpenAlex metadata and abstracts for the Theorist and Writer.
 - Queries carry concepts, never data values.
 - Prior work shapes directions and related work, and is never evidence for this run's results.
 - Hypotheses record whether they replicate, extend or contradict prior findings. This describes search coverage, never a novelty claim.
@@ -302,49 +307,45 @@ The contract comes from v1 (frozen before read, run once, outcome by code) and i
 | Null | Synthetic data with no real effect | How often an exploratory result is written as a finding, and whether it is labelled `fragile` |
 | Reference | Public datasets with well-known findings | Agreement with the known findings |
 
-- **Every run reports:** reviewer score, share of numbers traced, cost, time, failure rate.
+- **Every run reports:** Critic rubric score, share of numbers traced, cost, time, failure rate.
 - **Comparisons:**
   - agentic vs one-shot nodes;
   - drafts 1 vs 3;
   - vision on vs off;
   - PI agent vs fixed playbook;
-  - Skeptic on vs off;
-  - each decision class in `shadow` vs `on`.
+  - Critic on vs off;
+  - for each Judge question, the decision model vs the LLM Judge, using the disagreements collected in shadow.
 - **Decisions:** each comparison ends in a record in `evals/decisions.md` (what changed, the result, the default kept). Evaluation never changes a run's results.
 
-## 11. Adopted from v1, and left behind
+## 11. From v1 to v2
 
-**Adopted:**
-- the five research functions, with Verify optional and strict;
-- "record, don't gate";
+v1 is a reference, not a template. Each v1 idea below was kept only in a form that serves v2's goal, and made smaller or stronger where v2's design allows. Ideas that only served v1's strict confirmation path wait for Verify, or are dropped.
+
+| v1 concept | v2 form | What improved |
+|---|---|---|
+| Analysis Ledger + durable read intent before every data read | `journal.jsonl` written by the harness as a side effect; the holdout never reaches a node, so exposure needs no tracking outside Verify | No gate on the exploratory path; one record instead of a ledger store plus events |
+| Research Graph (typed nodes and relations, projections, schema versions) | The run directory: node folders linked by `meta.json`; views such as `tree.html` are derived from it | One source of truth; nothing to migrate |
+| Source artifact / assessment / working memory | Kept: code and results are artifacts; `analysis.md`, critiques and reviews are assessments; `memory.md` is memory. The folder layout shows the kind | The separation holds without a type system |
+| Registered method cards and tools | Free analysis code in tree nodes; the robustness stage and a code-computed `stable`/`fragile` label take the place of pre-registration for exploratory work | Open method space; fragility is measured instead of prevented |
+| Nine semantic rails (enforce/shadow) | Code checks on every node, the Judge, and the Critic | Fewer mechanisms; each one has a single owner |
+| Eleven fixed pipeline steps | Five phases on one tree engine; the PI can loop back (M2) | Results change the next step |
+| Ten role profiles | Six roles, separated only for tools or independent context | Fewer sessions and prompts to maintain |
+| Decision layer on pipeline steps | Typed Judge answers with a second answerer and built-in disagreement collection | Calibration data comes from normal runs |
+| Confirmation rounds, grants, partitions, error plans | One holdout split, one frozen look, an outcome computed by code (Verify, M6); v1's `science/` is ported only when a second test type is needed | Verify is isolated and strict; the rest of the system never pays for it |
+| Integrity audit that blocks views | Number audit as warnings; they become errors once M4 shows false alarms are rare | Measured before enforced |
+| Eleven publication views and a registered chart catalog | One paper, `tree.html`, and figures from executed code | Output first; every figure still traces to its code |
+| Suites S0–S3, yield metrics, decision classes | Planted, null and reference suites run by one command; `evals/decisions.md` records each adoption | Same discipline, a fraction of the machinery |
+| Settings API with tiers | One YAML file, `--config`, and `POPPER_MODEL` | Nothing to serve |
+| Domain packs, programs and lineages, disclosure control, tenant auth, venue profiles | Not in v2 until a milestone needs them | — |
+
+Kept unchanged, because they are cheap and central:
+- the five research functions;
+- record, don't gate;
 - computed labels;
 - append-only history;
-- the split between source artifacts, assessments and working memory;
-- `supplied_by` attribution;
-- typed child reasons in the experiment tree;
-- figure review as an assessment;
-- failure classes;
-- the three budget kinds;
+- the failure and budget classes;
 - untrusted-content handling;
-- the decision-layer rules and modes;
+- negative results reported with equal standing;
 - the analysis-practice and claim-language checklists;
-- stability labels;
-- negative results with equal standing;
-- the Verify contract;
-- null and planted evaluation suites;
+- the strict Verify contract;
 - measured restriction.
-
-**Left behind for now:**
-- durable read intent and exposure tracking outside Verify;
-- a ban on row-level values in context;
-- registered-only charts;
-- template-only claims;
-- the Research Graph database and API;
-- programs, campaigns and lineages;
-- domain packs;
-- venue and publication profiles;
-- disclosure control;
-- tenant authentication;
-- the Settings API.
-
-Each item returns only when a milestone needs it.

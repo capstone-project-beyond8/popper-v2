@@ -8,9 +8,9 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 |---|---|---|---|---|
 | M0 | Mini scientist, end to end | `popper run examples/student_performance` → a paper with framing, data changes, exploration figures, one hypothesis and a tested result | 1,800 | todo |
 | M1 | Full experiment stages, figure feedback, decision layer | The paper has baseline, main and robustness results with a stability label; the judge reads figures; node decisions are recorded in shadow | 2,500 | todo |
-| M2 | Science loop (PI agent, Skeptic) | Several critiqued hypotheses; the researcher picks; a second round builds on the first; a data problem found later reopens the data stage | 3,200 | todo |
+| M2 | Science loop (PI agent, Critic) | Several critiqued hypotheses; the researcher picks; a second round builds on the first; a data problem found later reopens the data stage | 3,200 | todo |
 | M3 | Write-up and review | Compiles without manual fixes on three datasets; `review.json` and `tree.html` | 3,600 | todo |
-| M4 | Evaluation | Table over planted, null and reference suites and configurations; decision classes measured against checked cases | + `evals/` | todo |
+| M4 | Evaluation | Table over planted, null and reference suites and configurations; Judge questions: decision model vs Judge on checked disagreements | + `evals/` | todo |
 | M5 | Literature | Framing, hypotheses and paper cite real prior work | 4,100 | todo |
 | M6 | Verify (optional) | `popper verify <run> <result>` → a confirmed or not-confirmed outcome on held-out rows | 4,600 | todo |
 | M7 | Evidence-led extensions | Only what M4 shows is needed | — | — |
@@ -23,10 +23,10 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 | **Data** | Agentic `data` stage; `processed.parquet` + `changes.json` | Before/after figures; checks on derived variables | Reopened as a new child when a later phase finds a data problem | — | — | Holdout split before any node reads data |
 | **Exploration & hypothesis** | Agentic `explore` stage; one hypothesis | Figures judged by the vision model | 3–5 hypotheses with reflection; the researcher picks; hypotheses revised from results | — | Hypotheses related to prior work | — |
 | **Experiment** | One combined agentic stage | `baseline` → `main` → `robustness`; replication by resampling | Several hypotheses, one tree each; results feed memory | — | — | Frozen re-run on the holdout |
-| **Publication** | Template paper, `\R{}` numbers, fixed label | Robustness section | Several hypotheses, rounds and steering history | Writer reflection, figure/caption check, reviewer, `tree.html` | Related work and citations | Confirmed/not-confirmed labels |
-| **Harness** | Agent loop, node tools, context assembly with untrusted wrapping, retry, failure classes, progress, journal, budget | Vision in the judge | Coordinator tools, `memory.md` in context, human-input tool, per-phase budgets | — | `search_literature` tool | `verify` package |
-| **Agent team** | Framer, Analyst, Judge, Theorist, Writer | Figure reviewer | PI (coordinator agent), Skeptic | Reviewer | Literature for Framer, Theorist, Writer | — |
-| **Decision layer** | — (judge LLM decides) | `DecisionModel` interface, Jev adapter, node classes in `shadow` | `hypothesis_rank`, `continue_or_stop` in `shadow` | — | — | — |
+| **Publication** | Template paper, `\R{}` numbers, fixed label | Robustness section | Several hypotheses, rounds and steering history | Writer reflection, figure/caption check, Critic rubric review, `tree.html` | Related work and citations | Confirmed/not-confirmed labels |
+| **Harness** | Agent loop, node tools, context assembly with untrusted wrapping, retry, failure classes, progress, journal, budget | Vision in the Judge | PI tools, `memory.md` in context, human-input tool, per-phase budgets | — | `search_literature` tool | `verify` package |
+| **Agent team** | PI (fixed playbook), Theorist, Analyst, Judge, Writer | Judge reads figures | PI becomes an agent; Critic | Critic reviews the paper | Literature for Theorist and Writer | — |
+| **Decision layer** | Judge gives typed answers | Second answerer (Jev) in `shadow`, disagreements journaled | `hypothesis_rank` in `shadow` | — | — | — |
 
 ---
 
@@ -35,7 +35,7 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 **Goal:** one complete pass, rough but real, through all five phases. Each tree node is an agent with tools.
 
 ### Agent team
-Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own session with its own tools (ARCHITECTURE §3.2).
+PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Judge and Writer, each in its own session with its own tools (ARCHITECTURE §3.2).
 
 ### Harness (runtime)
 - **config**: package default `src/popper/harness/default_config.yaml`, then a `--config` file key by key, then the `POPPER_MODEL` environment variable for every role.
@@ -96,7 +96,7 @@ Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own sessio
   - costs under $5 and takes under 45 minutes.
 - The CI checks pass, and `src/` is ≤ 1,800 lines.
 
-**Out:** split experiment stages, vision in feedback, several hypotheses, researcher input, loops back, reviewer, `tree.html`, holdout.
+**Out:** split experiment stages, vision in feedback, several hypotheses, researcher input, loops back, Critic, `tree.html`, holdout.
 
 ---
 
@@ -116,9 +116,10 @@ Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own sessio
 - **Data**: before/after distribution figures for changed columns, and checks that derived variables have plausible ranges.
 - **Stability label**: computed by code from the robustness outputs (`stable` or `fragile`, ARCHITECTURE §6) and printed beside the result.
 - **Decision layer**:
-  - `harness/decisions.py` defines the `DecisionModel` interface and the modes (off, shadow, on), and records each judgment;
-  - the Jev adapter (optional dependency `typesafe-sdk`, key `TYPESAFE_API_KEY`) answers `node_buggy`, `goal_met`, `node_score` and `figure_ok` in `shadow`;
-  - without a key, every class stays `off`.
+  - `harness/decisions.py` defines the typed questions, the `Answerer` interface and the modes (off, shadow, on);
+  - the Jev adapter (optional dependency `typesafe-sdk`, key `TYPESAFE_API_KEY`) answers `node_buggy`, `goal_met` and `node_score` in `shadow` beside the Judge;
+  - every disagreement is journaled with both answers and the facts they saw;
+  - without a key, every question stays `off`.
 - **Publication**: a robustness section and a table of the main estimate across specifications.
 - **Tests:**
   - stage chaining (seed code passed on) with `FakeLLM`;
@@ -133,11 +134,11 @@ Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own sessio
 
 ---
 
-## M2 — Science loop (coordinator agent)
+## M2 — Science loop (PI agent)
 
-**Goal:** results change what the run does next. The coordinator becomes an agent that uses the same tool loop.
+**Goal:** results change what the run does next. The PI becomes an agent that uses the same tool loop.
 
-- **Coordinator tools:**
+- **PI tools:**
   - `run_stage(stage, goal_note)`;
   - `propose_hypotheses(n)`;
   - `revise_hypothesis(id, reason)`;
@@ -145,15 +146,15 @@ Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own sessio
   - `ask_researcher(question, options)`;
   - `update_memory(text)`;
   - `finish(reason)`.
-- **Playbook**: the five phases stay the default order, stated in the coordinator prompt. The coordinator may loop back with a recorded reason. Per-phase and total budgets bound the loop.
+- **Playbook**: the five phases stay the default order, stated in the PI prompt. The PI may loop back with a recorded reason. Per-phase and total budgets bound the loop.
 - **Hypotheses**: 3–5 from exploration with one reflection round, each with a rationale, planned experiments and source nodes. Each chosen hypothesis gets its own experiment trees.
-- **Skeptic**: a separate session critiques each hypothesis before the choice, and each main result before publication (confounders, alternative explanations, claims beyond the design). The critique is written to `critiques/` as an assessment. It can prompt a robustness child or a limitation, but never changes a result.
-- **Decisions**: `hypothesis_rank` and `continue_or_stop` in `shadow` beside the PI's own choice.
-- **Researcher input**: `ask_researcher` on the CLI (choose, edit, or add a note). `--auto` lets the coordinator pick. Every choice is labelled `researcher_steered` or `agent_supplied`.
-- **Working memory**: `memory.md`, updated after each stage. Each entry cites node ids, and it is read by the coordinator and by node agents (`read_artifact`).
+- **Critic**: a separate session critiques each hypothesis before the choice, and each main result before publication (confounders, alternative explanations, claims beyond the design). The critique is written to `critiques/` as an assessment. It can prompt a robustness child or a limitation, but never changes a result.
+- **Decisions**: `hypothesis_rank` in `shadow`; the PI's ranking is the reference, and disagreements are journaled.
+- **Researcher input**: `ask_researcher` on the CLI (choose, edit, or add a note). `--auto` lets the PI pick. Every choice is labelled `researcher_steered` or `agent_supplied`.
+- **Working memory**: `memory.md`, updated after each stage. Each entry cites node ids, and it is read by the PI and by node agents (`read_artifact`).
 - **Publication**: one results subsection per tested hypothesis, plus a "research path" section generated from the journal (what was tried, why it changed).
 - **Tests:**
-  - a scripted coordinator run with a reopen and a revision;
+  - a scripted PI run with a reopen and a revision;
   - `--auto` makes no input calls.
 - **Exit:**
   - on a fixture dataset with a data issue that only shows during experiments (a unit mismatch in one school), the run reopens the data stage and the paper reports it;
@@ -171,7 +172,7 @@ Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own sessio
 - **Writer reflection**: compile errors and LaTeX warnings are fed back for up to three rounds. Section completeness is checked.
 - **Figure and caption check**: the vision model reads each figure with its caption and flags mismatches.
 - **Number audit**: every number in the prose that did not come from `\R{}` is listed as a warning in `review.json`.
-- **Reviewer** (separate session): an LLM reviewer with a fixed rubric (soundness, clarity, limitations, faithfulness to results) writes `review.json`, and the writer revises once from it.
+- **Critic rubric review** (separate session): the Critic scores the draft on a fixed rubric (soundness, clarity, limitations, faithfulness to results) and writes `review.json`; the Writer revises once from it.
 - **`tree.html`**: a static page of the experiment trees, showing each node's code, output, figures, score and kind.
 - **Tests:**
   - the number audit on a fixture text;
@@ -193,15 +194,15 @@ Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own sessio
   - on null data, the share of runs that report a finding as if it held, and whether it is labelled `fragile`;
   - data-issue fix rate;
   - share of numbers traced to `\R{}`;
-  - reviewer score;
+  - Critic rubric score;
   - cost, wall time and failure rate.
 - **Comparisons** at equal model and budget:
   - agentic nodes vs single-shot nodes;
   - `num_drafts` 1 vs 3;
   - vision feedback on vs off;
   - PI agent vs fixed playbook;
-  - Skeptic on vs off;
-  - each decision class: shadow answers compared with checked cases (agreement, calibration, cost); a class goes `on` only when it matches or beats the LLM judge.
+  - Critic on vs off;
+  - each Judge question: the decision model vs the LLM Judge on a hand-checked sample of shadow disagreements (agreement, calibration, cost); a question goes `on` only when the decision model matches or beats the Judge.
 - **Decisions**: each comparison ends in a short record in `evals/decisions.md`: what changed, the result, and the default kept.
 - **Exit:** the table is generated by one command (`popper-eval`), and the defaults in `default_config.yaml` follow the decisions.
 

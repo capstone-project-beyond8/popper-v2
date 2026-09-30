@@ -13,7 +13,7 @@
 | `src/popper/ground/` | Data phase: preparation stage goals and checks |
 | `src/popper/discover/` | Exploration & hypothesis and experiment phases |
 | `src/popper/communicate/` | Publication: LaTeX write-up, figure aggregation, review |
-| `src/popper/coordinator/` | The playbook that runs the five phases in order |
+| `src/popper/coordinator/` | The PI: the playbook that runs the five phases in order |
 | `src/popper/cli.py` | Entry point |
 | `examples/` | Briefs and datasets for demos and evaluation |
 | `evals/` | Evaluation suites and comparisons (production code never imports it) |
