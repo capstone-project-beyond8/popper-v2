@@ -1,0 +1,70 @@
+[project]
+name = "popper"
+dynamic = ["version"]
+description = "AI scientist for quantitative tabular data: from a brief and a dataset to an analysed, written-up study"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+# Agent-generated analysis scripts run in this environment, so the analysis stack is a runtime dependency.
+dependencies = [
+    "pydantic>=2,<3",
+    "pyyaml>=6,<7",
+    "jinja2>=3,<4",
+    "boto3>=1,<2",
+    "pandas>=2,<3",
+    "numpy>=2,<3",
+    "scipy>=1,<2",
+    "statsmodels>=0.14,<1",
+    "scikit-learn>=1,<2",
+    "matplotlib>=3,<4",
+    "pyarrow>=17",
+]
+
+[project.scripts]
+popper = "popper.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff",
+    "mypy",
+    "pandas-stubs",
+    "types-PyYAML",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/popper/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/popper"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src/popper", "tests", "examples/student_performance/make_data.py"]
+strict = true
+mypy_path = "src"
+explicit_package_bases = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["boto3", "botocore.*", "scipy.*", "statsmodels.*", "sklearn.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: runs real subprocesses or files; no provider calls",
+]
