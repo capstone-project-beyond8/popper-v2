@@ -5,7 +5,6 @@ import random
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from popper.harness.config import Search
 from popper.harness.interpreter import run_script
+from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 
 NodeKind = Literal["draft", "debug", "improve"]
@@ -46,6 +46,7 @@ class StageSpec:
     inputs: Mapping[str, Path]
     required_outputs: tuple[str, ...]
     seed_code: str | None = None
+    min_figures: int = 0
 
 
 class Feedback(BaseModel):
@@ -89,10 +90,6 @@ def choose_action(
     return "draft", None
 
 
-def _prompt(name: str, **fields: str) -> str:
-    return (files("popper.treesearch") / "prompts" / name).read_text("utf-8").format(**fields)
-
-
 def _task(spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
     if parent is None:
         if spec.seed_code:
@@ -121,7 +118,8 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
         "code",
         tag=f"code:{spec.name}",
         system=_SYSTEM,
-        prompt=_prompt(
+        prompt=load_prompt(
+            "popper.treesearch",
             "node.md",
             goal=spec.goal,
             context=spec.context,
@@ -163,6 +161,8 @@ def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out:
     for output in spec.required_outputs:
         if not (node.dir / output).exists():
             return f"missing required output {output}"
+    if len(list((node.dir / "figures").glob("*.png"))) < spec.min_figures:
+        return f"expected at least {spec.min_figures} figure(s) in figures/"
     return ""
 
 
@@ -194,7 +194,8 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         "feedback",
         tag=f"feedback:{spec.name}",
         system=_SYSTEM,
-        prompt=_prompt(
+        prompt=load_prompt(
+            "popper.treesearch",
             "feedback.md",
             goal=spec.goal,
             code=node.code,

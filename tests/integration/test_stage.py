@@ -59,3 +59,13 @@ def test_all_buggy_raises_stage_failed(tmp_path: Path) -> None:
     with pytest.raises(StageFailed) as info:
         run_stage(h, SPEC, random.Random(0))
     assert info.value.stage == SPEC.name
+
+
+def test_min_figures_fails_without_figure(tmp_path: Path) -> None:
+    code = _py("import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))")
+    h = _harness(tmp_path, [code] * 4)
+    spec = StageSpec("stage", "goal", "ctx", {}, ("results.json",), min_figures=1)
+    with pytest.raises(StageFailed):
+        run_stage(h, spec, random.Random(0))
+    analysis = h.run.path("tree", spec.name) / "stage-000" / "analysis.md"
+    assert "expected at least 1 figure(s)" in analysis.read_text()
