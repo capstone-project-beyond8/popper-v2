@@ -41,7 +41,4 @@ is a single number or string: report a distribution as several entries, not a ne
 - Prefer effect sizes with intervals over p-values alone.
 - Keep association distinct from causation.
 
-## Workflow
-Tools: inspect_data (takes an input name, the part before the colon above), run_python, view_figure,
-read_artifact, submit. Inspect the inputs, try snippets with run_python, look at figures, then
-call submit with the complete script. Only the submitted script's outputs count.
+Finish by submitting the complete script; only the submitted script's outputs count.

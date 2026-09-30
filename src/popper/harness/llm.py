@@ -1,5 +1,6 @@
 """Model access: provider-neutral messages, a Bedrock implementation and a scripted fake."""
 
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,9 @@ class Message:
     images: tuple[Path, ...] = ()
     tool_calls: tuple[ToolCall, ...] = ()
     tool_results: tuple[ToolResult, ...] = ()
+    # Raw provider content of an assistant reply; when set, _to_converse sends it verbatim for
+    # this message instead of rebuilding from text and tool_calls (keeps reasoning blocks intact).
+    content: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -43,6 +47,7 @@ class LLMRequest:
     system: str
     messages: tuple[Message, ...]
     tools: tuple[ToolSpec, ...] = ()
+    output_schema: dict[str, Any] | None = None
 
     @property
     def prompt(self) -> str:
@@ -59,6 +64,7 @@ class Completion:
     tool_calls: tuple[ToolCall, ...] = ()
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    content: tuple[dict[str, Any], ...] = ()
 
 
 class LLMError(Exception):
@@ -88,6 +94,9 @@ _CACHE_POINT = {"cachePoint": {"type": "default"}}
 def _to_converse(messages: Sequence[Message]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in messages:
+        if m.content:
+            out.append({"role": m.role, "content": list(m.content)})
+            continue
         # Tool results must come first in a user turn; empty text blocks are rejected.
         content: list[dict[str, Any]] = []
         for r in m.tool_results:
@@ -124,6 +133,7 @@ def _from_converse(resp: dict[str, Any]) -> Completion:
         calls,
         usage.get("cacheReadInputTokens", 0),
         usage.get("cacheWriteInputTokens", 0),
+        tuple(blocks),
     )
 
 
@@ -135,7 +145,7 @@ class BedrockLLM:
         self._client = boto3.client(
             "bedrock-runtime",
             region_name=region,
-            config=Config(read_timeout=300, retries={"mode": "standard", "total_max_attempts": 1}),
+            config=Config(read_timeout=900, retries={"mode": "standard", "total_max_attempts": 1}),
         )
 
     def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
@@ -164,6 +174,13 @@ class BedrockLLM:
             if "anthropic" in req.model:
                 specs.append(_CACHE_POINT)
             kwargs["toolConfig"] = {"tools": specs}
+        if req.output_schema is not None:
+            kwargs["outputConfig"] = {
+                "textFormat": {
+                    "type": "json_schema",
+                    "structure": {"jsonSchema": {"schema": json.dumps(req.output_schema)}},
+                }
+            }
         messages = _to_converse(req.messages)
         first_user = next(m for m in messages if m["role"] == "user")
         first_user["content"].append(_CACHE_POINT)

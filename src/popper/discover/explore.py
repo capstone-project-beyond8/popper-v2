@@ -41,7 +41,7 @@ def explore(h: Harness, framing: dict[str, Any]) -> tuple[Node, dict[str, Any]]:
         "theorist",
         schema=Hypothesis,
         tag="hypothesis",
-        system="You are a careful research scientist. Reply with JSON only.",
+        system="You are a careful research scientist.",
         prompt=load_prompt(
             "popper.discover",
             "hypothesis.md",

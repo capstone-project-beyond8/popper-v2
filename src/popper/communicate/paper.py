@@ -21,7 +21,7 @@ from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node
 
-_SYSTEM = "You are a careful scientific writer. Reply with JSON only."
+_SYSTEM = "You are a careful scientific writer."
 _WRITER_RETRIES = 2  # re-asks when the prose cites numbers that have no value
 _ENV = Environment(
     loader=PackageLoader("popper.communicate", "templates"),

@@ -1,7 +1,6 @@
 """Journal, budget and the single entry point for model calls."""
 
 import json
-import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -24,10 +23,8 @@ from popper.harness.llm import (
 from popper.harness.store import RunStore
 
 T = TypeVar("T", bound=BaseModel)
-R = TypeVar("R")
 _MAX_ATTEMPTS = 5
 _BACKOFF_SECONDS = 2.0
-_FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 
 class BudgetExceeded(Exception):
@@ -42,21 +39,6 @@ class Journal:
         entry = {"ts": datetime.now(UTC).isoformat(), "event": event, **fields}
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, default=str) + "\n")
-
-
-def _parse_json(text: str) -> dict[str, Any]:
-    fenced = _FENCE.search(text)
-    if fenced:
-        raw = fenced.group(1)
-    else:
-        start, end = text.find("{"), text.rfind("}")
-        if start < 0 or end < start:
-            raise ValueError("no JSON object found in reply")
-        raw = text[start : end + 1]
-    obj = json.loads(raw)
-    if not isinstance(obj, dict):
-        raise ValueError("reply JSON is not an object")
-    return obj
 
 
 @dataclass
@@ -80,13 +62,21 @@ class Harness:
         system: str,
         messages: Sequence[Message],
         tools: Sequence[ToolSpec] = (),
-        max_tokens: int = 8000,
+        max_tokens: int = 32000,
+        output_schema: dict[str, Any] | None = None,
     ) -> Completion:
         budget = self.config.budget
         if self.spent_usd >= budget.max_usd:
             raise BudgetExceeded(f"spent ${self.spent_usd:.4f} of ${budget.max_usd:.2f}")
         model: str = getattr(self.config.models, role)
-        req = LLMRequest(model, tag, f"{system}\n\n{UNTRUSTED_NOTE}", tuple(messages), tuple(tools))
+        req = LLMRequest(
+            model,
+            tag,
+            f"{system}\n\n{UNTRUSTED_NOTE}",
+            tuple(messages),
+            tuple(tools),
+            output_schema,
+        )
         attempt = 1
         while True:
             try:
@@ -141,7 +131,8 @@ class Harness:
         system: str,
         prompt: str,
         images: Sequence[Path] = (),
-        max_tokens: int = 8000,
+        max_tokens: int = 32000,
+        output_schema: dict[str, Any] | None = None,
     ) -> str:
         done = self.converse(
             role,
@@ -149,27 +140,24 @@ class Harness:
             system=system,
             messages=(Message("user", prompt, images=tuple(images)),),
             max_tokens=max_tokens,
+            output_schema=output_schema,
         )
         if done.stop_reason == "max_tokens":
             raise ValueError("reply truncated at max_tokens")
         return done.text
 
-    def _ask_parsed(
-        self, role: Role, tag: str, system: str, prompt: str, parse: Callable[[str], R]
-    ) -> R:
-        try:
-            return parse(self.ask(role, tag=tag, system=system, prompt=prompt))
-        except ValueError as err:  # JSON, schema and truncation errors all derive from ValueError
-            retry = (
-                f"{prompt}\n\nYour previous reply was not valid JSON for this task ({err}). "
-                "Reply with JSON only."
-            )
-            return parse(self.ask(role, tag=tag, system=system, prompt=retry))
-
-    def ask_json(self, role: Role, *, tag: str, system: str, prompt: str) -> dict[str, Any]:
-        return self._ask_parsed(role, tag, system, prompt, _parse_json)
-
     def ask_model(self, role: Role, *, schema: type[T], tag: str, system: str, prompt: str) -> T:
-        return self._ask_parsed(
-            role, tag, system, prompt, lambda text: schema.model_validate(_parse_json(text))
-        )
+        def attempt(text: str) -> T:
+            done = self.ask(
+                role,
+                tag=tag,
+                system=system,
+                prompt=text,
+                output_schema=schema.model_json_schema(),
+            )
+            return schema.model_validate_json(done)
+
+        try:
+            return attempt(prompt)
+        except ValueError as err:  # truncation and validation errors both derive from ValueError
+            return attempt(f"{prompt}\n\nYour previous reply could not be used: {err}")

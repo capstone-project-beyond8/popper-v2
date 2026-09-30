@@ -10,10 +10,8 @@ An exploratory analysis of the data has finished. Turn what it found into one te
 ## Figures produced
 {figures}
 
-Weigh all observations: group differences (for example a category whose mean differs clearly),
-non-linear shapes (diminishing returns, an optimum) and interactions. Pick the hypothesis best
-supported by the exploration results. The planned experiments should test the functional form
-(for example log or quadratic terms) and the relevant group effects.
+Weigh every observation, and pick the hypothesis best supported by the exploration results.
+Plan experiments that could tell it apart from the plausible alternatives.
 
 Reply with one JSON object with exactly these keys:
 - "statement": the hypothesis, testable with the data

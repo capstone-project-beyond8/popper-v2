@@ -28,10 +28,11 @@ def _args(call: ToolCall) -> str:
     return head(json.dumps(call.input, default=str), _JOURNAL_LIMIT)
 
 
-def _run(h: Harness, tag: str, turn: int, tool: Tool | None, call: ToolCall) -> ToolResult:
+def _run(h: Harness, tag: str, turn: int, by_name: dict[str, Tool], call: ToolCall) -> ToolResult:
+    tool = by_name.get(call.name)
     out: str | Path
     if tool is None or tool.handler is None:
-        out = f"error: unknown tool {call.name}"
+        out = f"error: unknown tool {call.name}; available: {', '.join(by_name)}"
     else:
         try:
             out = tool.handler(call.input)
@@ -66,7 +67,7 @@ def agent_loop(
     task: str,
     tools: Sequence[Tool],
     max_turns: int,
-    max_tokens: int = 16000,
+    max_tokens: int = 32000,
 ) -> dict[str, Any] | None:
     by_name = {t.name: t for t in tools}
     terminal = next(t.name for t in tools if t.terminal)
@@ -89,9 +90,11 @@ def agent_loop(
                 args=_args(submitted),
             )
             return submitted.input
-        assistant = Message("assistant", done.text, tool_calls=done.tool_calls)
+        assistant = Message(
+            "assistant", done.text, tool_calls=done.tool_calls, content=done.content
+        )
         if done.tool_calls:
-            results = tuple(_run(h, tag, turn, by_name.get(c.name), c) for c in done.tool_calls)
+            results = tuple(_run(h, tag, turn, by_name, c) for c in done.tool_calls)
             _extend(history, assistant, Message("user", tool_results=results))
         else:
             nudge = f"Use a tool. Finish by calling {terminal}."

@@ -41,19 +41,25 @@ def test_budget_blocks_further_calls(tmp_path: Path) -> None:
     assert fake.calls == []
 
 
-def test_ask_json_reads_fenced_json(tmp_path: Path) -> None:
-    h = _harness(tmp_path, FakeLLM(lambda req: 'Here:\n```json\n{"a": 1}\n```'))
-    assert h.ask_json("analyst", tag="t", system="s", prompt="p") == {"a": 1}
+class Shape(BaseModel):
+    a: int
 
 
-def test_ask_json_retries_once_on_bad_json(tmp_path: Path) -> None:
+def test_ask_model_parses_plain_json_and_sends_schema(tmp_path: Path) -> None:
+    fake = FakeLLM(lambda req: '{"a": 1}')
+    h = _harness(tmp_path, fake)
+    assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 1
+    assert fake.calls[0].output_schema == Shape.model_json_schema()
+
+
+def test_ask_model_retries_once_on_bad_json(tmp_path: Path) -> None:
     replies = iter(["nope", '{"a": 2}'])
     fake = FakeLLM(lambda req: next(replies))
     h = _harness(tmp_path, fake)
-    assert h.ask_json("analyst", tag="t", system="s", prompt="p") == {"a": 2}
+    assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 2
     assert len(fake.calls) == 2
     assert fake.calls[1].prompt.startswith("p")
-    assert "not valid JSON" in fake.calls[1].prompt
+    assert "Your previous reply could not be used" in fake.calls[1].prompt
 
 
 def test_store_is_write_once(tmp_path: Path) -> None:
@@ -109,10 +115,6 @@ def test_ask_model_retries_once_on_schema_mismatch(tmp_path: Path) -> None:
     replies = iter(['{"a": "x"}', '{"a": 3}'])
     fake = FakeLLM(lambda req: next(replies))
     h = _harness(tmp_path, fake)
-
-    class Shape(BaseModel):
-        a: int
-
     assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 3
     assert len(fake.calls) == 2
     assert "a" in fake.calls[1].prompt
