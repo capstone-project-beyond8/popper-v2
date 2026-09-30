@@ -7,7 +7,7 @@
 
 | Path | Owns |
 |---|---|
-| `src/popper/harness/` | Model access, script execution, run store, journal, budget, config (defaults in `default_config.yaml`). No research logic |
+| `src/popper/harness/` | Model access, agent loop and tools, context assembly, script execution, run store, journal, budget, decision layer, config (defaults in `default_config.yaml`). No research logic |
 | `src/popper/treesearch/` | Generic stage engine: nodes, draft/debug/improve steps, scoring, best-node selection |
 | `src/popper/understand/` | Ideation & framing: data profile, framing |
 | `src/popper/ground/` | Data phase: preparation stage goals and checks |
@@ -16,6 +16,7 @@
 | `src/popper/coordinator/` | The playbook that runs the five phases in order |
 | `src/popper/cli.py` | Entry point |
 | `examples/` | Briefs and datasets for demos and evaluation |
+| `evals/` | Evaluation suites and comparisons (production code never imports it) |
 
 Function packages import only `harness` and `treesearch`, and never each other. Prompts live in `<package>/prompts/`.
 

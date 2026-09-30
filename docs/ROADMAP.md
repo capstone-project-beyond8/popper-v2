@@ -6,13 +6,13 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 
 | Milestone | Theme | Demo gate | Cap | Status |
 |---|---|---|---|---|
-| M0 | Mini scientist, end to end | `popper run examples/student_performance` → a paper with framing, data changes, exploration figures, one hypothesis and a tested result | 1,700 | todo |
-| M1 | Full experiment stages, figure feedback | The paper has baseline, main and robustness results, each from its stage's best node; the feedback model reads figures | 2,200 | todo |
-| M2 | Science loop (coordinator agent) | Several hypotheses; the researcher picks; a second round builds on the first; a data problem found later reopens the data stage | 2,900 | todo |
-| M3 | Write-up and review | Compiles without manual fixes on three datasets; `review.json` and `tree.html` | 3,300 | todo |
-| M4 | Evaluation | Table of effect recovery, data-fix rate, reviewer score, cost and time over 3–5 datasets and configurations | + `evals/` | todo |
-| M5 | Literature | Framing, hypotheses and paper cite real prior work | 3,800 | todo |
-| M6 | Verify (optional) | `popper verify <run> <result>` → a confirmed or not-confirmed outcome on held-out rows | 4,300 | todo |
+| M0 | Mini scientist, end to end | `popper run examples/student_performance` → a paper with framing, data changes, exploration figures, one hypothesis and a tested result | 1,800 | todo |
+| M1 | Full experiment stages, figure feedback, decision layer | The paper has baseline, main and robustness results with a stability label; the judge reads figures; node decisions are recorded in shadow | 2,500 | todo |
+| M2 | Science loop (PI agent, Skeptic) | Several critiqued hypotheses; the researcher picks; a second round builds on the first; a data problem found later reopens the data stage | 3,200 | todo |
+| M3 | Write-up and review | Compiles without manual fixes on three datasets; `review.json` and `tree.html` | 3,600 | todo |
+| M4 | Evaluation | Table over planted, null and reference suites and configurations; decision classes measured against checked cases | + `evals/` | todo |
+| M5 | Literature | Framing, hypotheses and paper cite real prior work | 4,100 | todo |
+| M6 | Verify (optional) | `popper verify <run> <result>` → a confirmed or not-confirmed outcome on held-out rows | 4,600 | todo |
 | M7 | Evidence-led extensions | Only what M4 shows is needed | — | — |
 
 ## How each phase grows
@@ -24,13 +24,18 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 | **Exploration & hypothesis** | Agentic `explore` stage; one hypothesis | Figures judged by the vision model | 3–5 hypotheses with reflection; the researcher picks; hypotheses revised from results | — | Hypotheses related to prior work | — |
 | **Experiment** | One combined agentic stage | `baseline` → `main` → `robustness`; replication by resampling | Several hypotheses, one tree each; results feed memory | — | — | Frozen re-run on the holdout |
 | **Publication** | Template paper, `\R{}` numbers, fixed label | Robustness section | Several hypotheses, rounds and steering history | Writer reflection, figure/caption check, reviewer, `tree.html` | Related work and citations | Confirmed/not-confirmed labels |
-| **Harness** | Tool loop, node tools, retry, progress, journal, budget | Vision in feedback | Coordinator tools, `memory.md`, human-input tool, per-phase budgets | — | `search_literature` tool | `verify` package |
+| **Harness** | Agent loop, node tools, context assembly with untrusted wrapping, retry, failure classes, progress, journal, budget | Vision in the judge | Coordinator tools, `memory.md` in context, human-input tool, per-phase budgets | — | `search_literature` tool | `verify` package |
+| **Agent team** | Framer, Analyst, Judge, Theorist, Writer | Figure reviewer | PI (coordinator agent), Skeptic | Reviewer | Literature for Framer, Theorist, Writer | — |
+| **Decision layer** | — (judge LLM decides) | `DecisionModel` interface, Jev adapter, node classes in `shadow` | `hypothesis_rank`, `continue_or_stop` in `shadow` | — | — | — |
 
 ---
 
 ## M0 — Mini scientist, end to end
 
 **Goal:** one complete pass, rough but real, through all five phases. Each tree node is an agent with tools.
+
+### Agent team
+Framer, Analyst (node agent), Judge, Theorist and Writer, each in its own session with its own tools (ARCHITECTURE §3.2).
 
 ### Harness (runtime)
 - **config**: package default `src/popper/harness/default_config.yaml`, then a `--config` file key by key, then the `POPPER_MODEL` environment variable for every role.
@@ -46,6 +51,8 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 - **store**: a write-once run directory.
 - **journal**: append-only JSONL.
 - **budget**: a USD cap checked before every model call.
+- **context**: `harness/context.py` assembles each session's context from run files, with a character limit per part; brief, data strings and outputs are wrapped as untrusted.
+- **failure classes**: technical (retried), research (buggy node), budget and terminal (stop with status) — ARCHITECTURE §3.3.
 - **progress**: one terminal line per phase and per node (`[data] data-002 debug → ok score 7 · $0.41`); `--quiet` turns it off.
 
 ### Tree search (`treesearch/`)
@@ -87,7 +94,7 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
   - finds a positive effect of study hours;
   - has no `??`;
   - costs under $5 and takes under 45 minutes.
-- The CI checks pass, and `src/` is ≤ 1,700 lines.
+- The CI checks pass, and `src/` is ≤ 1,800 lines.
 
 **Out:** split experiment stages, vision in feedback, several hypotheses, researcher input, loops back, reviewer, `tree.html`, holdout.
 
@@ -107,10 +114,17 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
   Each reports how the main estimate moved.
 - **Figure feedback**: the feedback model receives the node's figures as images. A misleading or unreadable figure lowers the score, and the reason goes into `analysis.md`.
 - **Data**: before/after distribution figures for changed columns, and checks that derived variables have plausible ranges.
+- **Stability label**: computed by code from the robustness outputs (`stable` or `fragile`, ARCHITECTURE §6) and printed beside the result.
+- **Decision layer**:
+  - `harness/decisions.py` defines the `DecisionModel` interface and the modes (off, shadow, on), and records each judgment;
+  - the Jev adapter (optional dependency `typesafe-sdk`, key `TYPESAFE_API_KEY`) answers `node_buggy`, `goal_met`, `node_score` and `figure_ok` in `shadow`;
+  - without a key, every class stays `off`.
 - **Publication**: a robustness section and a table of the main estimate across specifications.
 - **Tests:**
   - stage chaining (seed code passed on) with `FakeLLM`;
   - the feedback prompt receives images when figures exist.
+  - the stability label on fixture variants;
+  - a decision in shadow records both answers and keeps the rule result; an unavailable provider falls back.
 - **Exit:**
   - the demo paper shows the study-hours estimate under at least three specifications;
   - a fixture figure with unlabeled axes gets a lower score than a good one.
@@ -133,6 +147,8 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
   - `finish(reason)`.
 - **Playbook**: the five phases stay the default order, stated in the coordinator prompt. The coordinator may loop back with a recorded reason. Per-phase and total budgets bound the loop.
 - **Hypotheses**: 3–5 from exploration with one reflection round, each with a rationale, planned experiments and source nodes. Each chosen hypothesis gets its own experiment trees.
+- **Skeptic**: a separate session critiques each hypothesis before the choice, and each main result before publication (confounders, alternative explanations, claims beyond the design). The critique is written to `critiques/` as an assessment. It can prompt a robustness child or a limitation, but never changes a result.
+- **Decisions**: `hypothesis_rank` and `continue_or_stop` in `shadow` beside the PI's own choice.
 - **Researcher input**: `ask_researcher` on the CLI (choose, edit, or add a note). `--auto` lets the coordinator pick. Every choice is labelled `researcher_steered` or `agent_supplied`.
 - **Working memory**: `memory.md`, updated after each stage. Each entry cites node ids, and it is read by the coordinator and by node agents (`read_artifact`).
 - **Publication**: one results subsection per tested hypothesis, plus a "research path" section generated from the journal (what was tried, why it changed).
@@ -155,7 +171,7 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 - **Writer reflection**: compile errors and LaTeX warnings are fed back for up to three rounds. Section completeness is checked.
 - **Figure and caption check**: the vision model reads each figure with its caption and flags mismatches.
 - **Number audit**: every number in the prose that did not come from `\R{}` is listed as a warning in `review.json`.
-- **Reviewer**: an LLM reviewer with a fixed rubric (soundness, clarity, limitations, faithfulness to results) writes `review.json`, and the writer revises once from it.
+- **Reviewer** (separate session): an LLM reviewer with a fixed rubric (soundness, clarity, limitations, faithfulness to results) writes `review.json`, and the writer revises once from it.
 - **`tree.html`**: a static page of the experiment trees, showing each node's code, output, figures, score and kind.
 - **Tests:**
   - the number audit on a fixture text;
@@ -168,11 +184,13 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 
 **Goal:** measure what helps before adding anything else.
 
-- **Datasets** (in `evals/`):
-  - 3 synthetic datasets with planted effects and planted data issues, of different kinds (grouped, time-ordered, nonlinear);
-  - 1–2 public datasets with well-known findings.
+- **Suites** (in `evals/`):
+  - **planted**: 3 synthetic datasets with known effects and data issues, of different kinds (grouped, time-ordered, nonlinear);
+  - **null**: 2 synthetic datasets with no real effect;
+  - **reference**: 1–2 public datasets with well-known findings.
 - **Metrics:**
   - planted-effect recovery (direction, and magnitude within a band);
+  - on null data, the share of runs that report a finding as if it held, and whether it is labelled `fragile`;
   - data-issue fix rate;
   - share of numbers traced to `\R{}`;
   - reviewer score;
@@ -181,7 +199,9 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
   - agentic nodes vs single-shot nodes;
   - `num_drafts` 1 vs 3;
   - vision feedback on vs off;
-  - coordinator agent vs fixed playbook.
+  - PI agent vs fixed playbook;
+  - Skeptic on vs off;
+  - each decision class: shadow answers compared with checked cases (agreement, calibration, cost); a class goes `on` only when it matches or beats the LLM judge.
 - **Decisions**: each comparison ends in a short record in `evals/decisions.md`: what changed, the result, and the default kept.
 - **Exit:** the table is generated by one command (`popper-eval`), and the defaults in `default_config.yaml` follow the decisions.
 
