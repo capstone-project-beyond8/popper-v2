@@ -24,30 +24,28 @@ class Framing(BaseModel):
 
 def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
     h.run.write_json("understand/profile.json", profile)
-    draft = Framing.model_validate(
-        h.ask_json(
-            "ideation",
-            tag="framing",
-            system=_SYSTEM,
-            prompt=load_prompt(
-                "popper.understand",
-                "framing.md",
-                brief=brief,
-                profile=json.dumps(profile, indent=2),
-            ),
-        )
+    draft = h.ask_model(
+        "ideation",
+        schema=Framing,
+        tag="framing",
+        system=_SYSTEM,
+        prompt=load_prompt(
+            "popper.understand",
+            "framing.md",
+            brief=brief,
+            profile=json.dumps(profile, indent=2),
+        ),
     )
-    final = Framing.model_validate(
-        h.ask_json(
-            "ideation",
-            tag="framing:reflect",
-            system=_SYSTEM,
-            prompt=load_prompt(
-                "popper.understand",
-                "reflect.md",
-                framing=json.dumps(draft.model_dump(), indent=2),
-            ),
-        )
+    final = h.ask_model(
+        "ideation",
+        schema=Framing,
+        tag="framing:reflect",
+        system=_SYSTEM,
+        prompt=load_prompt(
+            "popper.understand",
+            "reflect.md",
+            framing=json.dumps(draft.model_dump(), indent=2),
+        ),
     )
     framing = final.model_dump()
     h.run.write_json("understand/framing.json", framing)

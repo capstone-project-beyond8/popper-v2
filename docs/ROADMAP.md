@@ -23,7 +23,7 @@ The goal is one complete pass, rough but real, through every function except Ver
    - `store`: creates the run directory and node folders.
    - `journal`: append-only JSONL.
    - `budget`: a USD cap checked before each model call.
-   - `config`: loads `config/default.yaml` with CLI overrides.
+   - `config`: loads `src/popper/harness/default_config.yaml` with CLI overrides.
 2. **Discover engine.** The tree search of ARCHITECTURE §5: draft, debug and improve nodes run sequentially, the feedback model scores nodes, and the best node is selected. It is written once and reused by every stage.
 3. **Phases.**
    1. *Ideation & framing*: a structural profile of the CSV, then `framing.json` from the brief and the profile. One reflection round.

@@ -51,7 +51,7 @@ def test_recovers_through_debug(tmp_path: Path) -> None:
     best = run_stage(h, SPEC, random.Random(0))
     assert best.results == {"m": {"value": 1.5}} and best.kind == "debug"
     analysis = h.run.path("tree", SPEC.name) / "stage-000" / "analysis.md"
-    assert analysis.read_text().startswith("no code block")
+    assert analysis.read_text(encoding="utf-8").startswith("no code block")
 
 
 def test_all_buggy_raises_stage_failed(tmp_path: Path) -> None:
@@ -68,4 +68,39 @@ def test_min_figures_fails_without_figure(tmp_path: Path) -> None:
     with pytest.raises(StageFailed):
         run_stage(h, spec, random.Random(0))
     analysis = h.run.path("tree", spec.name) / "stage-000" / "analysis.md"
-    assert "expected at least 1 figure(s)" in analysis.read_text()
+    assert "expected at least 1 figure(s)" in analysis.read_text(encoding="utf-8")
+
+
+def test_bad_result_key_makes_node_buggy(tmp_path: Path) -> None:
+    code = _py(
+        "import json\njson.dump({'R2': {'value': 1}}, open('results.json','w'))\n"
+        "open('out.txt','w')"
+    )
+    h = _harness(tmp_path, [code])
+    h.config.search.steps_per_stage = 1
+    with pytest.raises(StageFailed):
+        run_stage(h, SPEC, random.Random(0))
+    analysis = h.run.path("tree", SPEC.name) / "stage-000" / "analysis.md"
+    assert "'R2'" in analysis.read_text(encoding="utf-8")
+
+
+def test_null_ci_is_dropped_from_results(tmp_path: Path) -> None:
+    code = _py(
+        "import json\njson.dump({'m': {'value': 1, 'ci': None}}, open('results.json','w'))\n"
+        "open('out.txt','w')"
+    )
+    h = _harness(tmp_path, [code])
+    assert run_stage(h, SPEC, random.Random(0)).results == {"m": {"value": 1}}
+
+
+def test_stage_check_rejection_makes_node_buggy(tmp_path: Path) -> None:
+    code = _py(
+        "import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))\nopen('out.txt','w')"
+    )
+    h = _harness(tmp_path, [code])
+    h.config.search.steps_per_stage = 1
+    spec = StageSpec("stage", "goal", "ctx", {}, ("results.json",), check=lambda _: "no good")
+    with pytest.raises(StageFailed):
+        run_stage(h, spec, random.Random(0))
+    analysis = h.run.path("tree", spec.name) / "stage-000" / "analysis.md"
+    assert "no good" in analysis.read_text(encoding="utf-8")

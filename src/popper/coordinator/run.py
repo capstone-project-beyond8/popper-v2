@@ -25,6 +25,7 @@ class RunOutcome:
     tex: Path | None
     pdf: Path | None
     message: str
+    missing: list[str]
 
 
 def run(brief: Path, data: Path, *, config: Config, llm: LLM, runs_dir: Path) -> RunOutcome:
@@ -70,4 +71,4 @@ def run(brief: Path, data: Path, *, config: Config, llm: LLM, runs_dir: Path) ->
                 "missing": missing,
             },
         )
-    return RunOutcome(store.root, status, tex, pdf, message)
+    return RunOutcome(store.root, status, tex, pdf, message, missing)

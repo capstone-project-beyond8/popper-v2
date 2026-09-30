@@ -64,7 +64,7 @@ runs/<run_id>/
   hypotheses.json          from exploration: hypotheses with planned experiments and source nodes
   tree/<stage>/<node_id>/  stages: data, explore, baseline, main, robustness
     code.py                the script as run
-    meta.json              parent, kind (draft|debug|improve|robustness), status (ok|buggy), score, timings
+    meta.json              parent, kind (draft|debug|improve|robustness), status (ok|buggy), score, goal_met, debug_depth (execution timings are in journal.jsonl)
     stdout.txt  stderr.txt
     results.json           values the script chose to report: {name: {value, ci?, n?, note?}}
     figures/*.png
@@ -107,12 +107,12 @@ A stage ends when it reaches `steps_per_stage`, or earlier when the feedback mod
 ## 6. Communicate
 
 1. **Collect.** Gather the framing, the data report, the exploration figures, the hypotheses, and the best experiment nodes' results and figures.
-2. **Write.** The writeup model fills a fixed LaTeX template section by section, following the phases: abstract, introduction (framing), data, exploration, hypotheses, methods, results, robustness, limitations. Numbers are written as `\R{name}`, and figures are referenced by file name.
+2. **Write.** The writeup model fills a fixed LaTeX template section by section, following the phases: abstract, introduction (framing), data, exploration, hypotheses, methods, results, robustness, limitations. Numbers are written as `\R{name}`, and figures are referenced by stage and file name.
 3. **Render.** The `\R{}` macros are generated from `results.json`. A reference to an unknown name produces a warning and a visible `??` in the PDF; it does not fail the build.
 4. **Check** (M3). The vision model reads each figure with its caption. The writer revises one round, and the LLM reviewer writes `review.json`.
 5. **Appendix.** Generated automatically: the data-prep changes, the experiment tree summary, the code of the reported nodes, and the label `exploratory, autonomously generated`.
 
-If tectonic is not installed, the run still writes `paper.tex` and prints how to compile it.
+The tectonic output is written to `report/compile.log`. If tectonic is not installed or fails, the run still writes `paper.tex` and prints where to look.
 
 ## 7. Always-on rules (pilot strength)
 

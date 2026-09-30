@@ -6,7 +6,7 @@ from typing import Any
 
 from popper.treesearch.engine import Node
 
-_REF = re.compile(r"\\R\{([a-z0-9_.]+)\}")
+_REF = re.compile(r"\\R\{([^}]*)\}")
 _ESCAPES = {
     "\\": r"\textbackslash{}",
     "&": r"\&",

@@ -17,8 +17,8 @@ Write every number as \R{{key}} using only the keys listed above. Never type a n
 ## Figure files available, by stage
 {figures}
 
-Reference figures only through the "figures" list, by file name. Never write \includegraphics yourself.
+Reference figures only through the "figures" list, by stage and file name. Never write \includegraphics yourself.
 
 Reply with one JSON object with exactly these keys:
 - "title", "abstract", "introduction", "data", "exploration", "hypothesis", "methods", "results", "limitations": LaTeX body text
-- "figures": list of {{"file": figure file name, "caption": caption text}}
+- "figures": list of {{"stage": "explore" or "experiment", "file": figure file name in that stage, "caption": caption text}}

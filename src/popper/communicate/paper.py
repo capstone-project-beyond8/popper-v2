@@ -4,7 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel, ConfigDict
@@ -32,6 +32,7 @@ _ENV = Environment(
 class FigureRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    stage: Literal["explore", "experiment"]
     file: str
     caption: str
 
@@ -51,16 +52,28 @@ class Writeup(BaseModel):
     figures: list[FigureRef]
 
 
+def _write_log(tex: Path, output: bytes | None) -> None:
+    text = (output or b"").decode("utf-8", errors="replace")
+    (tex.parent / "compile.log").write_text(text, encoding="utf-8")
+
+
 def compile_pdf(tex: Path) -> Path | None:
     tectonic = shutil.which("tectonic")
     if tectonic is None:
         return None
     try:
         done = subprocess.run(
-            [tectonic, str(tex)], cwd=tex.parent, capture_output=True, timeout=300, check=False
+            [tectonic, str(tex)],
+            cwd=tex.parent,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=300,
+            check=False,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        _write_log(tex, exc.stdout)
         return None
+    _write_log(tex, done.stdout)
     pdf = tex.with_suffix(".pdf")
     return pdf if done.returncode == 0 and pdf.exists() else None
 
@@ -68,7 +81,7 @@ def compile_pdf(tex: Path) -> Path | None:
 def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[str, str]]:
     placed: list[dict[str, str]] = []
     for ref in writeup.figures:
-        node = next((n for n in nodes if ref.file in n.figures), None)
+        node = next((n for n in nodes if n.stage == ref.stage and ref.file in n.figures), None)
         if node is None:
             h.journal.write("figure_missing", file=ref.file)
             continue
@@ -91,8 +104,9 @@ def write_paper(
 ) -> tuple[Path, Path | None, list[str]]:
     values = collect_values([data_node, explore, experiment])
     figures = {n.stage: n.figures for n in (explore, experiment)}
-    reply = h.ask_json(
+    writeup = h.ask_model(
         "writeup",
+        schema=Writeup,
         tag="writeup",
         system=_SYSTEM,
         prompt=load_prompt(
@@ -105,7 +119,6 @@ def write_paper(
             figures=json.dumps(figures),
         ),
     )
-    writeup = Writeup.model_validate(reply)
     placed = _copy_figures(h, writeup, [explore, experiment])
     tex, missing = fill_numbers(
         _ENV.get_template("paper.tex.j2").render(

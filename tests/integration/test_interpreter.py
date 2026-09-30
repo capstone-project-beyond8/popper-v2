@@ -49,3 +49,16 @@ def test_inputs_are_exposed_as_env(tmp_path: Path) -> None:
         'import os; print(os.environ["POPPER_INPUT_DATA"])', tmp_path, inputs={"data": data}
     )
     assert result.stdout.strip() == str(data.resolve())
+
+
+def test_non_ascii_output_survives(tmp_path: Path) -> None:
+    result = _run('print("\u00b1 \u2713 \u1edd")', tmp_path)
+    assert result.exit_code == 0
+    assert "± ✓ ờ" in result.stdout
+
+
+def test_timeout_does_not_wait_for_child_processes(tmp_path: Path) -> None:
+    code = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\ntime.sleep(30)"
+    result = _run(code, tmp_path, timeout=2)
+    assert result.timed_out
+    assert result.seconds < 10

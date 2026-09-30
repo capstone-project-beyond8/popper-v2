@@ -36,20 +36,19 @@ def explore(h: Harness, framing: dict[str, Any]) -> tuple[Node, dict[str, Any]]:
         min_figures=1,
     )
     best = run_stage(h, spec)
-    hypothesis = Hypothesis.model_validate(
-        h.ask_json(
-            "ideation",
-            tag="hypothesis",
-            system="You are a careful research scientist. Reply with JSON only.",
-            prompt=load_prompt(
-                "popper.discover",
-                "hypothesis.md",
-                framing=context,
-                results=json.dumps(best.results, indent=2),
-                analysis=best.analysis,
-                figures="\n".join(f"- {f}" for f in best.figures),
-            ),
-        )
+    hypothesis = h.ask_model(
+        "ideation",
+        schema=Hypothesis,
+        tag="hypothesis",
+        system="You are a careful research scientist. Reply with JSON only.",
+        prompt=load_prompt(
+            "popper.discover",
+            "hypothesis.md",
+            framing=context,
+            results=json.dumps(best.results, indent=2),
+            analysis=best.analysis,
+            figures="\n".join(f"- {f}" for f in best.figures),
+        ),
     )
     result = {**hypothesis.model_dump(), "source_node": best.id}
     h.run.write_json("hypotheses.json", [result])

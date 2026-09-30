@@ -36,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
         brief, data = brief or args.dir / "brief.md", data or args.dir / "data.csv"
     if brief is None or data is None:
         parser.error("give DIR, or both --brief and --data")
+    for path in (brief, data):
+        if not path.is_file():
+            parser.error(f"file not found: {path}")
     outcome = run(
         brief,
         data,
@@ -47,9 +50,15 @@ def main(argv: list[str] | None = None) -> int:
     if outcome.status != "completed":
         print(outcome.message, file=sys.stderr)
         return 1
+    if outcome.missing:
+        print(
+            f"warning: numbers missing from results: {', '.join(outcome.missing)}", file=sys.stderr
+        )
     if outcome.pdf is not None:
         print(outcome.pdf)
     else:
         print(outcome.tex)
-        print("PDF not built (install tectonic or check the LaTeX log)")
+        print(
+            f"PDF not built (install tectonic, or see {outcome.run_dir / 'report' / 'compile.log'})"
+        )
     return 0

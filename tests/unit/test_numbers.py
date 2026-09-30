@@ -14,3 +14,9 @@ def test_format_int_and_n() -> None:
 
 def test_format_escapes_strings() -> None:
     assert format_value({"value": "50% & up"}) == r"50\% \& up"
+
+
+def test_dotted_capital_key_is_reported_missing() -> None:
+    tex, missing = fill_numbers(r"\R{experiment.R2}", {"experiment.r2": {"value": 1}})
+    assert tex == r"\textbf{??}"
+    assert missing == ["experiment.R2"]

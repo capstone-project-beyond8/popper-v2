@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from popper.harness.config import load_config
 from popper.harness.llm import Completion, FakeLLM, LLMRequest
@@ -97,3 +98,16 @@ def test_cost_is_accounted_and_capped(tmp_path: Path) -> None:
     with pytest.raises(BudgetExceeded):
         h.ask("code", tag="t", system="s", prompt="p")
     assert stub.n == 1
+
+
+def test_ask_model_retries_once_on_schema_mismatch(tmp_path: Path) -> None:
+    replies = iter(['{"a": "x"}', '{"a": 3}'])
+    fake = FakeLLM(lambda req: next(replies))
+    h = _harness(tmp_path, fake)
+
+    class Shape(BaseModel):
+        a: int
+
+    assert h.ask_model("code", schema=Shape, tag="t", system="s", prompt="p").a == 3
+    assert len(fake.calls) == 2
+    assert "a" in fake.calls[1].prompt

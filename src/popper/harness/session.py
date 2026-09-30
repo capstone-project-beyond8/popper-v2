@@ -2,16 +2,20 @@
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+from pydantic import BaseModel
 
 from popper.harness.config import Config, Role
 from popper.harness.llm import LLM, LLMRequest
 from popper.harness.store import RunStore
 
+T = TypeVar("T", bound=BaseModel)
+R = TypeVar("R")
 _FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 
@@ -88,14 +92,28 @@ class Harness:
             input_tokens=done.input_tokens,
             output_tokens=done.output_tokens,
             usd=usd,
+            stop_reason=done.stop_reason,
         )
+        if done.stop_reason == "max_tokens":
+            raise ValueError("reply truncated at max_tokens")
         return done.text
 
-    def ask_json(self, role: Role, *, tag: str, system: str, prompt: str) -> dict[str, Any]:
+    def _ask_parsed(
+        self, role: Role, tag: str, system: str, prompt: str, parse: Callable[[str], R]
+    ) -> R:
         try:
-            return _parse_json(self.ask(role, tag=tag, system=system, prompt=prompt))
-        except ValueError as err:  # json.JSONDecodeError is a ValueError
+            return parse(self.ask(role, tag=tag, system=system, prompt=prompt))
+        except ValueError as err:  # JSON, schema and truncation errors all derive from ValueError
             retry = (
-                f"{prompt}\n\nYour previous reply was not valid JSON ({err}). Reply with JSON only."
+                f"{prompt}\n\nYour previous reply was not valid JSON for this task ({err}). "
+                "Reply with JSON only."
             )
-            return _parse_json(self.ask(role, tag=tag, system=system, prompt=retry))
+            return parse(self.ask(role, tag=tag, system=system, prompt=retry))
+
+    def ask_json(self, role: Role, *, tag: str, system: str, prompt: str) -> dict[str, Any]:
+        return self._ask_parsed(role, tag, system, prompt, _parse_json)
+
+    def ask_model(self, role: Role, *, schema: type[T], tag: str, system: str, prompt: str) -> T:
+        return self._ask_parsed(
+            role, tag, system, prompt, lambda text: schema.model_validate(_parse_json(text))
+        )

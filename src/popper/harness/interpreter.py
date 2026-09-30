@@ -1,14 +1,16 @@
 """Run generated scripts in isolated subprocesses."""
 
 import os
+import signal
 import subprocess
 import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-_SECRET_MARKERS = ("KEY", "SECRET", "TOKEN")
+_SECRET_MARKERS = ("KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL")
 
 
 @dataclass(frozen=True)
@@ -25,12 +27,17 @@ def _is_credential(name: str) -> bool:
     return upper.startswith("AWS_") or any(marker in upper for marker in _SECRET_MARKERS)
 
 
-def _decode(data: str | bytes | None) -> str:
-    if data is None:
-        return ""
-    if isinstance(data, bytes):
-        return data.decode("utf-8", errors="replace")
-    return data
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _kill_tree(proc: "subprocess.Popen[bytes]") -> None:
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False
+        )
+    else:
+        os.killpg(proc.pid, signal.SIGKILL)
 
 
 def _tail(text: str, limit: int) -> str:
@@ -49,29 +56,33 @@ def run_script(
     (workdir / "code.py").write_text(code, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not _is_credential(k)}
     env["MPLBACKEND"] = "Agg"
+    env["PYTHONUTF8"] = "1"
+    env["AWS_SHARED_CREDENTIALS_FILE"] = os.devnull
+    env["AWS_CONFIG_FILE"] = os.devnull
+    env["AWS_EC2_METADATA_DISABLED"] = "true"
     for name, path in inputs.items():
         env[f"POPPER_INPUT_{name.upper()}"] = str(path.resolve())
+    group: dict[str, Any] = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if sys.platform == "win32"
+        else {"start_new_session": True}
+    )
 
     start = time.perf_counter()
     exit_code: int | None
-    try:
-        proc = subprocess.run(
-            [sys.executable, "code.py"],
-            cwd=workdir,
-            env=env,
-            timeout=timeout,
-            capture_output=True,
-            text=True,
+    with (workdir / "stdout.txt").open("wb") as out_f, (workdir / "stderr.txt").open("wb") as err_f:
+        proc = subprocess.Popen(
+            [sys.executable, "code.py"], cwd=workdir, env=env, stdout=out_f, stderr=err_f, **group
         )
-        exit_code, timed_out = proc.returncode, False
-        out, err = _decode(proc.stdout), _decode(proc.stderr)
-    except subprocess.TimeoutExpired as exc:
-        exit_code, timed_out = None, True
-        out, err = _decode(exc.stdout), _decode(exc.stderr)
+        try:
+            exit_code, timed_out = proc.wait(timeout=timeout), False
+        except subprocess.TimeoutExpired:
+            _kill_tree(proc)
+            proc.wait()
+            exit_code, timed_out = None, True
     seconds = time.perf_counter() - start
 
-    (workdir / "stdout.txt").write_text(out, encoding="utf-8")
-    (workdir / "stderr.txt").write_text(err, encoding="utf-8")
+    out, err = _read(workdir / "stdout.txt"), _read(workdir / "stderr.txt")
     return ExecResult(
         exit_code=exit_code,
         timed_out=timed_out,

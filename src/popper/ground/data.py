@@ -2,7 +2,10 @@
 
 import json
 import shutil
+from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, StageSpec, run_stage
@@ -16,6 +19,22 @@ GOAL = (
 )
 
 
+class Change(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: str
+    rows_affected: int | str
+    reason: str
+
+
+def _check_changes(workdir: Path) -> str | None:
+    try:
+        TypeAdapter(list[Change]).validate_json((workdir / "changes.json").read_bytes())
+    except (OSError, ValidationError) as exc:
+        return f"invalid changes.json: {exc}"
+    return None
+
+
 def prepare(h: Harness, framing: dict[str, Any]) -> Node:
     spec = StageSpec(
         name="data",
@@ -23,6 +42,7 @@ def prepare(h: Harness, framing: dict[str, Any]) -> Node:
         context=json.dumps(framing, indent=2),
         inputs={"raw": h.run.path("data", "raw.csv")},
         required_outputs=("processed.parquet", "changes.json", "results.json"),
+        check=_check_changes,
     )
     best = run_stage(h, spec)
     target = h.run.path("data", "processed.parquet")

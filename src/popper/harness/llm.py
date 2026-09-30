@@ -20,6 +20,7 @@ class Completion:
     text: str
     input_tokens: int
     output_tokens: int
+    stop_reason: str = ""
 
 
 class LLM(Protocol):
@@ -29,8 +30,13 @@ class LLM(Protocol):
 class BedrockLLM:
     def __init__(self, region: str) -> None:
         import boto3
+        from botocore.config import Config
 
-        self._client = boto3.client("bedrock-runtime", region_name=region)
+        self._client = boto3.client(
+            "bedrock-runtime",
+            region_name=region,
+            config=Config(read_timeout=600, retries={"mode": "adaptive", "max_attempts": 5}),
+        )
 
     def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
         content: list[dict[str, Any]] = [{"text": req.prompt}]
@@ -46,7 +52,9 @@ class BedrockLLM:
         blocks = resp["output"]["message"]["content"]
         text = "".join(b["text"] for b in blocks if "text" in b)
         usage = resp["usage"]
-        return Completion(text, usage["inputTokens"], usage["outputTokens"])
+        return Completion(
+            text, usage["inputTokens"], usage["outputTokens"], resp.get("stopReason", "")
+        )
 
 
 class FakeLLM:

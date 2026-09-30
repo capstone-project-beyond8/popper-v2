@@ -3,12 +3,12 @@
 import json
 import random
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from popper.harness.config import Search
 from popper.harness.interpreter import run_script
@@ -47,6 +47,20 @@ class StageSpec:
     required_outputs: tuple[str, ...]
     seed_code: str | None = None
     min_figures: int = 0
+    check: Callable[[Path], str | None] | None = None
+
+
+class ResultEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    value: float | int | str
+    ci: tuple[float, float] | None = None
+    n: int | None = None
+    note: str | None = None
+
+
+_RESULTS = TypeAdapter(dict[str, ResultEntry])
+_RESULT_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class Feedback(BaseModel):
@@ -101,33 +115,34 @@ def _task(spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
     return f"Fix this script.\n{head}\nWhat went wrong:\n{parent.analysis}"
 
 
-def _read_results(workdir: Path) -> dict[str, dict[str, Any]] | None:
+def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
+    """Validated results.json content; raises ValueError describing the first problem."""
     try:
-        data = json.loads((workdir / "results.json").read_text("utf-8"))
-    except (OSError, ValueError):
-        return None
-    if isinstance(data, dict) and all(isinstance(v, dict) and "value" in v for v in data.values()):
-        return data
-    return None
+        entries = _RESULTS.validate_json((workdir / "results.json").read_bytes())
+    except OSError as exc:
+        raise ValueError(f"results.json unreadable: {exc}") from exc
+    for key in entries:
+        if not _RESULT_KEY.match(key):
+            raise ValueError(f"results.json key {key!r} must match [a-z][a-z0-9_]*")
+    return {k: v.model_dump(mode="json", exclude_none=True) for k, v in entries.items()}
 
 
 def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | None) -> Node:
     node_id = f"{spec.name}-{i:03d}"
     limit = h.config.execution.max_output_chars
-    reply = h.ask(
-        "code",
-        tag=f"code:{spec.name}",
-        system=_SYSTEM,
-        prompt=load_prompt(
-            "popper.treesearch",
-            "node.md",
-            goal=spec.goal,
-            context=spec.context,
-            inputs="\n".join(f"- POPPER_INPUT_{n.upper()}" for n in spec.inputs) or "- (none)",
-            outputs="\n".join(f"- {o}" for o in spec.required_outputs),
-            task=_task(spec, kind, parent),
-        ),
+    prompt = load_prompt(
+        "popper.treesearch",
+        "node.md",
+        goal=spec.goal,
+        context=spec.context,
+        inputs="\n".join(f"- POPPER_INPUT_{n.upper()}" for n in spec.inputs) or "- (none)",
+        outputs="\n".join(f"- {o}" for o in spec.required_outputs),
+        task=_task(spec, kind, parent),
     )
+    try:
+        reply, problem = h.ask("code", tag=f"code:{spec.name}", system=_SYSTEM, prompt=prompt), ""
+    except ValueError as exc:  # truncated reply
+        reply, problem = "", str(exc)
     node = Node(
         id=node_id,
         stage=spec.name,
@@ -143,6 +158,8 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
         results={},
         figures=[],
     )
+    if problem:
+        node.analysis = problem
     match = _CODE_BLOCK.search(reply)
     if match:
         node.code = match.group(1)
@@ -163,7 +180,11 @@ def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out:
             return f"missing required output {output}"
     if len(list((node.dir / "figures").glob("*.png"))) < spec.min_figures:
         return f"expected at least {spec.min_figures} figure(s) in figures/"
-    return ""
+    try:
+        node.results = _read_results(node.dir)
+    except ValueError as exc:
+        return f"invalid results.json: {exc}"
+    return (spec.check(node.dir) if spec.check else None) or ""
 
 
 def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
@@ -183,29 +204,26 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     )
     node.figures = sorted(p.name for p in (node.dir / "figures").glob("*.png"))
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
-    results = _read_results(node.dir)
-    if not failed and results is None:
-        failed = "results.json is not an object of objects with a value"
-    if failed or results is None:
+    if failed:
+        node.results = {}
         node.analysis = f"Check failed: {failed}.\n{res.stderr}"
         return
-    node.results = results
-    reply = h.ask_json(
-        "feedback",
-        tag=f"feedback:{spec.name}",
-        system=_SYSTEM,
-        prompt=load_prompt(
-            "popper.treesearch",
-            "feedback.md",
-            goal=spec.goal,
-            code=node.code,
-            stdout=res.stdout,
-            results=json.dumps(results, indent=2),
-        ),
-    )
     try:
-        fb = Feedback.model_validate(reply)
-    except ValidationError as exc:
+        fb = h.ask_model(
+            "feedback",
+            schema=Feedback,
+            tag=f"feedback:{spec.name}",
+            system=_SYSTEM,
+            prompt=load_prompt(
+                "popper.treesearch",
+                "feedback.md",
+                goal=spec.goal,
+                code=node.code,
+                stdout=res.stdout,
+                results=json.dumps(node.results, indent=2),
+            ),
+        )
+    except ValueError as exc:
         node.analysis = f"Invalid feedback reply: {exc}"
         return
     node.analysis = fb.analysis

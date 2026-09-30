@@ -1,11 +1,11 @@
 # Default run configuration. Values are read by popper.harness.config.
-# Model IDs are Bedrock model or inference-profile IDs enabled in your account.
+# Model IDs are Bedrock inference-profile IDs enabled in your account; POPPER_MODEL overrides all roles.
 models:
-  ideation: anthropic.claude-sonnet-4-5      # frames the brief and proposes hypotheses
-  code: anthropic.claude-sonnet-4-5          # writes and debugs analysis scripts
-  feedback: anthropic.claude-sonnet-4-5      # summarizes nodes, scores, chooses
-  vision: anthropic.claude-sonnet-4-5        # reads figures
-  writeup: anthropic.claude-sonnet-4-5       # writes the LaTeX report
+  ideation: us.anthropic.claude-sonnet-4-5-20250929-v1:0      # frames the brief and proposes hypotheses
+  code: us.anthropic.claude-sonnet-4-5-20250929-v1:0          # writes and debugs analysis scripts
+  feedback: us.anthropic.claude-sonnet-4-5-20250929-v1:0      # summarizes nodes, scores, chooses
+  vision: us.anthropic.claude-sonnet-4-5-20250929-v1:0        # reads figures
+  writeup: us.anthropic.claude-sonnet-4-5-20250929-v1:0       # writes the LaTeX report
 search:
   num_drafts: 3          # initial root nodes per stage
   debug_prob: 0.5        # chance to debug a buggy node instead of improving the best one
