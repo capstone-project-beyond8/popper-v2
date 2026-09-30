@@ -22,9 +22,9 @@ Function packages import only `harness` and `treesearch`, and never each other. 
 
 ## Rules
 
-- Stay inside the current milestone. Do not build deferred items (ARCHITECTURE §9) ahead of their milestone.
+- Stay inside the current milestone. Do not build items that ROADMAP places in a later milestone.
 - Watch the size cap. If a change would push `src/` past the milestone cap, stop and raise it.
-- Keep the always-on rules of ARCHITECTURE §7: record every execution, keep run files write-once, have code compute labels, and take numbers from `results.json`.
+- Keep the always-on rules of ARCHITECTURE §2.1: record every execution, keep run files write-once, have code compute labels, and take numbers from `results.json`.
 - Never write credentials into run directories or pass them to generated scripts.
 
 ## Tests

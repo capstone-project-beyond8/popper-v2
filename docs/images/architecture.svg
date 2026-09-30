@@ -1,0 +1,322 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1460 900" role="img" aria-label="Popper architecture: five research phases, a search over attempts inside every step, the agent team and the shared harness">
+<style>
+svg{
+  --ground:#F7F7F4; --ink:#1D2330; --muted:#5B6474; --line:#8A93A3; --card:#FFFFFF;
+  --p1:#E3ECF8; --p1s:#6F8FC2;
+  --p2:#E2F1E6; --p2s:#5E9A72;
+  --p3:#FBF0D6; --p3s:#B98F2E;
+  --p4:#F4E0E0; --p4s:#B56565;
+  --p5:#E9E3F5; --p5s:#7D6BB0;
+  --band:#ECEEF2; --onfill:#FFFFFF;
+  --ok:#3F8F5B; --pruned:#B7BDC7; --bug:#C4524A; --star:#C9962B;
+  }
+@media (prefers-color-scheme: dark){svg{
+  --ground:#14171D; --ink:#E6E9EF; --muted:#9AA3B2; --line:#6B7485; --card:#1E232C;
+  --p1:#1D2A3D; --p1s:#5F82BC; --p2:#1C2E24; --p2s:#4F9468; --p3:#33291A; --p3s:#A7822E;
+  --p4:#3A2324; --p4s:#B06464; --p5:#2A2439; --p5s:#7E6CB6; --band:#20252E; --onfill:#FFFFFF;
+  --ok:#4FA36C; --pruned:#5A6170; --bug:#D06A60; --star:#E0B34E;
+  }}
+.bg{fill:var(--card)}
+svg text{fill:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif}
+.t-stage{font-size:15px;font-weight:600}
+.t-box{font-size:12.5px;font-weight:600}
+.t-small{font-size:11px;fill:var(--muted)}
+.t-mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;fill:var(--muted)}
+.t-pill{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;fill:var(--ink)}
+.box{fill:var(--card);stroke:var(--line);stroke-width:1}
+.later{fill:var(--card);stroke:var(--line);stroke-width:1;stroke-dasharray:4 3}
+.pill{fill:var(--band);stroke:var(--line);stroke-width:1}
+.panel{fill:var(--band);stroke:var(--line);stroke-width:1}
+.arrow{stroke:var(--ink);stroke-width:1.3;fill:none;marker-end:url(#ah)}
+.arrow-soft{stroke:var(--line);stroke-width:1.2;fill:none;stroke-dasharray:5 4;marker-end:url(#ahs)}
+.edge{stroke:var(--line);stroke-width:1.2}
+</style>
+<rect class="bg" width="100%" height="100%"/>
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink)"/></marker>
+  <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/></marker>
+  <marker id="ahl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--p3s)"/></marker>
+</defs>
+
+<!-- PI loop-back -->
+<path d="M637 48 V30 H391 V46" fill="none" stroke="var(--p3s)" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#ahl)"/>
+<text x="404" y="22" class="t-small">The PI can go back a step when results call for it</text>
+
+<!-- Function columns -->
+<rect x="16" y="48" width="238" height="400" rx="10" fill="var(--p1)" stroke="var(--p1s)"/>
+<text x="30" y="74" class="t-stage">Understand</text>
+<text x="30" y="92" class="t-small">Phase 1 · Ideation &amp; framing</text>
+<rect x="272" y="48" width="238" height="400" rx="10" fill="var(--p2)" stroke="var(--p2s)"/>
+<text x="286" y="74" class="t-stage">Ground</text>
+<text x="286" y="92" class="t-small">Phase 2 · Data</text>
+<rect x="528" y="48" width="420" height="400" rx="10" fill="var(--p3)" stroke="var(--p3s)"/>
+<text x="542" y="74" class="t-stage">Discover</text>
+<text x="542" y="92" class="t-small">Phase 3 · Exploration &amp; hypothesis   ·   Phase 4 · Experiment</text>
+<rect x="966" y="48" width="200" height="320" rx="10" fill="var(--p4)" stroke="var(--p4s)" stroke-dasharray="6 4"/>
+<text x="980" y="74" class="t-stage">Verify</text>
+<text x="980" y="92" class="t-small">optional</text>
+<rect x="1184" y="48" width="260" height="400" rx="10" fill="var(--p5)" stroke="var(--p5s)"/>
+<text x="1198" y="74" class="t-stage">Communicate</text>
+<text x="1198" y="92" class="t-small">Phase 5 · Publication</text>
+
+<!-- Understand -->
+<rect x="32" y="108" width="206" height="42" rx="6" class="box"/>
+<text x="44" y="126" class="t-box">Brief + dataset</text>
+<text x="44" y="141" class="t-small">your question and a data table</text>
+<path d="M135 151 V170" class="arrow"/>
+<rect x="32" y="172" width="206" height="42" rx="6" class="box"/>
+<text x="44" y="190" class="t-box">Profile the data</text>
+<text x="44" y="205" class="t-small">what each column holds, gaps</text>
+<path d="M135 215 V234" class="arrow"/>
+<rect x="32" y="236" width="206" height="58" rx="6" class="box"/>
+<text x="44" y="254" class="t-box">Frame the problem</text>
+<text x="44" y="269" class="t-small">Theorist, with self-reflection</text>
+<text x="44" y="284" class="t-small">question, outcome, key variables</text>
+<path d="M135 295 V314" class="arrow"/>
+<rect x="32" y="316" width="206" height="22" rx="11" class="pill"/>
+<text x="135" y="331" class="t-pill" text-anchor="middle">research question</text>
+<rect x="32" y="378" width="206" height="42" rx="6" class="later"/>
+<text x="44" y="396" class="t-box">Prior work</text>
+<text x="44" y="411" class="t-small">related studies and citations</text>
+<path d="M238 327 H262 V137 H286" class="arrow"/>
+
+<!-- Ground -->
+<rect x="288" y="108" width="206" height="58" rx="6" class="box"/>
+<text x="300" y="126" class="t-box">Prepare the data</text>
+<text x="300" y="141" class="t-small">several cleaning attempts,</text>
+<text x="300" y="156" class="t-small">the best one is kept</text>
+<path d="M391 167 V186" class="arrow"/>
+<rect x="288" y="188" width="206" height="42" rx="6" class="box"/>
+<text x="300" y="206" class="t-box">Fix what is wrong</text>
+<text x="300" y="221" class="t-small">types, duplicates, impossible values</text>
+<path d="M391 231 V250" class="arrow"/>
+<rect x="288" y="252" width="206" height="58" rx="6" class="box"/>
+<text x="300" y="270" class="t-box">Check the result</text>
+<text x="300" y="285" class="t-small">counts and ranges make sense</text>
+<text x="300" y="300" class="t-small">before/after plots</text>
+<path d="M391 311 V330" class="arrow"/>
+<rect x="288" y="332" width="206" height="22" rx="11" class="pill"/>
+<text x="391" y="347" class="t-pill" text-anchor="middle">clean dataset</text>
+<rect x="288" y="360" width="206" height="22" rx="11" class="pill"/>
+<text x="391" y="375" class="t-pill" text-anchor="middle">change log</text>
+<path d="M494 343 H518 V137 H542" class="arrow"/>
+
+<!-- Discover: exploration & hypothesis -->
+<rect x="544" y="108" width="186" height="58" rx="6" class="box"/>
+<text x="556" y="126" class="t-box">Explore</text>
+<text x="556" y="141" class="t-small">summaries, plots,</text>
+<text x="556" y="156" class="t-small">relationships</text>
+<path d="M637 167 V186" class="arrow"/>
+<rect x="544" y="188" width="186" height="58" rx="6" class="box"/>
+<text x="556" y="206" class="t-box">Hypotheses</text>
+<text x="556" y="221" class="t-small">Theorist, from what exploring</text>
+<text x="556" y="236" class="t-small">found; each with a test plan</text>
+<path d="M637 247 V266" class="arrow"/>
+<rect x="544" y="268" width="186" height="22" rx="11" class="pill"/>
+<text x="637" y="283" class="t-pill" text-anchor="middle">hypotheses</text>
+<rect x="544" y="316" width="186" height="58" rx="6" class="later"/>
+<text x="556" y="334" class="t-box">Critique + choice</text>
+<text x="556" y="349" class="t-small">Critic challenges each one;</text>
+<text x="556" y="364" class="t-small">the researcher picks</text>
+<path d="M730 279 H739 V129 H746" class="arrow"/>
+
+<!-- Discover: experiment -->
+<rect x="748" y="108" width="184" height="42" rx="6" class="box"/>
+<text x="760" y="126" class="t-box">Baseline</text>
+<text x="760" y="141" class="t-small">a simple reference model</text>
+<path d="M840 151 V170" class="arrow"/>
+<rect x="748" y="172" width="184" height="42" rx="6" class="box"/>
+<text x="760" y="190" class="t-box">Main test</text>
+<text x="760" y="205" class="t-small">answers the hypothesis</text>
+<path d="M840 215 V234" class="arrow"/>
+<rect x="748" y="236" width="184" height="42" rx="6" class="box"/>
+<text x="760" y="254" class="t-box">Robustness</text>
+<text x="760" y="269" class="t-small">does it survive variations?</text>
+<path d="M840 279 V298" class="arrow"/>
+<rect x="748" y="300" width="184" height="22" rx="11" class="pill"/>
+<text x="840" y="315" class="t-pill" text-anchor="middle">stable · fragile</text>
+<text x="760" y="346" class="t-small">label set by a fixed rule,</text>
+<text x="760" y="360" class="t-small">never by the AI</text>
+
+<!-- Discover -> Communicate (main), under Verify -->
+<path d="M932 311 H954 V420 H1170 V129 H1198" class="arrow"/>
+<text x="990" y="412" class="t-small">best results and labels</text>
+<!-- Discover -> Verify (optional) -->
+<path d="M932 257 H958 V189 H980" class="arrow-soft"/>
+
+<!-- Verify -->
+<rect x="982" y="108" width="168" height="42" rx="6" class="later"/>
+<text x="994" y="126" class="t-box">Hold data back</text>
+<text x="994" y="141" class="t-small">the search never sees it</text>
+<path d="M1066 151 V166" class="arrow-soft"/>
+<rect x="982" y="168" width="168" height="42" rx="6" class="later"/>
+<text x="994" y="186" class="t-box">Lock the test</text>
+<text x="994" y="201" class="t-small">fixed before looking</text>
+<path d="M1066 211 V226" class="arrow-soft"/>
+<rect x="982" y="228" width="168" height="42" rx="6" class="later"/>
+<text x="994" y="246" class="t-box">One look</text>
+<text x="994" y="261" class="t-small">no second tries</text>
+<path d="M1066 271 V286" class="arrow-soft"/>
+<rect x="982" y="288" width="168" height="42" rx="6" class="later"/>
+<text x="994" y="306" class="t-box">Outcome by rule</text>
+<text x="994" y="321" class="t-small">confirmed / not confirmed</text>
+<path d="M1150 309 H1178 V199 H1198" class="arrow-soft"/>
+
+<!-- Communicate -->
+<rect x="1200" y="108" width="228" height="42" rx="6" class="box"/>
+<text x="1212" y="126" class="t-box">Collect results</text>
+<text x="1212" y="141" class="t-small">the best result of each step</text>
+<path d="M1314 151 V168" class="arrow"/>
+<rect x="1200" y="170" width="228" height="58" rx="6" class="box"/>
+<text x="1212" y="188" class="t-box">Write the paper</text>
+<text x="1212" y="203" class="t-small">Writer, standard paper layout</text>
+<text x="1212" y="218" class="t-small">numbers filled in, never typed</text>
+<path d="M1314 229 V246" class="arrow"/>
+<rect x="1200" y="248" width="228" height="58" rx="6" class="box"/>
+<text x="1212" y="266" class="t-box">Polish</text>
+<text x="1212" y="281" class="t-small">fix build errors, check each</text>
+<text x="1212" y="296" class="t-small">figure against its caption</text>
+<path d="M1314 307 V324" class="arrow-soft"/>
+<rect x="1200" y="326" width="228" height="42" rx="6" class="later"/>
+<text x="1212" y="344" class="t-box">Critic review</text>
+<text x="1212" y="359" class="t-small">scored review, one revision</text>
+<rect x="1200" y="388" width="110" height="22" rx="11" class="pill"/>
+<text x="1255" y="403" class="t-pill" text-anchor="middle">paper (PDF)</text>
+<rect x="1318" y="388" width="110" height="22" rx="11" class="pill" stroke-dasharray="4 3"/>
+<text x="1373" y="403" class="t-pill" text-anchor="middle">search map</text>
+
+<!-- Tree search panel -->
+<rect x="16" y="470" width="884" height="220" rx="10" class="panel"/>
+<text x="30" y="494" class="t-stage">Inside every step · a search over attempts</text>
+<text x="30" y="512" class="t-small">Three first attempts, then fix the broken ones (up to three tries) or improve the good ones; the highest score moves on</text>
+<text x="110" y="540" class="t-small" text-anchor="middle">first tries</text>
+<text x="180" y="540" class="t-small" text-anchor="middle">improve</text>
+<text x="250" y="540" class="t-small" text-anchor="middle">best</text>
+<line x1="50" y1="605" x2="110" y2="560" class="edge"/>
+<line x1="50" y1="605" x2="110" y2="605" class="edge"/>
+<line x1="50" y1="605" x2="110" y2="650" class="edge"/>
+<line x1="110" y1="560" x2="180" y2="560" class="edge"/>
+<line x1="180" y1="560" x2="250" y2="560" class="edge"/>
+<line x1="110" y1="605" x2="180" y2="605" class="edge"/>
+<line x1="180" y1="605" x2="250" y2="605" class="edge"/>
+<circle cx="50" cy="605" r="7" fill="var(--line)"/>
+<text x="50" y="630" class="t-small" text-anchor="middle">goal</text>
+<circle cx="110" cy="560" r="9" fill="var(--ok)"/>
+<circle cx="110" cy="605" r="9" fill="var(--bug)"/>
+<circle cx="110" cy="650" r="9" fill="var(--pruned)"/>
+<circle cx="180" cy="560" r="9" fill="var(--ok)"/>
+<circle cx="180" cy="605" r="9" fill="var(--bug)"/>
+<circle cx="250" cy="605" r="9" fill="var(--ok)"/>
+<circle cx="250" cy="560" r="11" fill="var(--star)"/>
+<text x="122" y="552" class="t-mono">6</text>
+<text x="192" y="552" class="t-mono">7</text>
+<text x="264" y="551" class="t-mono">8.5</text>
+<text x="262" y="597" class="t-mono">6</text>
+<text x="180" y="628" class="t-small" text-anchor="middle">fix</text>
+<text x="250" y="628" class="t-small" text-anchor="middle">fixed</text>
+<text x="126" y="654" class="t-small">left as is</text>
+<path d="M262 560 H330" class="arrow"/>
+<text x="296" y="580" class="t-small" text-anchor="middle">next step</text>
+<circle cx="36" cy="680" r="5" fill="var(--ok)"/><text x="46" y="684" class="t-small">works</text>
+<circle cx="96" cy="680" r="5" fill="var(--bug)"/><text x="106" y="684" class="t-small">broken</text>
+<circle cx="160" cy="680" r="5" fill="var(--pruned)"/><text x="170" y="684" class="t-small">not pursued</text>
+<circle cx="250" cy="680" r="6" fill="var(--star)"/><text x="260" y="684" class="t-small">best</text>
+
+<text x="360" y="540" class="t-small">One attempt</text>
+<rect x="360" y="552" width="116" height="58" rx="6" class="box"/>
+<text x="370" y="570" class="t-box">Analyst</text>
+<text x="370" y="585" class="t-small">tries an approach,</text>
+<text x="370" y="600" class="t-small">fixes, then submits</text>
+<path d="M476 581 H492" class="arrow"/>
+<rect x="494" y="552" width="116" height="58" rx="6" class="box"/>
+<text x="504" y="570" class="t-box">Re-run cleanly</text>
+<text x="504" y="585" class="t-small">from scratch; only</text>
+<text x="504" y="600" class="t-small">real outputs count</text>
+<path d="M610 581 H626" class="arrow"/>
+<rect x="628" y="552" width="116" height="58" rx="6" class="box"/>
+<text x="638" y="570" class="t-box">Auto checks</text>
+<text x="638" y="585" class="t-small">outputs complete</text>
+<text x="638" y="600" class="t-small">and plausible</text>
+<path d="M744 581 H760" class="arrow"/>
+<rect x="762" y="552" width="124" height="58" rx="6" class="box"/>
+<text x="772" y="570" class="t-box">Judge</text>
+<text x="772" y="585" class="t-small">reviews the attempt</text>
+<text x="772" y="600" class="t-small">and gives a score</text>
+<text x="360" y="640" class="t-small">An optional decision model can double-check the Judge, and is trusted only after it is measured</text>
+<text x="360" y="660" class="t-small">Failed attempts are results too: they stay on record and are never deleted</text>
+<!-- Agent team panel -->
+<rect x="916" y="470" width="528" height="220" rx="10" class="panel"/>
+<text x="930" y="494" class="t-stage">Agent team</text>
+<text x="930" y="512" class="t-small">one PI; each role in its own session, with its own tools</text>
+<rect x="932" y="524" width="160" height="68" rx="6" class="box"/>
+<text x="944" y="542" class="t-box">PI</text>
+<text x="944" y="558" class="t-small">runs the five phases</text>
+<text x="944" y="578" class="t-small">decides next step</text>
+<rect x="1100" y="524" width="160" height="68" rx="6" class="box"/>
+<text x="1112" y="542" class="t-box">Theorist</text>
+<text x="1112" y="558" class="t-small">framing, hypotheses</text>
+<text x="1112" y="578" class="t-small">reads results</text>
+<rect x="1268" y="524" width="160" height="68" rx="6" class="box"/>
+<text x="1280" y="542" class="t-box">Analyst</text>
+<text x="1280" y="558" class="t-small">builds one attempt</text>
+<text x="1280" y="578" class="t-small">writes and runs code</text>
+<rect x="932" y="604" width="160" height="68" rx="6" class="box"/>
+<text x="944" y="622" class="t-box">Judge</text>
+<text x="944" y="638" class="t-small">scores an attempt</text>
+<text x="944" y="658" class="t-small">sees results only</text>
+<rect x="1100" y="604" width="160" height="68" rx="6" class="later"/>
+<text x="1112" y="622" class="t-box">Critic</text>
+<text x="1112" y="638" class="t-small">independent critique</text>
+<text x="1112" y="658" class="t-small">fresh eyes</text>
+<rect x="1268" y="604" width="160" height="68" rx="6" class="box"/>
+<text x="1280" y="622" class="t-box">Writer</text>
+<text x="1280" y="638" class="t-small">paper and revisions</text>
+<text x="1280" y="658" class="t-small">reads results, figures</text>
+
+<!-- Harness -->
+<rect x="16" y="710" width="1428" height="142" rx="10" class="panel"/>
+<text x="30" y="734" class="t-stage">Harness</text>
+<text x="100" y="734" class="t-small">shared by every phase · holds no research logic</text>
+<rect x="32" y="752" width="190" height="84" rx="6" class="box"/>
+<text x="44" y="772" class="t-box">Agent loop</text>
+<text x="44" y="792" class="t-small">lets each role use tools</text>
+<text x="44" y="808" class="t-small">retries a failed call</text>
+<text x="44" y="824" class="t-small">shows progress</text>
+<rect x="232" y="752" width="190" height="84" rx="6" class="box"/>
+<text x="244" y="772" class="t-box">Context</text>
+<text x="244" y="792" class="t-small">gives each role what it needs</text>
+<text x="244" y="808" class="t-small">treats data as untrusted,</text>
+<text x="244" y="824" class="t-small">never as instructions</text>
+<rect x="432" y="752" width="190" height="84" rx="6" class="box"/>
+<text x="444" y="772" class="t-box">Sandbox</text>
+<text x="444" y="792" class="t-small">runs code in isolation</text>
+<text x="444" y="808" class="t-small">with a time limit</text>
+<text x="444" y="824" class="t-small">no access to your keys</text>
+<rect x="632" y="752" width="190" height="84" rx="6" class="box"/>
+<text x="644" y="772" class="t-box">Run folder</text>
+<text x="644" y="792" class="t-small">one folder per run</text>
+<text x="644" y="808" class="t-small">nothing is overwritten</text>
+<text x="644" y="824" class="t-small">no secrets saved</text>
+<rect x="832" y="752" width="190" height="84" rx="6" class="box"/>
+<text x="844" y="772" class="t-box">Journal</text>
+<text x="844" y="792" class="t-small">records every step</text>
+<text x="844" y="808" class="t-small">append-only</text>
+<text x="844" y="824" class="t-small">can be replayed</text>
+<rect x="1032" y="752" width="190" height="84" rx="6" class="box"/>
+<text x="1044" y="772" class="t-box">Budget</text>
+<text x="1044" y="792" class="t-small">cost and step limits</text>
+<text x="1044" y="808" class="t-small">sorts failures by kind</text>
+<text x="1044" y="824" class="t-small">stops cleanly</text>
+<rect x="1232" y="752" width="196" height="84" rx="6" class="box"/>
+<text x="1244" y="772" class="t-box">Decision layer</text>
+<text x="1244" y="792" class="t-small">Judge answers in a fixed form</text>
+<text x="1244" y="808" class="t-small">optional decision model</text>
+<text x="1244" y="824" class="t-small">trusted only once measured</text>
+
+<!-- Legend -->
+<rect x="16" y="868" width="28" height="16" rx="3" class="box"/><text x="52" y="880" class="t-small">core</text>
+<rect x="136" y="868" width="28" height="16" rx="3" class="later"/><text x="172" y="880" class="t-small">planned</text>
+<rect x="240" y="868" width="40" height="16" rx="8" class="pill"/><text x="288" y="880" class="t-small">output</text>
+<path d="M370 876 H410" class="arrow"/><text x="418" y="880" class="t-small">main flow</text>
+<path d="M490 876 H530" class="arrow-soft"/><text x="538" y="880" class="t-small">optional</text>
+</svg>

@@ -35,7 +35,7 @@ Every milestone ends at a **demo gate**: one command that a person can run, prod
 **Goal:** one complete pass, rough but real, through all five phases. Each tree node is an agent with tools.
 
 ### Agent team
-PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Judge and Writer, each in its own session with its own tools (ARCHITECTURE §3.2).
+PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Judge and Writer, each in its own session with its own tools (ARCHITECTURE §6).
 
 ### Harness (runtime)
 - **config**: package default `src/popper/harness/default_config.yaml`, then a `--config` file key by key, then the `POPPER_MODEL` environment variable for every role.
@@ -52,11 +52,11 @@ PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Ju
 - **journal**: append-only JSONL.
 - **budget**: a USD cap checked before every model call.
 - **context**: `harness/context.py` assembles each session's context from run files, with a character limit per part; brief, data strings and outputs are wrapped as untrusted.
-- **failure classes**: technical (retried), research (buggy node), budget and terminal (stop with status) — ARCHITECTURE §3.3.
+- **failure classes**: technical (retried), research (buggy node), budget and terminal (stop with status) — ARCHITECTURE §7.6.
 - **progress**: one terminal line per phase and per node (`[data] data-002 debug → ok score 7 · $0.41`); `--quiet` turns it off.
 
 ### Tree search (`treesearch/`)
-- Draft, debug and improve steps as in ARCHITECTURE §5. Each step runs a **node agent** with these tools:
+- Draft, debug and improve steps as in ARCHITECTURE §5.2. Each step runs a **node agent** with these tools:
 
 | Tool | Does |
 |---|---|
@@ -104,20 +104,19 @@ PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Ju
 
 **Goal:** the experiment phase follows Sakana's stages, and figures are judged, not just drawn.
 
-- **Stages**: `baseline` → `main` → `robustness`. The best node of each seeds the next, and each stage has its own goal and required outputs (ARCHITECTURE §5).
+- **Stages**: `baseline` → `main` → `robustness`. The best node of each seeds the next, and each stage has its own goal and required outputs (ARCHITECTURE §5.4).
 - **Stage end**: `steps_per_stage` is reached, or an `ok` node meets the goal. A per-stage override for `steps_per_stage` is added to the config.
-- **Robustness nodes**:
-  - sensitivity to the cleaning choices recorded in `changes.json`;
-  - alternative specifications;
-  - subgroup checks;
-  - resampling (bootstrap or seeds).
-  Each reports how the main estimate moved.
+- **Robustness as a multiverse** (ARCHITECTURE §5.5):
+  - variants over the cleaning choices recorded in `changes.json`, alternative specifications, subgroups and resampling, each re-estimating the main effect;
+  - at least one adversarial check (placebo outcome, negative control or permutation);
+  - a specification-curve figure of the estimates across variants.
 - **Figure feedback**: the feedback model receives the node's figures as images. A misleading or unreadable figure lowers the score, and the reason goes into `analysis.md`.
 - **Data**: before/after distribution figures for changed columns, and checks that derived variables have plausible ranges.
-- **Stability label**: computed by code from the robustness outputs (`stable` or `fragile`, ARCHITECTURE §6) and printed beside the result.
+- **Stability label**: computed by code from the robustness outputs (`stable` or `fragile`, ARCHITECTURE §5.5) and printed beside the result.
+- **Diverse drafts**: each draft sees summaries of the earlier drafts and must take a different approach.
 - **Decision layer**:
   - `harness/decisions.py` defines the typed questions, the `Answerer` interface and the modes (off, shadow, on);
-  - the Jev adapter (optional dependency `typesafe-sdk`, key `TYPESAFE_API_KEY`) answers `node_buggy`, `goal_met` and `node_score` in `shadow` beside the Judge;
+  - the Jev adapter (optional dependency; its key lives in `.env`) answers `node_buggy`, `goal_met` and `node_score` in `shadow` beside the Judge;
   - every disagreement is journaled with both answers and the facts they saw;
   - without a key, every question stays `off`.
 - **Publication**: a robustness section and a table of the main estimate across specifications.
@@ -172,11 +171,15 @@ PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Ju
 - **Writer reflection**: compile errors and LaTeX warnings are fed back for up to three rounds. Section completeness is checked.
 - **Figure and caption check**: the vision model reads each figure with its caption and flags mismatches.
 - **Number audit**: every number in the prose that did not come from `\R{}` is listed as a warning in `review.json`.
+- **Consistency checks**: simple relations among reported values (means with sample sizes, tests with their statistics) are recomputed, and mismatches are listed in `review.json`.
+- **Claims file**: a structured file beside the PDF lists each claim with the named results, nodes and label it rests on.
+- **Disclosure**: the paper states that it was generated by an AI system.
 - **Critic rubric review** (separate session): the Critic scores the draft on a fixed rubric (soundness, clarity, limitations, faithfulness to results) and writes `review.json`; the Writer revises once from it.
 - **`tree.html`**: a static page of the experiment trees, showing each node's code, output, figures, score and kind.
 - **Tests:**
   - the number audit on a fixture text;
-  - `tree.html` renders from a fixture run directory.
+  - `tree.html` renders from a fixture run directory;
+  - consistency checks flag a fixture with a mismatched mean and pass a correct one.
 - **Exit:** on three datasets, the PDF compiles without manual fixes, `review.json` is written, and the audit reports at most 2 untraced numbers per paper.
 
 ---
@@ -188,12 +191,13 @@ PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Ju
 - **Suites** (in `evals/`):
   - **planted**: 3 synthetic datasets with known effects and data issues, of different kinds (grouped, time-ordered, nonlinear);
   - **null**: 2 synthetic datasets with no real effect;
-  - **reference**: 1–2 public datasets with well-known findings.
+  - **reference**: 1–2 public datasets with well-known findings, plus a few BLADE or DiscoveryBench tasks; public data also run on perturbed copies to expose memorization.
 - **Metrics:**
   - planted-effect recovery (direction, and magnitude within a band);
   - on null data, the share of runs that report a finding as if it held, and whether it is labelled `fragile`;
   - data-issue fix rate;
-  - share of numbers traced to `\R{}`;
+  - share of numbers traced to `\R{}`, and consistency warnings;
+  - draft diversity;
   - Critic rubric score;
   - cost, wall time and failure rate.
 - **Comparisons** at equal model and budget:
@@ -202,6 +206,8 @@ PI (fixed playbook), Theorist (framing and hypotheses), Analyst (node agent), Ju
   - vision feedback on vs off;
   - PI agent vs fixed playbook;
   - Critic on vs off;
+  - multiverse robustness vs a single robustness check;
+  - diverse drafts vs free drafts;
   - each Judge question: the decision model vs the LLM Judge on a hand-checked sample of shadow disagreements (agreement, calibration, cost); a question goes `on` only when the decision model matches or beats the Judge.
 - **Decisions**: each comparison ends in a short record in `evals/decisions.md`: what changed, the result, and the default kept.
 - **Exit:** the table is generated by one command (`popper-eval`), and the defaults in `default_config.yaml` follow the decisions.
