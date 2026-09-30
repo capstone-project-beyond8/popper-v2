@@ -70,7 +70,11 @@ class Harness:
             raise BudgetExceeded(f"spent ${self.spent_usd:.4f} of ${budget.max_usd:.2f}")
         model: str = getattr(self.config.models, role)
         req = LLMRequest(model, tag, system, prompt, tuple(images))
-        done = self.llm.complete(req, max_tokens)
+        try:
+            done = self.llm.complete(req, max_tokens)
+        except Exception as exc:
+            self.journal.write("llm_error", tag=tag, role=role, model=model, error=repr(exc)[:500])
+            raise
         usd = (
             done.input_tokens * budget.usd_per_mtok_input
             + done.output_tokens * budget.usd_per_mtok_output
@@ -91,5 +95,7 @@ class Harness:
         try:
             return _parse_json(self.ask(role, tag=tag, system=system, prompt=prompt))
         except ValueError as err:  # json.JSONDecodeError is a ValueError
-            retry = f"{prompt}\n\nYour previous reply was not valid JSON ({err}). Reply with JSON only."
+            retry = (
+                f"{prompt}\n\nYour previous reply was not valid JSON ({err}). Reply with JSON only."
+            )
             return _parse_json(self.ask(role, tag=tag, system=system, prompt=retry))
