@@ -282,7 +282,12 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
     for i in range(steps):
         kind, parent = choose_action(nodes, h.config.search, rng)
         reason = _reason(kind, parent, nodes, h.config.search)
-        nodes.append(_step(h, spec, i, kind, parent, reason))
+        node = _step(h, spec, i, kind, parent, reason)
+        nodes.append(node)
+        score = f" score {node.score:g}" if node.status == "ok" else ""
+        h.progress(
+            f"[{spec.name}] {node.id} {node.kind} → {node.status}{score} · ${h.spent_usd:.2f}"
+        )
         if nodes[-1].status == "ok" and nodes[-1].goal_met:
             break
         if _plateaued(nodes, h.config.search):

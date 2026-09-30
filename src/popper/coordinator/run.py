@@ -1,6 +1,7 @@
 """Run the five phases in order and record the outcome."""
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -28,31 +29,48 @@ class RunOutcome:
     missing: list[str]
 
 
-def run(brief: Path, data: Path, *, config: Config, llm: LLM, runs_dir: Path) -> RunOutcome:
+def _phase(h: Harness, name: str) -> None:
+    h.journal.write("phase", name=name)
+    h.progress(f"[{name}] start · ${h.spent_usd:.2f}")
+
+
+def run(
+    brief: Path,
+    data: Path,
+    *,
+    config: Config,
+    llm: LLM,
+    runs_dir: Path,
+    progress: Callable[[str], None] | None = None,
+) -> RunOutcome:
     store = RunStore.create(runs_dir, brief, data)
     h = Harness(config, llm, store)
+    if progress is not None:
+        h.progress = progress
+    failed_stage: str | None = None
     status: Literal["completed", "failed", "budget_exceeded"] = "failed"
     message = ""
     tex = pdf = None
     missing: list[str] = []
     try:
-        h.journal.write("phase", name="framing")
+        _phase(h, "framing")
         framing = frame(
             h, store.path("brief.md").read_text("utf-8"), profile_csv(store.path("data", "raw.csv"))
         )
-        h.journal.write("phase", name="data")
+        _phase(h, "data")
         data_node = prepare(h, framing)
-        h.journal.write("phase", name="explore")
+        _phase(h, "explore")
         explore_node, hypothesis = explore(h, framing)
-        h.journal.write("phase", name="experiment")
+        _phase(h, "experiment")
         experiment_node = experiment(h, framing, hypothesis, explore_node.code)
-        h.journal.write("phase", name="publication")
+        _phase(h, "publication")
         changes = json.loads((data_node.dir / "changes.json").read_text("utf-8"))
         tex, pdf, missing = write_paper(
             h, framing, changes, explore_node, hypothesis, experiment_node, data_node
         )
         status = "completed"
     except StageFailed as exc:
+        failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
     except BudgetExceeded as exc:
         status, message = "budget_exceeded", str(exc)
@@ -65,6 +83,7 @@ def run(brief: Path, data: Path, *, config: Config, llm: LLM, runs_dir: Path) ->
             {
                 "status": status,
                 "message": message,
+                "failed_stage": failed_stage,
                 "config": config.model_dump(mode="json"),
                 "inputs": {"brief": str(brief), "data": str(data)},
                 "spent_usd": h.spent_usd,

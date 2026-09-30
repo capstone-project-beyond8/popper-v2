@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -137,6 +138,20 @@ def test_end_to_end(tmp_path: Path) -> None:
     assert events.count("phase") == 5 and "exec" in events
 
 
+def test_progress_lines(tmp_path: Path) -> None:
+    lines: list[str] = []
+    run(
+        EXAMPLE / "brief.md",
+        EXAMPLE / "data.csv",
+        config=_config(),
+        llm=FakeLLM(_respond),
+        runs_dir=tmp_path,
+        progress=lines.append,
+    )
+    assert lines[0] == "[framing] start · $0.00"
+    assert any(re.match(r"^\[data\] data-000 draft → ok score 7 · \$\d+\.\d\d$", x) for x in lines)
+
+
 def test_failed_stage_recorded(tmp_path: Path) -> None:
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         return _submit("raise RuntimeError('boom')") if req.tag == "analyst:data" else _respond(req)
@@ -151,7 +166,8 @@ def test_failed_stage_recorded(tmp_path: Path) -> None:
         runs_dir=tmp_path,
     )
     assert out.status == "failed" and "data" in out.message
-    assert json.loads((out.run_dir / "run.json").read_text(encoding="utf-8"))["status"] == "failed"
+    record = json.loads((out.run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["status"] == "failed" and record["failed_stage"] == "data"
 
 
 def test_budget_exceeded_recorded(tmp_path: Path) -> None:

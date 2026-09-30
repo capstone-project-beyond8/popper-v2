@@ -67,6 +67,7 @@ class Harness:
     journal: Journal = field(init=False)
     spent_usd: float = 0.0
     sleep: Callable[[float], None] = field(default=time.sleep, repr=False)
+    progress: Callable[[str], None] = field(default=lambda _line: None, repr=False)
 
     def __post_init__(self) -> None:
         self.journal = Journal(self.run.path("journal.jsonl"))

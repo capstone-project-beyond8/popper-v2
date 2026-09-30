@@ -24,6 +24,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--data", type=Path, help="path to the CSV data")
     run_p.add_argument("--config", type=Path, help="YAML overrides for the default config")
     run_p.add_argument("--runs-dir", type=Path, default=Path("runs"), help="where runs are written")
+    run_p.add_argument("--quiet", action="store_true", help="do not print progress lines")
     pdf_p = sub.add_parser("pdf", help="build the PDF for an existing run")
     pdf_p.add_argument("run_dir", type=Path, help="run folder containing report/paper.tex")
     return parser
@@ -54,12 +55,14 @@ def main(argv: list[str] | None = None) -> int:
     for path in (brief, data):
         if not path.is_file():
             parser.error(f"file not found: {path}")
+    sys.stderr.reconfigure(errors="replace")  # type: ignore[union-attr]
     outcome = run(
         brief,
         data,
         config=load_config(args.config),
         llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
         runs_dir=args.runs_dir,
+        progress=None if args.quiet else lambda line: print(line, file=sys.stderr, flush=True),
     )
     print(outcome.run_dir)
     if outcome.status != "completed":
