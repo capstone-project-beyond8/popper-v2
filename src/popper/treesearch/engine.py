@@ -9,6 +9,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal
 
+from pydantic import BaseModel, Field, ValidationError
+
 from popper.harness.config import Search
 from popper.harness.interpreter import run_script
 from popper.harness.session import Harness
@@ -44,6 +46,13 @@ class StageSpec:
     inputs: Mapping[str, Path]
     required_outputs: tuple[str, ...]
     seed_code: str | None = None
+
+
+class Feedback(BaseModel):
+    is_buggy: bool
+    analysis: str
+    score: float = Field(ge=1, le=10)
+    goal_met: bool
 
 
 class StageFailed(Exception):
@@ -84,7 +93,7 @@ def _prompt(name: str, **fields: str) -> str:
     return (files("popper.treesearch") / "prompts" / name).read_text("utf-8").format(**fields)
 
 
-def _task(spec: StageSpec, kind: NodeKind, parent: Node | None, limit: int) -> str:
+def _task(spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
     if parent is None:
         if spec.seed_code:
             return f"Starting point to adapt:\n```python\n{spec.seed_code}\n```"
@@ -92,9 +101,7 @@ def _task(spec: StageSpec, kind: NodeKind, parent: Node | None, limit: int) -> s
     head = f"Previous code:\n```python\n{parent.code}\n```"
     if kind == "improve":
         return f"Improve this working script.\n{head}\nAnalysis of its output:\n{parent.analysis}"
-    stderr = parent.dir / "stderr.txt"
-    problem = stderr.read_text("utf-8")[-limit:] if stderr.exists() else parent.analysis
-    return f"Fix this script.\n{head}\nWhat went wrong:\n{problem}"
+    return f"Fix this script.\n{head}\nWhat went wrong:\n{parent.analysis}"
 
 
 def _read_results(workdir: Path) -> dict[str, dict[str, Any]] | None:
@@ -120,7 +127,7 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
             context=spec.context,
             inputs="\n".join(f"- POPPER_INPUT_{n.upper()}" for n in spec.inputs) or "- (none)",
             outputs="\n".join(f"- {o}" for o in spec.required_outputs),
-            task=_task(spec, kind, parent, limit),
+            task=_task(spec, kind, parent),
         ),
     )
     node = Node(
@@ -183,7 +190,7 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         node.analysis = f"Check failed: {failed}.\n{res.stderr}"
         return
     node.results = results
-    fb = h.ask_json(
+    reply = h.ask_json(
         "feedback",
         tag=f"feedback:{spec.name}",
         system=_SYSTEM,
@@ -195,11 +202,14 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
             results=json.dumps(results, indent=2),
         ),
     )
-    node.analysis = str(fb.get("analysis", ""))
-    if not fb.get("is_buggy"):
-        node.status = "ok"
-        node.score = float(fb["score"])
-        node.goal_met = bool(fb.get("goal_met"))
+    try:
+        fb = Feedback.model_validate(reply)
+    except ValidationError as exc:
+        node.analysis = f"Invalid feedback reply: {exc}"
+        return
+    node.analysis = fb.analysis
+    if not fb.is_buggy:
+        node.status, node.score, node.goal_met = "ok", fb.score, fb.goal_met
 
 
 def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> Node:
