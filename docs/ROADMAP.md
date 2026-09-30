@@ -32,7 +32,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 | **Exploration & hypothesis** | Agentic `explore` stage, one hypothesis | Hypothesis contract (one primary estimand, refuting result) | — | — | 3–5 hypotheses, Critic, researcher choice, revision from results | Relation to prior work | — |
 | **Experiment** | One combined stage | `baseline` → `main` → `robustness`, multiverse, adversarial check, stability label | — | — | One tree per chosen hypothesis | — | Locked re-run on holdout |
 | **Search engine** | Draft/debug/improve, typed Judge answers | Judge blind to estimates, reads figures | — | — | — | — | — |
-| **Publication** | Template paper, named-result numbers, fixed label | Robustness section, specification curve | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results, research path | Related work, citations | Verified labels |
+| **Publication** | Template paper, named-result numbers, fixed label | Standard paper structure, results table, robustness section, specification curve | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results, research path | Related work, citations | Verified labels |
 | **Roles** | PI playbook, Theorist, Analyst, Judge, Writer | — | — | Critic reviews the paper | PI agent, Critic | Literature for Theorist and Writer | — |
 | **Harness** | Agent loop, tools, context, sandbox, journal, run store, budget, failure classes, progress | Vision input, resume, import contract | — | — | PI tools, working memory, researcher input, per-phase budgets | Literature tool | Verify package |
 | **Evaluation** | — | — | Planted and null suites, headline metrics, first comparisons, adoption records | Traced-number share | PI agent vs playbook, Critic on vs off | — | — |
@@ -78,9 +78,12 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - Import contract for the dependency rules, checked in CI (§3).
 - `examples/student_performance_null`: the demo data with the outcome shuffled, a second demo where the right answer is "no effect".
 - Publication: robustness section and a table of the main estimate across specifications.
+- Paper structure: Abstract, Introduction, Data and Methods (with the change table), Results (exploratory, then main and robustness subsections), Discussion with limitations, Conclusion. A main-results table rendered from results files. At most four figures, each placed next to the paragraph that refers to it with `ef`. The appendix keeps only the experiment code (§10).
+- Harness gaps seen in M0: the submitted script runs in a folder that scratch snippets cannot reach; scratch runs are journaled as `exec`; failed tool calls return an error status to the model (§7.2, §7.5).
 
 **Acceptance.**
 - The demo paper shows the study-hours estimate under at least three specifications with a specification curve and a stability label.
+- The demo paper follows the section order above, and every figure is referenced in the text.
 - On the demo data with the outcome shuffled, the paper claims no effect or labels the result `fragile`.
 - Tests cover stage chaining, estimate redaction in the Judge input, images reaching the Judge, the stability label on fixture variants, holdout rows never reaching a stage input, and resuming a run interrupted mid-stage.
 
