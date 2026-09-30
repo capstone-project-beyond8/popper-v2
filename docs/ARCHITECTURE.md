@@ -185,7 +185,7 @@ Makes agent work recorded, bounded and recoverable. Holds no research logic.
 | Tool                | Contract                                                          | Limits                                    |
 | ------------------- | ----------------------------------------------------------------- | ----------------------------------------- |
 | `inspect_data`      | Schema, head, summary, missing counts of a stage input            | Stage inputs only                         |
-| `run_snippet`       | Runs scratch code in the node's scratch folder, returns output    | Sandbox of §7.4; recorded, never a result |
+| `run_python`        | Runs scratch code in the node's scratch folder, returns output    | Sandbox of §7.4; recorded, never a result |
 | `view_figure`       | Sends a figure to the model                                       | Run folder only                           |
 | `read_artifact`     | Reads results, analyses, change logs, framing, hypotheses, memory | Run folder only; no raw rows              |
 | `submit`            | Terminal; the script run as the node                              | Once per Analyst session                  |

@@ -14,7 +14,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 | Milestone | Product outcome | Demo gate | Depends on | Size (est.) | Status |
 |---|---|---|---|---|---|
-| **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | ~2k | in progress |
+| **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | ~2k | done |
 | **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | ~2.5k | todo |
 | **M2** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, holdout gap and cost for two configurations | M1 | + `evals/` | todo |
 | **M3** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | ~3k | todo |
