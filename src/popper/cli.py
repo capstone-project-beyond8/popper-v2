@@ -6,9 +6,12 @@ import sys
 from pathlib import Path
 
 from popper import __version__
+from popper.communicate.paper import compile_pdf
 from popper.coordinator.run import run
 from popper.harness.config import load_config
 from popper.harness.llm import BedrockLLM
+
+_NO_PDF = "PDF not built (install tectonic, latexmk or pdflatex, or see {log})"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -21,12 +24,24 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--data", type=Path, help="path to the CSV data")
     run_p.add_argument("--config", type=Path, help="YAML overrides for the default config")
     run_p.add_argument("--runs-dir", type=Path, default=Path("runs"), help="where runs are written")
+    pdf_p = sub.add_parser("pdf", help="build the PDF for an existing run")
+    pdf_p.add_argument("run_dir", type=Path, help="run folder containing report/paper.tex")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "pdf":
+        tex = args.run_dir / "report" / "paper.tex"
+        if not tex.is_file():
+            parser.error(f"file not found: {tex}")
+        pdf = compile_pdf(tex)
+        if pdf is None:
+            print(_NO_PDF.format(log=tex.parent / "compile.log"), file=sys.stderr)
+            return 1
+        print(pdf)
+        return 0
     if args.command != "run":
         parser.print_help()
         return 0
@@ -58,7 +73,5 @@ def main(argv: list[str] | None = None) -> int:
         print(outcome.pdf)
     else:
         print(outcome.tex)
-        print(
-            f"PDF not built (install tectonic, or see {outcome.run_dir / 'report' / 'compile.log'})"
-        )
+        print(_NO_PDF.format(log=outcome.run_dir / "report" / "compile.log"), file=sys.stderr)
     return 0

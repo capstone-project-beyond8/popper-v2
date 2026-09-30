@@ -9,7 +9,7 @@ Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/ROADMAP.md](
 Requirements:
 - Python 3.13 and [uv](https://docs.astral.sh/uv/)
 - Amazon Bedrock access
-- [tectonic](https://tectonic-typesetting.github.io/) for PDF output (`scoop install tectonic` or `winget install tectonic`). Without tectonic, runs still produce `paper.tex`.
+- Optional: a LaTeX engine for PDF output. [tectonic](https://tectonic-typesetting.github.io/) is recommended (`winget install tectonic`); MiKTeX or TeX Live with `latexmk` or `pdflatex` also work. Without one, runs still produce `paper.tex`.
 
 ```sh
 uv sync
@@ -27,7 +27,7 @@ uv run --env-file .env popper run examples/student_performance
 
 Defaults live in `src/popper/harness/default_config.yaml`. Pass `--config my.yaml` to override individual keys, or set `POPPER_MODEL` to use one model ID for every role.
 
-Each run writes a folder under `runs/` containing the brief, the data, every generated script with its output and figures, a journal of model calls and executions, and `report/paper.pdf`.
+Each run writes a folder under `runs/` containing the brief, the data, every generated script with its output and figures, a journal of model calls and executions, and `report/paper.pdf`. To build the PDF later (for example after installing an engine), run `uv run popper pdf runs/<run_id>`.
 
 ## Develop
 

@@ -57,25 +57,46 @@ def _write_log(tex: Path, output: bytes | None) -> None:
     (tex.parent / "compile.log").write_text(text, encoding="utf-8")
 
 
+_NONSTOP = ("-interaction=nonstopmode", "-halt-on-error")
+# (engine, arguments before the file name, runs); pdflatex runs twice to resolve references
+_ENGINES: tuple[tuple[str, tuple[str, ...], int], ...] = (
+    ("tectonic", (), 1),
+    ("latexmk", ("-pdf", *_NONSTOP), 1),
+    ("pdflatex", _NONSTOP, 2),
+)
+
+
 def compile_pdf(tex: Path) -> Path | None:
-    tectonic = shutil.which("tectonic")
-    if tectonic is None:
+    """Compile with the first installed LaTeX engine; None if none is found or the build fails."""
+    found = next(
+        ((path, args, runs) for name, args, runs in _ENGINES if (path := shutil.which(name))),
+        None,
+    )
+    if found is None:
         return None
-    try:
-        done = subprocess.run(
-            [tectonic, str(tex)],
-            cwd=tex.parent,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=300,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        _write_log(tex, exc.stdout)
-        return None
-    _write_log(tex, done.stdout)
+    path, args, runs = found
+    output = b""
+    ok = True
+    for _ in range(runs):
+        try:
+            done = subprocess.run(
+                [path, *args, tex.name],
+                cwd=tex.parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=300,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            _write_log(tex, output + (exc.stdout or b""))
+            return None
+        output += done.stdout or b""
+        if done.returncode != 0:
+            ok = False
+            break
+    _write_log(tex, output)
     pdf = tex.with_suffix(".pdf")
-    return pdf if done.returncode == 0 and pdf.exists() else None
+    return pdf if ok and pdf.exists() else None
 
 
 def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[str, str]]:
