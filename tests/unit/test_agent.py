@@ -1,0 +1,122 @@
+import json
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from popper.harness.agent import Tool, agent_loop
+from popper.harness.config import load_config
+from popper.harness.llm import LLM, Completion, FakeLLM, LLMRequest, ToolCall
+from popper.harness.session import BudgetExceeded, Harness
+from popper.harness.store import RunStore
+
+EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
+
+
+def _harness(tmp_path: Path, llm: LLM) -> Harness:
+    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    return Harness(load_config(env={}), llm, run)
+
+
+def _run(
+    h: Harness,
+    handler: Callable[[dict[str, Any]], str | Path] = lambda args: "echoed",
+    max_turns: int = 5,
+) -> dict[str, Any] | None:
+    tools = [Tool("echo", "echo", {}, handler), Tool("submit", "submit", {}, None, terminal=True)]
+    return agent_loop(
+        h, "analyst", tag="t", system="s", task="go", tools=tools, max_turns=max_turns
+    )
+
+
+def _scripted(*turns: tuple[ToolCall, ...]) -> FakeLLM:
+    replies = iter(turns)
+    return FakeLLM(lambda req: next(replies))
+
+
+def test_returns_submitted_input(tmp_path: Path) -> None:
+    fake = _scripted((ToolCall("a1", "echo", {}),), (ToolCall("a2", "submit", {"code": "x"}),))
+    assert _run(_harness(tmp_path, fake)) == {"code": "x"}
+    last = fake.calls[1].messages[-1]
+    assert last.role == "user"
+    assert last.tool_results[0].call_id == "a1"
+    assert last.tool_results[0].text == "echoed"
+    assert [t.name for t in fake.calls[0].tools] == ["echo", "submit"]
+
+
+def test_stops_at_max_turns(tmp_path: Path) -> None:
+    fake = FakeLLM(lambda req: "thinking")
+    assert _run(_harness(tmp_path, fake), max_turns=3) is None
+    assert len(fake.calls) == 3
+    roles = [m.role for m in fake.calls[2].messages]
+    assert roles == ["user", "assistant", "user", "assistant", "user"]
+
+
+def test_handler_error_becomes_result(tmp_path: Path) -> None:
+    def boom(args: dict[str, Any]) -> str:
+        raise KeyError("code")
+
+    fake = _scripted((ToolCall("a1", "echo", {}),), (ToolCall("a2", "submit", {"k": 1}),))
+    assert _run(_harness(tmp_path, fake), boom) == {"k": 1}
+    assert fake.calls[1].messages[-1].tool_results[0].text.startswith("error:")
+
+
+def test_unknown_tool_and_image_results(tmp_path: Path) -> None:
+    png = tmp_path / "f.png"
+    fake = _scripted(
+        (ToolCall("a1", "nope", {}), ToolCall("a2", "echo", {})), (ToolCall("a3", "submit", {}),)
+    )
+    _run(_harness(tmp_path, fake), lambda args: png)
+    r1, r2 = fake.calls[1].messages[-1].tool_results
+    assert r1.text == "error: unknown tool nope"
+    assert r2.image == png
+
+
+class _Truncating:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.calls: list[LLMRequest] = []
+
+    def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
+        self.calls.append(req)
+        if len(self.calls) == 1:
+            return Completion(self.text, 0, 0, "max_tokens", (ToolCall("a1", "echo", {}),))
+        return Completion("", 0, 0, "tool_use", (ToolCall("a2", "submit", {}),))
+
+
+def test_truncated_turn_drops_tool_calls(tmp_path: Path) -> None:
+    llm = _Truncating("partial")
+    assert _run(_harness(tmp_path, llm)) == {}
+    msgs = llm.calls[1].messages
+    assert [m.role for m in msgs] == ["user", "assistant", "user"]
+    assert msgs[1].text == "partial"
+    assert msgs[1].tool_calls == ()
+    assert "cut off" in msgs[2].text
+
+
+def test_truncated_empty_text_merges_nudge(tmp_path: Path) -> None:
+    llm = _Truncating("")
+    assert _run(_harness(tmp_path, llm)) == {}
+    msgs = llm.calls[1].messages
+    assert [m.role for m in msgs] == ["user"]
+    assert msgs[0].text.startswith("go")
+    assert "cut off" in msgs[0].text
+
+
+def test_budget_exceeded_propagates(tmp_path: Path) -> None:
+    h = _harness(tmp_path, FakeLLM(lambda req: "x"))
+    h.config.budget.max_usd = 0
+    with pytest.raises(BudgetExceeded):
+        _run(h)
+
+
+def test_tool_calls_are_journaled(tmp_path: Path) -> None:
+    fake = _scripted((ToolCall("a1", "echo", {"q": 1}),), (ToolCall("a2", "submit", {}),))
+    h = _harness(tmp_path, fake)
+    _run(h)
+    lines = h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()
+    calls = [e for e in map(json.loads, lines) if e["event"] == "tool_call"]
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "echo"
+    assert calls[0]["result"] == "echoed"
