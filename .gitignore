@@ -10,3 +10,5 @@ dist/
 *.egg-info/
 .superpowers/
 docs/specs/
+docs/superpowers/
+.worktrees/
