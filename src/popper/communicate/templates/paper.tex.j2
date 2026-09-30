@@ -4,6 +4,8 @@
 \usepackage{listings}
 \usepackage{longtable}
 \newcommand{\R}[1]{\textbf{??}}
+\providecommand{\CI}[1]{\textbf{??}}
+\providecommand{\N}[1]{\textbf{??}}
 \lstset{basicstyle=\ttfamily\footnotesize, breaklines=true}
 \title{\VAR{w.title}}
 \date{}
@@ -18,7 +20,8 @@
 \section{Data}
 \VAR{w.data}
 \BLOCK{if changes}
-\begin{longtable}{p{0.3\textwidth}rp{0.5\textwidth}}
+{\small
+\begin{longtable}{p{0.32\textwidth}rp{0.48\textwidth}}
 \hline
 Step & Rows & Reason \\
 \hline
@@ -27,6 +30,7 @@ Step & Rows & Reason \\
 \BLOCK{endfor}
 \hline
 \end{longtable}
+}
 \BLOCK{endif}
 \section{Exploration}
 \VAR{w.exploration}

@@ -1,22 +1,35 @@
-from popper.communicate.numbers import fill_numbers, format_value
+from typing import Any
+
+from popper.communicate.numbers import fill_numbers
 
 
 def test_fill_known_and_unknown() -> None:
     values = {"experiment.coef": {"value": 0.4213, "ci": [0.3, 0.55]}}
     tex, missing = fill_numbers(r"a \R{experiment.coef} b \R{nope.x}", values)
-    assert tex == r"a 0.421 [0.3, 0.55] b \textbf{??}"
-    assert missing == ["nope.x"]
+    assert tex == r"a 0.421 b \textbf{??}"
+    assert missing == [r"\R{nope.x}"]
 
 
-def test_format_int_and_n() -> None:
-    assert format_value({"value": 600, "n": 600}) == "600 (n = 600)"
+def test_value_interval_and_sample_size_are_separate_macros() -> None:
+    values: dict[str, dict[str, Any]] = {
+        "experiment.slope": {"value": 0.4213, "ci": [0.3, 0.55], "n": 549},
+        "data.rows": {"value": 600},
+    }
+    tex, missing = fill_numbers(
+        r"\R{experiment.slope} (\CI{experiment.slope}, $n = \N{experiment.slope}$)"
+        r" \CI{data.rows} \N{data.rows} \CI{data.rows}",
+        values,
+    )
+    assert tex == r"0.421 (0.3--0.55, $n = 549$) \textbf{??} \textbf{??} \textbf{??}"
+    assert missing == [r"\CI{data.rows}", r"\N{data.rows}"]
 
 
-def test_format_escapes_strings() -> None:
-    assert format_value({"value": "50% & up"}) == r"50\% \& up"
+def test_string_values_are_escaped() -> None:
+    tex, _ = fill_numbers(r"\R{a.b}", {"a.b": {"value": "50% & up"}})
+    assert tex == r"50\% \& up"
 
 
 def test_dotted_capital_key_is_reported_missing() -> None:
     tex, missing = fill_numbers(r"\R{experiment.R2}", {"experiment.r2": {"value": 1}})
     assert tex == r"\textbf{??}"
-    assert missing == ["experiment.R2"]
+    assert missing == [r"\R{experiment.R2}"]

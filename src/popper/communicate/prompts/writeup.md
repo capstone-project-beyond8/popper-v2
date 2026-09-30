@@ -3,7 +3,7 @@ Write the sections of a short research report as LaTeX body text (no preamble, n
 ## Numbers you may cite
 {keys}
 
-Write every number as \R{{key}} using only the keys listed above. Never type a number yourself. Do not state the evidence label; the template adds it.
+Cite numbers only through macros with the keys listed above: \R{{key}} for the value, \CI{{key}} for its 95\% interval, \N{{key}} for the sample size, e.g. slope \R{{experiment.slope}} (95\% CI \CI{{experiment.slope}}, $n = \N{{experiment.slope}}$). Use \CI or \N only where the key lists an interval or n. Never type a number yourself. Put units and percent signs outside the macro (write \%). Do not state the evidence label; the template adds it.
 
 ## Framing
 {framing}

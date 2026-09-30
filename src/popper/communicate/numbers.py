@@ -6,7 +6,7 @@ from typing import Any
 
 from popper.treesearch.engine import Node
 
-_REF = re.compile(r"\\R\{([^}]*)\}")
+_REF = re.compile(r"\\(R|CI|N)\{([^}]*)\}")
 _ESCAPES = {
     "\\": r"\textbackslash{}",
     "&": r"\&",
@@ -37,25 +37,27 @@ def _number(v: Any) -> str:
     return str(v)
 
 
-def format_value(entry: Mapping[str, Any]) -> str:
-    text = _number(entry["value"])
-    if "ci" in entry:
+def _render(kind: str, entry: Mapping[str, Any]) -> str | None:
+    if kind == "R":
+        return _number(entry["value"])
+    if kind == "CI" and "ci" in entry:
         lo, hi = entry["ci"]
-        text += f" [{_number(lo)}, {_number(hi)}]"
-    if "n" in entry:
-        text += f" (n = {_number(entry['n'])})"
-    return text
+        return f"{_number(lo)}--{_number(hi)}"
+    if kind == "N" and "n" in entry:
+        return _number(entry["n"])
+    return None
 
 
 def fill_numbers(tex: str, values: Mapping[str, Mapping[str, Any]]) -> tuple[str, list[str]]:
     missing: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
-        key = match.group(1)
-        if key in values:
-            return format_value(values[key])
-        if key not in missing:
-            missing.append(key)
+        entry = values.get(match.group(2))
+        text = None if entry is None else _render(match.group(1), entry)
+        if text is not None:
+            return text
+        if match.group(0) not in missing:
+            missing.append(match.group(0))
         return r"\textbf{??}"
 
     return _REF.sub(replace, tex), missing

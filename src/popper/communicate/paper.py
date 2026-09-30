@@ -9,7 +9,7 @@ from typing import Any, Literal
 from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel, ConfigDict
 
-from popper.communicate.numbers import collect_values, fill_numbers, format_value, latex_escape
+from popper.communicate.numbers import collect_values, fill_numbers, latex_escape
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node
@@ -84,7 +84,7 @@ def compile_pdf(tex: Path) -> Path | None:
                 cwd=tex.parent,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                timeout=300,
+                timeout=900,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
@@ -114,6 +114,15 @@ def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[
     return placed
 
 
+def _describe(entry: dict[str, Any]) -> str:
+    text = str(entry["value"])
+    if "ci" in entry:
+        text += f", 95% CI {entry['ci'][0]} to {entry['ci'][1]}"
+    if "n" in entry:
+        text += f", n = {entry['n']}"
+    return text
+
+
 def write_paper(
     h: Harness,
     framing: dict[str, Any],
@@ -133,7 +142,7 @@ def write_paper(
         prompt=load_prompt(
             "popper.communicate",
             "writeup.md",
-            keys="\n".join(f"- {k} = {format_value(v)}" for k, v in values.items()),
+            keys="\n".join(f"- {k} = {_describe(v)}" for k, v in values.items()),
             framing=json.dumps(framing, indent=2),
             hypothesis=json.dumps(hypothesis, indent=2),
             analyses=f"Exploration:\n{explore.analysis}\n\nExperiment:\n{experiment.analysis}",
@@ -146,7 +155,11 @@ def write_paper(
             w=writeup,
             figures=placed,
             changes=[
-                {k: latex_escape(str(c.get(k, ""))) for k in ("step", "rows_affected", "reason")}
+                {
+                    "step": latex_escape(str(c.get("step", ""))).replace(r"\_", r"\_\allowbreak{}"),
+                    "rows_affected": latex_escape(str(c.get("rows_affected", ""))),
+                    "reason": latex_escape(str(c.get("reason", ""))),
+                }
                 for c in changes
             ],
             data_code=data_node.code,
