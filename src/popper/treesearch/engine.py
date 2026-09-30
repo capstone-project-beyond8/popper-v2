@@ -169,7 +169,7 @@ def _step(
         "node.md",
         goal=spec.goal,
         context=spec.context,
-        inputs="\n".join(f"- POPPER_INPUT_{n.upper()} ({p.name})" for n, p in spec.inputs.items())
+        inputs="\n".join(f"- {n}: POPPER_INPUT_{n.upper()} ({p.name})" for n, p in spec.inputs.items())
         or "- (none)",
         outputs="\n".join(f"- {o}" for o in spec.required_outputs),
         task=_task(spec, kind, parent),

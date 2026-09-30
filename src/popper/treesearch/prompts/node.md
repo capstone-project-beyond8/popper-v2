@@ -42,6 +42,6 @@ is a single number or string: report a distribution as several entries, not a ne
 - Keep association distinct from causation.
 
 ## Workflow
-Tools: inspect_data (takes one of the input names listed above), run_python, view_figure,
+Tools: inspect_data (takes an input name, the part before the colon above), run_python, view_figure,
 read_artifact, submit. Inspect the inputs, try snippets with run_python, look at figures, then
 call submit with the complete script. Only the submitted script's outputs count.
