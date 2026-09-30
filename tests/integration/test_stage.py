@@ -73,7 +73,7 @@ def test_min_figures_fails_without_figure(tmp_path: Path) -> None:
 
 def test_bad_result_key_makes_node_buggy(tmp_path: Path) -> None:
     code = _py(
-        "import json\njson.dump({'R2': {'value': 1}}, open('results.json','w'))\n"
+        "import json\njson.dump({'r2.adj': {'value': 1}}, open('results.json','w'))\n"
         "open('out.txt','w')"
     )
     h = _harness(tmp_path, [code])
@@ -81,7 +81,7 @@ def test_bad_result_key_makes_node_buggy(tmp_path: Path) -> None:
     with pytest.raises(StageFailed):
         run_stage(h, SPEC, random.Random(0))
     analysis = h.run.path("tree", SPEC.name) / "stage-000" / "analysis.md"
-    assert "'R2'" in analysis.read_text(encoding="utf-8")
+    assert "'r2.adj'" in analysis.read_text(encoding="utf-8")
 
 
 def test_null_ci_is_dropped_from_results(tmp_path: Path) -> None:

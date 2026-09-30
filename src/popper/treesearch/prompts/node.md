@@ -19,8 +19,8 @@ chained `inplace=True` assignments.
 Write these files into the current working directory:
 {outputs}
 
-Also write `results.json`: a JSON object mapping lowercase snake_case names (only a-z, 0-9 and
-_, starting with a letter) to objects, each with a "value" (number or string) and optionally
+Also write `results.json`: a JSON object mapping snake_case names (only letters, digits and _,
+starting with a letter) to objects, each with a "value" (number or string) and optionally
 "ci" ([low, high]), "n" (int) and "note" (string). Convert numpy values with `.item()`, `int()`
 or `float()` before writing any JSON file.
 Example: {{"mean_score": {{"value": 12.3, "ci": [11.0, 13.6], "n": 400, "note": "mean of G3"}}}}
@@ -28,5 +28,8 @@ Save figures as PNG under figures/ (create the folder). Print a short log to std
 Report every number you want cited in results.json.
 
 {task}
+
+Keep the script focused and short (about 150 lines at most, at most 4 figures). Each "value"
+is a single number or string: report a distribution as several entries, not a nested object.
 
 Reply with exactly one ```python code block and nothing else.

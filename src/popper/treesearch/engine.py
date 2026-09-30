@@ -60,7 +60,8 @@ class ResultEntry(BaseModel):
 
 
 _RESULTS = TypeAdapter(dict[str, ResultEntry])
-_RESULT_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+_RESULT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_CODE_MAX_TOKENS = 16000
 
 
 class Feedback(BaseModel):
@@ -123,7 +124,7 @@ def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
         raise ValueError(f"results.json unreadable: {exc}") from exc
     for key in entries:
         if not _RESULT_KEY.match(key):
-            raise ValueError(f"results.json key {key!r} must match [a-z][a-z0-9_]*")
+            raise ValueError(f"results.json key {key!r} must match [A-Za-z][A-Za-z0-9_]*")
     return {k: v.model_dump(mode="json", exclude_none=True) for k, v in entries.items()}
 
 
@@ -141,7 +142,14 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
         task=_task(spec, kind, parent),
     )
     try:
-        reply, problem = h.ask("code", tag=f"code:{spec.name}", system=_SYSTEM, prompt=prompt), ""
+        reply = h.ask(
+            "code",
+            tag=f"code:{spec.name}",
+            system=_SYSTEM,
+            prompt=prompt,
+            max_tokens=_CODE_MAX_TOKENS,
+        )
+        problem = ""
     except ValueError as exc:  # truncated reply
         reply, problem = "", str(exc)
     node = Node(
