@@ -5,7 +5,6 @@ import secrets
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 
 class RunStore:
@@ -34,6 +33,3 @@ class RunStore:
 
     def write_json(self, rel: str, obj: object) -> Path:
         return self.write_text(rel, json.dumps(obj, indent=2, default=str))
-
-    def read_json(self, rel: str) -> Any:
-        return json.loads(self.path(rel).read_text(encoding="utf-8"))
