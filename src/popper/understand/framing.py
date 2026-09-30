@@ -9,7 +9,7 @@ from popper.harness.context import ARTIFACT_CHARS, BRIEF_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 
-_SYSTEM = "You are a careful research scientist. Reply with JSON only."
+_SYSTEM = "You are a careful research scientist."
 
 
 class Framing(BaseModel):

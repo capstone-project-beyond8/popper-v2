@@ -39,7 +39,7 @@ def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[
         "theorist",
         schema=HypothesisProposal,
         tag="hypothesis",
-        system="You are a careful research scientist. Reply with JSON only.",
+        system="You are a careful research scientist.",
         prompt=load_prompt(
             "popper.discover",
             "hypothesis.md",

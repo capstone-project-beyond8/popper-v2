@@ -52,7 +52,7 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.13"
-files = ["src/popper", "tests", "examples/student_performance/make_data.py"]
+files = ["src/popper", "tests", "examples/student_performance/make_data.py", "examples/student_performance_null/make_data.py"]
 strict = true
 mypy_path = "src"
 explicit_package_bases = true

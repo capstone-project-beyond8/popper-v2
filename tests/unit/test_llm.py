@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from botocore.exceptions import ClientError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from popper.harness.llm import (
     BedrockLLM,
@@ -14,9 +16,28 @@ from popper.harness.llm import (
     ToolResult,
     ToolSpec,
     TransientLLMError,
+    _bedrock_schema,
     _from_converse,
     _to_converse,
 )
+
+
+def test_structured_schema_keeps_local_bounds_and_closes_enum_key_maps() -> None:
+    class Shape(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        score: float = Field(ge=1, le=10)
+        name: str = Field(min_length=1)
+        reasons: dict[Literal["cleaning", "model"], str]
+
+    original = Shape.model_json_schema()
+    wire = _bedrock_schema(original)
+    assert "minimum" not in json.dumps(wire) and "minLength" not in json.dumps(wire)
+    reasons = wire["properties"]["reasons"]
+    assert set(reasons["properties"]) == {"cleaning", "model"}
+    assert reasons["additionalProperties"] is False
+    assert original["properties"]["score"]["minimum"] == 1
+    with pytest.raises(ValidationError):
+        Shape.model_validate({"score": 11, "name": "", "reasons": {}})
 
 
 def test_tool_round_trip_wire_format(tmp_path: Path) -> None:

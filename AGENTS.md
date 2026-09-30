@@ -52,4 +52,8 @@ Run all four before handing off a change. Report what ran and what failed.
 
 ## Commits
 
-Conventional commit prefixes (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`). Do not reference plan files or milestone numbers in code or tests.
+Conventional commit prefixes (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`). Do not reference plan files or milestone numbers in code, tests, or commit messages.
+
+## Worktrees
+
+The same conventional prefixes for worktree names: `feat/`, `fix/`, `docs/`, `test/`, `chore/`, `refactor/`, followed by a short kebab-case description.

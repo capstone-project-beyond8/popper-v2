@@ -57,3 +57,14 @@ def test_route_must_match_exactly_one_price(tmp_path: Path) -> None:
 def test_haiku_model_selects_haiku_price() -> None:
     cfg = load_config(env={"POPPER_MODEL": "global.anthropic.claude-haiku-4-5"})
     assert cfg.budget.price(cfg.models.analyst).input == 1.0
+
+
+def test_example_base_and_explicit_overrides_merge_key_by_key(tmp_path: Path) -> None:
+    base = tmp_path / "base.yaml"
+    user = tmp_path / "user.yaml"
+    base.write_text("data: {group_column: student_id}\nsearch: {stage_steps: {main: 4}}")
+    user.write_text("data: {holdout_fraction: 0.3}\nsearch: {stage_steps: {baseline: 2}}")
+    cfg = load_config(user, env={"POPPER_MODEL": "fake-sonnet"}, base=base)
+    assert cfg.data.group_column == "student_id" and cfg.data.holdout_fraction == 0.3
+    assert cfg.search.steps_for("main") == 4 and cfg.search.steps_for("baseline") == 2
+    assert cfg.search.steps_for("robustness") == 6

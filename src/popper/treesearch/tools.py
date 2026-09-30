@@ -100,34 +100,43 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         text = path.read_text(encoding="utf-8", errors="replace")
         return fence(head(text, ARTIFACT_CHARS))
 
+    artifact_list = ", ".join(sorted(ARTIFACTS))
     return [
         Tool(
             "inspect_data",
-            "Show dtypes, first rows, summary statistics and missing counts of an input file.",
-            _schema(name="Input name."),
+            "Describe one stage input. For CSV or Parquet: dtypes, first 5 rows, describe() and "
+            f"missing counts; other files are returned as text. Output is cut at {ARTIFACT_CHARS} "
+            "characters.",
+            _schema(name="Input name: the part before the colon in the task's Inputs list."),
             inspect_data,
         ),
         Tool(
             "run_python",
-            "Run a throwaway Python snippet in a scratch folder and return its output.",
+            "Run a throwaway Python snippet and return exit code, stdout and stderr. Each call "
+            "starts a fresh process in a new empty folder: variables and files do not persist "
+            "between calls. Inputs are available through the same environment variables as the "
+            "final script. Calls time out and long output is truncated. Nothing here counts "
+            "toward the node's outputs.",
             _schema(code="Python source."),
             run_python,
         ),
         Tool(
             "view_figure",
-            "View a PNG figure produced earlier in this run.",
+            "View a PNG figure produced earlier in this run (PNG only, at most 3.75 MB).",
             _schema(path="PNG path relative to the run directory."),
             view_figure,
         ),
         Tool(
             "read_artifact",
-            "Read a results, analysis, framing or hypotheses file from this run.",
+            f"Read an artifact of this run: {artifact_list}. Other files are refused. "
+            f"Output is cut at {ARTIFACT_CHARS} characters.",
             _schema(path="File path relative to the run directory."),
             read_artifact,
         ),
         Tool(
             "submit",
-            "Submit the final analysis script; it is re-run to produce the node's outputs.",
+            "Submit the complete analysis script. It is re-run from scratch in the node folder, "
+            "and only that run's files and results.json count. Call it exactly once, last.",
             _schema(code="Complete Python script."),
             None,
             terminal=True,

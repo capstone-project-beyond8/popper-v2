@@ -83,10 +83,11 @@ def main(argv: list[str] | None = None) -> int:
         if not path.is_file():
             parser.error(f"file not found: {path}")
     sys.stderr.reconfigure(errors="replace")  # type: ignore[union-attr]
+    base = args.dir / 'config.yaml' if args.dir is not None else None
     outcome = run(
         brief,
         data,
-        config=load_config(args.config),
+        config=load_config(args.config, base=base if base and base.is_file() else None),
         llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
         runs_dir=args.runs_dir,
         progress=None if args.quiet else lambda line: print(line, file=sys.stderr, flush=True),

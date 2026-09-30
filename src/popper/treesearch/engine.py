@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 from popper.harness.agent import agent_loop
 from popper.harness.config import Search
@@ -22,7 +22,7 @@ from popper.treesearch.tools import node_tools
 
 NodeKind = Literal["draft", "debug", "improve", "variant", "adversarial"]
 
-_SYSTEM = "You are a careful data scientist. Follow the format instructions exactly."
+_SYSTEM = "You are a careful data scientist."
 
 
 @dataclass
@@ -89,11 +89,21 @@ _RESULT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 class Verdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     node_buggy: bool
     goal_met: bool
-    node_score: float = Field(ge=1, le=10)
+    node_score: float
     analysis: str
     figure_issues: list[str] = Field(default_factory=list)
+
+    # Checked here, not in the schema: structured outputs reject numeric bounds.
+    @field_validator("node_score")
+    @classmethod
+    def _in_range(cls, v: float) -> float:
+        if not 1 <= v <= 10:
+            raise ValueError("node_score must be between 1 and 10")
+        return v
 
 
 class StageFailed(Exception):

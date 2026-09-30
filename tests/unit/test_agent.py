@@ -70,7 +70,7 @@ def test_unknown_tool_and_image_results(tmp_path: Path) -> None:
     )
     _run(_harness(tmp_path, fake), lambda args: png)
     r1, r2 = fake.calls[1].messages[-1].tool_results
-    assert r1.text == "error: unknown tool nope"
+    assert r1.text == "error: unknown tool nope; available: echo, submit"
     assert r2.image == png
     assert r1.status == "error" and r2.status == "success"
 

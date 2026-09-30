@@ -113,7 +113,7 @@ Defaults: `num_drafts = 3`, `debug_prob = 0.5`, `max_debug_depth = 3` [1]. A sta
 ### 5.3 Node evaluation
 
 1. **Code checks.** Non-zero exit, timeout, missing required output, invalid results file or out-of-range declared value → `buggy`, no model call.
-2. **Judge.** A separate session reads code, output, results and figures, writes an analysis, and returns the typed answers of §8. It scores validity, completeness and fidelity to the planned test, never the size, sign or significance of an effect: in experiment stages, code redacts `value` and `ci` of estimates from the results and output the Judge sees [24].
+2. **Judge.** A separate session reads projected code, results and figures, writes an analysis, and returns the typed answers of §8. It scores validity, completeness and fidelity, never effect size, sign or significance [24]. Experiment input masks all source literals, omits free-form logs/notes/context and withholds all result values/intervals. Only code-generated sample-count diagnostics are attached; unblinded result figures are publication artifacts. Non-experiment stages attach validated PNGs normally. `figure_issues` records presentation reasons, including on schema correction.
 3. **Selection.** Highest-scoring `ok` node; ties go to the earlier node. The best node seeds the next stage. Every `ok` node's estimate is still reported (§5.5), so selection cannot hide the spread of attempts.
 
 Each check has a test that it fires on a bad fixture and stays silent on a good one [37].
@@ -128,7 +128,7 @@ Each check has a test that it fires on a bad fixture and stays silent on a good 
 | `main`       | Experiment  | Planned analysis and the follow-ups results call for                                  | best `baseline`        | estimates with intervals, figures     |
 | `robustness` | Experiment  | Multiverse and adversarial checks (§5.5)                                              | best `main`            | main estimate under every variant     |
 
-A first build may merge the three experiment stages into one.
+Experiment stages are separate; default step budgets are baseline 3, main 6, robustness 6. `search.stage_steps` overrides individual stages. Scheduled robustness attempts run before optional repairs and do not stop on goal/plateau; repairs retain specification identity and consume the same budget.
 
 ### 5.5 Robustness and stability
 
@@ -136,6 +136,8 @@ A first build may merge the three experiment stages into one.
 - **Adversarial checks**, at least one [7, 17]: placebo outcome, negative-control exposure, permutation of the key variable, or a confounding sensitivity bound such as the E-value [27].
 - **Specification curve** of sorted estimates with intervals across variants and across every `ok` node of the experiment stages [23].
 - **Stability label**, computed: `stable` iff the estimate keeps its sign with an interval excluding zero in ≥ `stability_share` (default 0.8) of variants and no adversarial check fails; else `fragile`.
+
+The current executable adversary is one seeded exposure permutation using the same contrast/estimator; its `placebo_estimate` interval must contain zero (endpoints included). This is a diagnostic, not a calibrated permutation test. Require at least `min_variants=3` successful ordinary specifications. Failed/missing planned variants stay in the denominator; failed/missing adversaries force `fragile`. Ordinary intervals touching zero do not support stability. Main sign, not expected hypothesis direction, is the reference; no extra main-significance gate is imposed. All successful baseline/main/robustness attempts, including repairs and placebo estimates, remain in the table/curve. A repaired specification's representative is its highest-scoring successful node, earliest on ties.
 
 ### 5.6 Analysis checklist
 
@@ -185,7 +187,7 @@ Makes agent work recorded, bounded and recoverable. Holds no research logic.
 | Tool                | Contract                                                          | Limits                                    |
 | ------------------- | ----------------------------------------------------------------- | ----------------------------------------- |
 | `inspect_data`      | Schema, head, summary, missing counts of a stage input            | Stage inputs only                         |
-| `run_snippet`       | Runs scratch code in the node's scratch folder, returns output    | Sandbox of §7.4; recorded, never a result |
+| `run_python`        | Runs scratch code in the node's scratch folder, returns output    | Sandbox of §7.4; recorded, never a result |
 | `view_figure`       | Sends a figure to the model                                       | Run folder only                           |
 | `read_artifact`     | Reads results, analyses, change logs, framing, hypotheses, memory | Run folder only; no raw rows              |
 | `submit`            | Terminal; the script run as the node                              | Once per Analyst session                  |
@@ -206,14 +208,15 @@ Each session's context is built fresh from the run folder, never inherited from 
 
 ### 7.4 Sandbox
 
-- Fresh subprocess per script; working directory is the node folder; time limit from config.
+- Fresh subprocess per script; working directory is an exclusive execution folder; time limit from config. Scratch processes run outside the evidence tree, then their files are snapshotted into the node.
 - Inputs arrive as absolute paths in environment variables; credentials are stripped from the environment.
 - No container or network isolation in single-user local use; container isolation is required before shared use [5].
+- A worker audit hook permits normal Python reads only in that execution folder, mounted input files and runtime/library resources; writes stay in execution and cannot change harness code/logs or inputs. Resolve symlinks; deny sibling/run-root reads and subprocess launch. This prevents accidental file access, not hostile native extensions.
 
 ### 7.5 Journal and run store
 
-- **Journal:** one append-only file of events: model call (role, model, tokens including cache reads and writes, cost at that model's configured price), tool call (arguments, truncated result), execution (code hash, exit, duration), decision (§8), phase event.
-- **Run store:** one folder per run, write-once files (§9); `run.json` holds a secret-free config snapshot and status.
+- **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
+- **Run store:** write-once files (§9); version-2 `run.json` holds initial metadata and a secret-free config snapshot. Later status lives in committed numbered state files, citing prior state and committed artifact paths. Resume restores cost from every recorded model call, uses saved config and policy RNG, preserves incomplete attempts and never resets budgets. Cost not journaled at process death cannot be recovered.
 - **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [18].
 
 ### 7.6 Budgets and failures
@@ -258,15 +261,19 @@ Judge verdicts are typed answers; code reads the fields, prose goes to the node 
 
 ```text
 runs/<run_id>/
-  run.json                 config snapshot (no secrets), inputs, status, cost
-  journal.jsonl            append-only events
-  brief.md, data/          copied inputs; data/holdout.csv set aside at ingest, never mounted
-  understand/              data profile, framing
-  hypotheses.json          hypotheses with planned test, source nodes, supplied_by
-  tree/<stage>/<node_id>/  code, log, results, figures, node.json, Judge analysis
+  run.json                 immutable config/inputs/hashes, initial status, format_version
+  journal*.jsonl           append-only event segments and authoritative commits
+  state/<sequence>.json    committed status/cost snapshots with artifact references
+  brief.md, data/          discovery raw.csv, holdout.csv, split.json, processed.parquet
+  understand/attempt-*/    profile and committed framing
+  hypotheses/attempt-*/   one primary estimand, refuting result, sources/attribution
+  discover/robustness/     versioned validated schedule before executions
+  discover/evidence/      versioned evidence manifest and numerical summary results.json
+  tree/<stage>/<node_id>/  execution/, scratch/, judge_figures/, meta.json, analysis.md
   memory.md                working memory citing node ids
   critiques/               Critic assessments citing node ids
-  report/                  paper source and PDF, claims file, review, build log
+  report/attempt-*/        Writer replies, curve inputs/execution, paper.tex, report.json
+    build-*/               immutable PDF/compiler snapshots from temporary scratch
 ```
 
 | Content kind    | Examples                                                           | Changed by                                 |
@@ -281,15 +288,15 @@ Every assessment and memory entry cites the artifacts it rests on.
 
 1. **Collect** framing, change log, exploration figures, hypotheses, best nodes, specification curves, labels.
 2. **Aggregate figures** in one plotting script over best nodes' saved outputs [1].
-3. **Write** a fixed LaTeX template section by section (abstract, introduction, data, exploration, hypotheses, methods, results, robustness, limitations), following applicable STROBE items [28]. Numbers appear only as named-result references.
+3. **Write** a fixed LaTeX template: Abstract; Introduction; Data and Methods with change table/hypothesis; Results with Exploratory, Main, Robustness subsections; Discussion with limitations; Conclusion [28]. Numbers appear only as named-result references. Code renders all successful experiment attempts and computed stability/reasons, plus a status list of failed/missing attempts. Every number is resolved from `results.json` with canonical node keys and selected-stage aliases. Reserve one of at most four figures for the specification curve, place every figure next to a generated textual reference, and render caption macros too.
 4. **Render** named results from result files [6]; an unknown name renders `??` and warns.
 5. **Check:** build errors fed back to the Writer for up to `latex_rounds` rounds [1]; vision check of each figure against its caption [1]; number audit of literals not from named results; consistency checks on reported relations (means with n, tests with statistics) [29, 30]; Critic rubric review [2] and one Writer revision.
 6. **Claims file** beside the PDF: each claim with its named results, nodes and label [20].
 7. **Claim language:** negative and inconclusive results reported with equal standing; observational designs described as association; `fragile` results described as fragile.
-8. **Appendix** generated by code: change log, tree summary, code of reported nodes, researcher-steered choices, labels.
+8. **Appendix** generated by code: experiment scripts only, attributed by stage/node; data code and the change table are not duplicated. Broader publication audits, reviews, claims files and figure aggregation remain target extensions, not part of the current local writer.
 9. **Disclosure** that the paper was generated by an AI system.
 
-LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; without one the run writes the source and `popper pdf` builds it later.
+LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; build in scratch then preserve each fresh build snapshot. Without an engine the run writes source; `popper pdf` resolves the committed report (or old `report/paper.tex`) and builds later. `popper resume` continues only version-2 runs; completed runs reuse the existing outcome without model calls.
 
 ## 11. Verify
 

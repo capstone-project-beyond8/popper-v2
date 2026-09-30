@@ -128,7 +128,11 @@ def _continue(h: Harness) -> RunOutcome:
                 "failed_stage": failed_stage,
                 "spent_usd": h.spent_usd,
                 "missing": missing,
-                'artifacts': {e['name']: e['path'] for e in read_events(store.root) if e['event'] == 'artifact_commit'},
+                "artifacts": {
+                    e["name"]: e["path"]
+                    for e in read_events(store.root)
+                    if e["event"] == "artifact_commit"
+                },
             },
         )
     return _outcome(store)

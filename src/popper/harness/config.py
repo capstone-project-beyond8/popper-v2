@@ -105,13 +105,16 @@ def _merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def load_config(path: Path | None = None, env: Mapping[str, str] | None = None) -> Config:
-    """Load defaults, overlay `path` if given, and apply `POPPER_MODEL` to every role."""
+def load_config(
+    path: Path | None = None, env: Mapping[str, str] | None = None, *, base: Path | None = None
+) -> Config:
+    """Load defaults, example base, explicit overrides, then the environment model route."""
     env = os.environ if env is None else env
     text = (files("popper.harness") / "default_config.yaml").read_text(encoding="utf-8")
     data: dict[str, Any] = yaml.safe_load(text)
-    if path is not None:
-        data = _merge(data, yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+    for overlay in (base, path):
+        if overlay is not None:
+            data = _merge(data, yaml.safe_load(overlay.read_text(encoding="utf-8")) or {})
     model = env.get("POPPER_MODEL")
     if model:
         data["models"] = dict.fromkeys(data["models"], model)

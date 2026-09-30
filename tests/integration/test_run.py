@@ -164,17 +164,26 @@ def _config() -> Config:
 def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     llm = FakeLLM(_respond)
     lines: list[str] = []
-    def interrupted_compile(tex: Path) -> Path | None:
-        raise KeyboardInterrupt('publication interrupted')
 
-    monkeypatch.setattr('popper.communicate.paper.compile_pdf', interrupted_compile)
+    def interrupted_compile(tex: Path) -> Path | None:
+        raise KeyboardInterrupt("publication interrupted")
+
+    monkeypatch.setattr("popper.communicate.paper.compile_pdf", interrupted_compile)
     with pytest.raises(KeyboardInterrupt):
-        run(EXAMPLE / 'brief.md', EXAMPLE / 'data.csv', config=_config(), llm=llm,
-            runs_dir=tmp_path, progress=lines.append)
+        run(
+            EXAMPLE / "brief.md",
+            EXAMPLE / "data.csv",
+            config=_config(),
+            llm=llm,
+            runs_dir=tmp_path,
+            progress=lines.append,
+        )
     root = next(tmp_path.iterdir())
-    original = {p: p.read_bytes() for p in root.rglob('*') if p.is_file() and p.name != 'journal.jsonl'}
-    monkeypatch.setattr('popper.communicate.paper.compile_pdf', compile_pdf)
-    no_calls = FakeLLM(lambda req: pytest.fail('completed publication inputs must not replay'))
+    original = {
+        p: p.read_bytes() for p in root.rglob("*") if p.is_file() and p.name != "journal.jsonl"
+    }
+    monkeypatch.setattr("popper.communicate.paper.compile_pdf", compile_pdf)
+    no_calls = FakeLLM(lambda req: pytest.fail("completed publication inputs must not replay"))
     out = resume(root, llm=no_calls)
     assert all(p.read_bytes() == contents for p, contents in original.items())
     assert out.status == "completed" and out.tex is not None

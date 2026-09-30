@@ -18,10 +18,13 @@ whether the goal is fully met. Trust the independent summary over the script's o
 the node buggy when it shows impossible values or unhandled missing values that the goal requires
 fixing.
 
-Reply with JSON only:
-{{"node_buggy": false, "goal_met": false, "node_score": 7, "analysis": "short reading of the outputs", "figure_issues": []}}
-
 Read attached figures. Unreadable axes, missing labels or misleading presentation lower the score;
 state the reason in analysis and figure_issues. Where estimates are withheld, assess methodology
 and the attached structural diagnostics only. Never score the size, direction or significance
 of an effect, and never infer them from missing numerical output.
+Reply with one JSON object with exactly these keys:
+- "node_buggy": true or false
+- "goal_met": true or false
+- "node_score": a number from 1 to 10
+- "analysis": a short reading of the outputs
+- "figure_issues": list of specific readability or presentation problems, empty when none

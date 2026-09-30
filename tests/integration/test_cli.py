@@ -27,6 +27,7 @@ def test_quiet_controls_progress(
 ) -> None:
     (tmp_path / "brief.md").write_text("b", encoding="utf-8")
     (tmp_path / "data.csv").write_text("a\n1\n", encoding="utf-8")
+    (tmp_path / "config.yaml").write_text("data: {group_column: student_id}")
     fake = MagicMock(
         return_value=SimpleNamespace(run_dir=tmp_path, status="completed", missing=[], pdf=tmp_path)
     )
@@ -34,6 +35,7 @@ def test_quiet_controls_progress(
     monkeypatch.setattr("popper.cli.BedrockLLM", MagicMock())
     assert main(["run", str(tmp_path), *flags]) == 0
     assert (fake.call_args.kwargs["progress"] is None) is silent
+    assert fake.call_args.kwargs["config"].data.group_column == "student_id"
 
 
 def test_pdf_reads_legacy_source_without_replacing_it(
