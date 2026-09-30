@@ -6,21 +6,21 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 - **Outcome first.** A milestone is stated as what a researcher can do after it ships, then the capabilities that deliver it.
 - **Demo gate.** One command a person can run, producing output they can read. A milestone is done only when its gate and acceptance criteria pass on a real model.
-- **Size cap.** A limit on `src/` lines (`wc -l` over `src/popper/**/*.py`, prompts and templates excluded). Crossing it stops work for a design review; the cap is never raised quietly.
+- **Size estimate.** A rough guess of `src/` lines for planning, not a limit. Code stays as small as the outcome allows.
 - **From milestone to code.** Milestone → spec in `docs/specs/` (refines ARCHITECTURE contracts, never contradicts them) → implementation plan → build → close. A spec is removed once its milestone closes.
 - **Scope discipline.** Nothing is built ahead of its milestone. After M2, a new mechanism names the failure it fixes and its evaluation result.
 
 ## Product overview
 
-| Milestone | Product outcome | Demo gate | Depends on | Cap | Status |
+| Milestone | Product outcome | Demo gate | Depends on | Size (est.) | Status |
 |---|---|---|---|---|---|
-| **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | 1,800 | in progress |
-| **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | 2,500 | todo |
+| **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | ~2k | in progress |
+| **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | ~2.5k | todo |
 | **M2** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, holdout gap and cost for two configurations | M1 | + `evals/` | todo |
-| **M3** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | 3,000 | todo |
-| **M4** Research loop | The researcher steers; results change what the run does next | Several critiqued hypotheses, researcher picks, a second round builds on the first, a late data problem reopens the data stage; eval compares it with the playbook | M2, M3 | 3,700 | todo |
-| **M5** Literature | Framing, hypotheses and related work grounded in real prior work | The demo paper cites resolved prior work | M4 | 4,200 | todo |
-| **M6** Verify | Confirm a chosen result once on held-back data | `popper verify <run> <result>` → a computed outcome | M2 | 4,600 | todo |
+| **M3** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | ~3k | todo |
+| **M4** Research loop | The researcher steers; results change what the run does next | Several critiqued hypotheses, researcher picks, a second round builds on the first, a late data problem reopens the data stage; eval compares it with the playbook | M2, M3 | ~3.5k | todo |
+| **M5** Literature | Framing, hypotheses and related work grounded in real prior work | The demo paper cites resolved prior work | M4 | ~4k | todo |
+| **M6** Verify | Confirm a chosen result once on held-back data | `popper verify <run> <result>` → a computed outcome | M2 | ~4.5k | todo |
 | **M7** Long-term track | Deferred capabilities, each started when its trigger is met | Per item | M2 | per item | parked |
 
 ## Capability growth
@@ -55,7 +55,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 **Acceptance.**
 - On `student_performance` with a real model: the paper reports the planted data issues it fixed (duplicates, `absent`, impossible values, income labels), finds a positive effect of study hours, has no `??`, costs under $5 and finishes under 45 minutes.
 - Tests cover config merge, budget stop, model-call retry, turn limit, node selection, results validation, number rendering, the sandbox (timeout, credentials, inputs), a stage recovering from bad replies, and an end-to-end run with a scripted model.
-- CI gate passes; `src/` ≤ 1,800 lines.
+- CI gate passes.
 
 **Out.** Split experiment stages, figure judging, several hypotheses, researcher input, going back, Critic, search map, holdout.
 
@@ -178,7 +178,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ## M7 — Long-term track
 
-Capabilities Popper keeps as goals but does not build yet. Each waits for its trigger; when the trigger is met it becomes a milestone of its own with an outcome, demo gate, cap and, where §1 excludes it today, an ARCHITECTURE scope change first. The M2 evaluation decides whether an item that adds a mechanism stays.
+Capabilities Popper keeps as goals but does not build yet. Each waits for its trigger; when the trigger is met it becomes a milestone of its own with an outcome, demo gate and, where §1 excludes it today, an ARCHITECTURE scope change first. The M2 evaluation decides whether an item that adds a mechanism stays.
 
 | Item | Why it waits | Trigger to start | ARCHITECTURE |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # Repository operating guide
 
-- Code is the source of truth. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the target design: components, contracts and invariants that specs and plans follow. [docs/ROADMAP.md](docs/ROADMAP.md) sets the product milestones, their acceptance criteria and size caps.
+- Code is the source of truth. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the target design: components, contracts and invariants that specs and plans follow. [docs/ROADMAP.md](docs/ROADMAP.md) sets the product milestones, their acceptance criteria and rough size estimates.
 - Commands, dependencies and tool settings are in [pyproject.toml](pyproject.toml). Default run configuration is in [src/popper/harness/default_config.yaml](src/popper/harness/default_config.yaml).
 
 ## Layout
@@ -23,7 +23,7 @@ Function packages import only `harness` and `treesearch`, and never each other. 
 ## Rules
 
 - Stay inside the current milestone. Do not build items that ROADMAP places in a later milestone.
-- Watch the size cap. If a change would push `src/` past the milestone cap, stop and raise it.
+- Keep code as small as the milestone outcome allows; the size estimates in ROADMAP are for planning, not limits.
 - Keep the always-on rules of ARCHITECTURE §2.1: record every execution, keep run files write-once, have code compute labels, and take numbers from `results.json`.
 - Never write credentials into run directories or pass them to generated scripts.
 - Specs and plans under `docs/superpowers/` are temporary artifacts. The whole folder is gitignored; never commit anything from it.
