@@ -6,13 +6,16 @@ import math
 import secrets
 import shutil
 import stat
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from popper.harness.config import DataConfig
+from popper.harness.config import Config, DataConfig, load_config
+from popper.harness.recovery import Journal, read_events
 
 
 def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -48,10 +51,12 @@ class RunStore:
 
     @classmethod
     def create(
-        cls, runs_dir: Path, brief: Path, data: Path, *, data_config: DataConfig | None = None
+        cls, runs_dir: Path, brief: Path, data: Path, *, data_config: DataConfig | None = None,
+        config: Config | None = None,
     ) -> "RunStore":
-        config = data_config or DataConfig()
-        discovery, held = split_rows(pd.read_csv(data), config)
+        snapshot = config or load_config(env={})
+        split_config = data_config or snapshot.data
+        discovery, held = split_rows(pd.read_csv(data), split_config)
         run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         store = cls(runs_dir / run_id)
         store.root.mkdir(parents=True)
@@ -62,10 +67,17 @@ class RunStore:
             rows.to_csv(path, index=False)
             path.chmod(stat.S_IREAD)
         store.write_json("data/split.json", {
-            **config.model_dump(), "discovery_rows": len(discovery), "holdout_rows": len(held),
+            **split_config.model_dump(), "discovery_rows": len(discovery), "holdout_rows": len(held),
             "verification_eligible": not held.empty,
             "discovery_hash": file_hash(store.path("data", "raw.csv")),
             "holdout_hash": file_hash(store.path("data", "holdout.csv")),
+        })
+        config_data = snapshot.model_dump(mode="json")
+        config_data["data"] = split_config.model_dump()
+        store.write_json("run.json", {
+            "format_version": 2, "status": "running", "config": config_data,
+            "inputs": {"brief": str(brief.resolve()), "data": str(data.resolve())},
+            "source_hash": file_hash(data), "brief_hash": file_hash(brief),
         })
         return store
 
@@ -81,3 +93,14 @@ class RunStore:
 
     def write_json(self, rel: str, obj: object) -> Path:
         return self.write_text(rel, json.dumps(obj, indent=2, default=str))
+
+    def checkpoint(self, state: Mapping[str, Any]) -> Path:
+        files = list(self.path("state").glob("*.json"))
+        sequence = max((int(p.stem) for p in files), default=-1) + 1
+        commits = [e for e in read_events(self.root) if e["event"] == "state_commit"]
+        rel = f"state/{sequence:06d}.json"
+        path = self.write_json(rel, {
+            **state, "previous": commits[-1]["path"] if commits else None,
+        })
+        Journal(self.path("journal.jsonl")).write("state_commit", path=rel)
+        return path

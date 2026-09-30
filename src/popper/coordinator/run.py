@@ -43,7 +43,7 @@ def run(
     runs_dir: Path,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
-    store = RunStore.create(runs_dir, brief, data, data_config=config.data)
+    store = RunStore.create(runs_dir, brief, data, config=config)
     h = Harness(config, llm, store)
     if progress is not None:
         h.progress = progress
@@ -78,14 +78,11 @@ def run(
         message = repr(exc)
         raise
     finally:
-        store.write_json(
-            "run.json",
+        store.checkpoint(
             {
                 "status": status,
                 "message": message,
                 "failed_stage": failed_stage,
-                "config": config.model_dump(mode="json"),
-                "inputs": {"brief": str(brief), "data": str(data)},
                 "spent_usd": h.spent_usd,
                 "missing": missing,
             },

@@ -10,7 +10,6 @@ import pandas as pd
 
 from popper.harness.agent import Tool
 from popper.harness.context import ARTIFACT_CHARS, fence, head
-from popper.harness.interpreter import run_script
 from popper.harness.session import Harness
 
 ARTIFACTS = {"results.json", "analysis.md", "changes.json", "framing.json", "hypotheses.json"}
@@ -64,13 +63,15 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         scratch += 1
         with tempfile.TemporaryDirectory(prefix="popper-scratch-") as temp:
             workdir = Path(temp)
-            r = run_script(
-                str(args["code"]), workdir, timeout=h.config.execution.timeout_seconds,
-                inputs=inputs, max_output_chars=h.config.execution.max_output_chars,
+            r = h.execute(
+                str(args["code"]), workdir, inputs=inputs, node=node_dir.name, purpose="scratch",
             )
             shutil.copytree(workdir, evidence)
         timed = " (timed out)" if r.timed_out else ""
-        return fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
+        output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
+        if r.exit_code != 0 or r.timed_out:
+            raise ValueError(f"{output}\nFix the snippet and try again; submitted results are separate.")
+        return output
 
     def view_figure(args: dict[str, Any]) -> Path:
         path = inside(str(args.get("path", "")))

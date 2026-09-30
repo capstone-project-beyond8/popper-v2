@@ -30,13 +30,16 @@ def _args(call: ToolCall) -> str:
 
 def _run(h: Harness, tag: str, turn: int, tool: Tool | None, call: ToolCall) -> ToolResult:
     out: str | Path
+    status = "success"
     if tool is None or tool.handler is None:
         out = f"error: unknown tool {call.name}"
+        status = "error"
     else:
         try:
             out = tool.handler(call.input)
         except Exception as exc:
             out = f"error: {exc}"
+            status = "error"
     h.journal.write(
         "tool_call",
         tag=tag,
@@ -44,8 +47,12 @@ def _run(h: Harness, tag: str, turn: int, tool: Tool | None, call: ToolCall) -> 
         tool=call.name,
         args=_args(call),
         result=str(out) if isinstance(out, Path) else head(out, _JOURNAL_LIMIT),
+        status=status,
     )
-    return ToolResult(call.id, image=out) if isinstance(out, Path) else ToolResult(call.id, out)
+    return (
+        ToolResult(call.id, image=out) if isinstance(out, Path)
+        else ToolResult(call.id, out, status="error" if status == "error" else "success")
+    )
 
 
 def _extend(history: list[Message], assistant: Message, user: Message) -> None:

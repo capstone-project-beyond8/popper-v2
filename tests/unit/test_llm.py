@@ -36,13 +36,14 @@ def test_tool_round_trip_wire_format(tmp_path: Path) -> None:
         {"toolUse": {"toolUseId": "t1", "name": "inspect_data", "input": {"name": "data"}}}
     ]
     assert wire[2]["content"] == [
-        {"toolResult": {"toolUseId": "t1", "content": [{"text": "cols"}]}}
+        {"toolResult": {"toolUseId": "t1", "content": [{"text": "cols"}], "status": "success"}}
     ]
     assert wire[3]["content"] == [
         {
             "toolResult": {
                 "toolUseId": "t1",
                 "content": [{"image": {"format": "png", "source": {"bytes": b"PNG"}}}],
+                "status": "success",
             }
         }
     ]

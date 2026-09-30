@@ -7,6 +7,8 @@ import pytest
 from popper.coordinator.run import run
 from popper.harness.config import Config, load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
+from popper.harness.recovery import load_state
+from popper.harness.store import RunStore
 
 pytestmark = pytest.mark.integration
 
@@ -131,7 +133,7 @@ def test_end_to_end(tmp_path: Path) -> None:
     request = next(r for r in llm.calls if r.tag == "framing")
     assert f"<untrusted>\n{brief}\n</untrusted>" in request.prompt
     assert (out.run_dir / "data" / "processed.parquet").exists()
-    record = json.loads((out.run_dir / "run.json").read_text(encoding="utf-8"))
+    record = load_state(RunStore(out.run_dir))
     assert record["status"] == "completed" and record["missing"] == [r"\R{experiment.nope}"]
     writer = [r for r in llm.calls if r.tag == "writeup"]
     assert len(writer) == 3 and r"\R{experiment.nope}: no key experiment.nope" in writer[1].prompt
@@ -168,7 +170,7 @@ def test_failed_stage_recorded(tmp_path: Path) -> None:
         runs_dir=tmp_path,
     )
     assert out.status == "failed" and "data" in out.message
-    record = json.loads((out.run_dir / "run.json").read_text(encoding="utf-8"))
+    record = load_state(RunStore(out.run_dir))
     assert record["status"] == "failed" and record["failed_stage"] == "data"
 
 
@@ -184,6 +186,6 @@ def test_budget_exceeded_recorded(tmp_path: Path) -> None:
     )
     assert out.status == "budget_exceeded"
     assert (
-        json.loads((out.run_dir / "run.json").read_text(encoding="utf-8"))["status"]
+        load_state(RunStore(out.run_dir))["status"]
         == "budget_exceeded"
     )

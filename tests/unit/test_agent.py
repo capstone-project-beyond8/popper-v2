@@ -60,6 +60,7 @@ def test_handler_error_becomes_result(tmp_path: Path) -> None:
     fake = _scripted((ToolCall("a1", "echo", {}),), (ToolCall("a2", "submit", {"k": 1}),))
     assert _run(_harness(tmp_path, fake), boom) == {"k": 1}
     assert fake.calls[1].messages[-1].tool_results[0].text.startswith("error:")
+    assert fake.calls[1].messages[-1].tool_results[0].status == "error"
 
 
 def test_unknown_tool_and_image_results(tmp_path: Path) -> None:
@@ -71,6 +72,7 @@ def test_unknown_tool_and_image_results(tmp_path: Path) -> None:
     r1, r2 = fake.calls[1].messages[-1].tool_results
     assert r1.text == "error: unknown tool nope"
     assert r2.image == png
+    assert r1.status == "error" and r2.status == "success"
 
 
 class _Truncating:

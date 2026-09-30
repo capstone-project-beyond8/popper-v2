@@ -3,16 +3,16 @@
 import json
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
 from popper.harness.config import Config, Role
 from popper.harness.context import UNTRUSTED_NOTE
+from popper.harness.interpreter import ExecResult, run_script
 from popper.harness.llm import (
     LLM,
     Completion,
@@ -21,6 +21,7 @@ from popper.harness.llm import (
     ToolSpec,
     TransientLLMError,
 )
+from popper.harness.recovery import Journal
 from popper.harness.store import RunStore
 
 T = TypeVar("T", bound=BaseModel)
@@ -32,16 +33,6 @@ _FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 class BudgetExceeded(Exception):
     pass
-
-
-class Journal:
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    def write(self, event: str, **fields: object) -> None:
-        entry = {"ts": datetime.now(UTC).isoformat(), "event": event, **fields}
-        with self._path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, default=str) + "\n")
 
 
 def _parse_json(text: str) -> dict[str, Any]:
@@ -71,6 +62,26 @@ class Harness:
 
     def __post_init__(self) -> None:
         self.journal = Journal(self.run.path("journal.jsonl"))
+
+    def execute(
+        self, code: str, workdir: Path, *, inputs: Mapping[str, Path], node: str,
+        purpose: Literal["scratch", "submitted", "plot"],
+    ) -> ExecResult:
+        fields = {"node": node, "purpose": purpose, "path": str(workdir.resolve())}
+        self.journal.write("exec_start", **fields)
+        try:
+            result = run_script(
+                code, workdir, timeout=self.config.execution.timeout_seconds, inputs=inputs,
+                max_output_chars=self.config.execution.max_output_chars,
+            )
+        except Exception as exc:
+            self.journal.write("exec", **fields, error=str(exc), exit_code=None, timed_out=False)
+            raise
+        self.journal.write(
+            "exec", **fields, exit_code=result.exit_code,
+            timed_out=result.timed_out, seconds=result.seconds,
+        )
+        return result
 
     def converse(
         self,

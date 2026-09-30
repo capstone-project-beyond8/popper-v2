@@ -43,12 +43,16 @@ def test_inspect_data_rejects_unknown_input(tmp_path: Path) -> None:
 
 
 def test_run_python_uses_numbered_scratch_folders(tmp_path: Path) -> None:
-    _, tools, node_dir = _setup(tmp_path)
+    h, tools, node_dir = _setup(tmp_path)
     first = str(_call(tools, "run_python", code="print('hello-scratch')"))
     _call(tools, "run_python", code="print(2)")
     assert "hello-scratch" in first
     assert (node_dir / "scratch" / "00" / "code.py").exists()
     assert (node_dir / "scratch" / "01" / "code.py").exists()
+    import json
+    events = [json.loads(line) for line in h.run.path("journal.jsonl").read_text().splitlines()]
+    assert sum(e["event"] == "exec_start" for e in events) == 2
+    assert sum(e["event"] == "exec" for e in events) == 2
 
 
 def test_run_python_hides_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,6 +88,6 @@ def test_run_python_cannot_overwrite_run_inputs(tmp_path: Path) -> None:
     before = raw.read_bytes()
     tools = {t.name: t for t in node_tools(h, {"raw": raw}, node_dir)}
     code = "import os\nopen(os.environ['POPPER_INPUT_RAW'], 'w').write('x')"
-    out = str(_call(tools, "run_python", code=code))
-    assert "exit code 0" not in out
+    with pytest.raises(ValueError, match="denied"):
+        _call(tools, "run_python", code=code)
     assert raw.read_bytes() == before

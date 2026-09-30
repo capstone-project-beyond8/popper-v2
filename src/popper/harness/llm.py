@@ -18,6 +18,7 @@ class ToolResult:
     call_id: str
     text: str = ""
     image: Path | None = None
+    status: Literal["success", "error"] = "success"
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,9 @@ def _to_converse(messages: Sequence[Message]) -> list[dict[str, Any]]:
                 if r.image
                 else {"text": r.text}
             )
-            content.append({"toolResult": {"toolUseId": r.call_id, "content": [body]}})
+            content.append({"toolResult": {
+                "toolUseId": r.call_id, "content": [body], "status": r.status,
+            }})
         if m.text.strip():
             content.append({"text": m.text})
         content += [

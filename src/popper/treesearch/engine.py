@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from popper.harness.agent import agent_loop
 from popper.harness.config import Search
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
-from popper.harness.interpreter import run_script
 from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
@@ -226,19 +225,12 @@ def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out:
 
 
 def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
-    res = run_script(
+    res = h.execute(
         node.code,
         node.execution_dir,
-        timeout=h.config.execution.timeout_seconds,
         inputs=spec.inputs,
-        max_output_chars=limit,
-    )
-    h.journal.write(
-        "exec",
         node=node.id,
-        exit_code=res.exit_code,
-        timed_out=res.timed_out,
-        seconds=res.seconds,
+        purpose="submitted",
     )
     node.figures = sorted(p.name for p in (node.execution_dir / "figures").glob("*.png"))
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
