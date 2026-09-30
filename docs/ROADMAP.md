@@ -1,41 +1,230 @@
 # Roadmap
 
-Every milestone ends at a **demo gate**: one command that a person can run, producing output they can read. Each milestone also has a **size cap** on `src/` lines (counted by `wc -l` over `src/popper/**/*.py`, prompts excluded). Going over the cap stops work for a review; the cap is never raised quietly. Design context lives in [ARCHITECTURE.md](ARCHITECTURE.md).
+Every milestone ends at a **demo gate**: one command that a person can run, producing output they can read. Each milestone also has a **size cap** on `src/` lines (counted by `wc -l` over `src/popper/**/*.py`, prompts and templates excluded). Going over the cap stops work for a review; the cap is never raised quietly. Design context lives in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-| Milestone | Functions | Demo gate | Cap | Status |
+## Overview
+
+| Milestone | Theme | Demo gate | Cap | Status |
 |---|---|---|---|---|
-| M0 Mini scientist, end to end | All five phases, minimal | `popper run examples/student_performance` → `paper.pdf` with framing, data changes, exploration figures, one hypothesis, a tested result and `\R{}` numbers | 1,400 | todo |
-| M1 Full experiment stages and figure feedback | Data, Experiment | Experiment split into baseline → main → robustness; the vision model reads figures and its feedback shapes the next node; the paper has a robustness section | 2,000 | todo |
-| M2 Science loop | Ideation ⇄ Exploration ⇄ Experiment | Several hypotheses; the researcher picks on the CLI; experiment results revise hypotheses; data problems reopen the data stage | 2,600 | todo |
-| M3 Write-up and review | Communicate | PDF + `review.json` + `tree.html` (clickable experiment tree) | 3,000 | todo |
-| M4 Evaluation | All | Table of reviewer scores, planted-effect recovery, cost and time on 3–5 datasets, across configurations | + `evals/` | todo |
-| M5 Literature | Understand, Communicate | Hypotheses and paper cite real prior work (OpenAlex) | 3,500 | todo |
-| M6 Verify (optional) | Verify | `popper verify <run> <result>` → a confirmed/not-confirmed outcome on the held-out rows | 4,000 | todo |
-| M7 Evidence-led | — | Only items M4 shows are needed: parallel workers, container sandbox, resume, multiple datasets, web UI | — | — |
+| M0 | Mini scientist, end to end | `popper run examples/student_performance` → a paper with framing, data changes, exploration figures, one hypothesis and a tested result | 1,700 | todo |
+| M1 | Full experiment stages, figure feedback | The paper has baseline, main and robustness results, each from its stage's best node; the feedback model reads figures | 2,200 | todo |
+| M2 | Science loop (coordinator agent) | Several hypotheses; the researcher picks; a second round builds on the first; a data problem found later reopens the data stage | 2,900 | todo |
+| M3 | Write-up and review | Compiles without manual fixes on three datasets; `review.json` and `tree.html` | 3,300 | todo |
+| M4 | Evaluation | Table of effect recovery, data-fix rate, reviewer score, cost and time over 3–5 datasets and configurations | + `evals/` | todo |
+| M5 | Literature | Framing, hypotheses and paper cite real prior work | 3,800 | todo |
+| M6 | Verify (optional) | `popper verify <run> <result>` → a confirmed or not-confirmed outcome on held-out rows | 4,300 | todo |
+| M7 | Evidence-led extensions | Only what M4 shows is needed | — | — |
+
+## How each phase grows
+
+| Phase | M0 | M1 | M2 | M3 | M5 | M6 |
+|---|---|---|---|---|---|---|
+| **Ideation & framing** | Profile + framing with one reflection | — | Researcher confirms or edits the framing | — | Literature search shapes questions and directions | — |
+| **Data** | Agentic `data` stage; `processed.parquet` + `changes.json` | Before/after figures; checks on derived variables | Reopened as a new child when a later phase finds a data problem | — | — | Holdout split before any node reads data |
+| **Exploration & hypothesis** | Agentic `explore` stage; one hypothesis | Figures judged by the vision model | 3–5 hypotheses with reflection; the researcher picks; hypotheses revised from results | — | Hypotheses related to prior work | — |
+| **Experiment** | One combined agentic stage | `baseline` → `main` → `robustness`; replication by resampling | Several hypotheses, one tree each; results feed memory | — | — | Frozen re-run on the holdout |
+| **Publication** | Template paper, `\R{}` numbers, fixed label | Robustness section | Several hypotheses, rounds and steering history | Writer reflection, figure/caption check, reviewer, `tree.html` | Related work and citations | Confirmed/not-confirmed labels |
+| **Harness** | Tool loop, node tools, retry, progress, journal, budget | Vision in feedback | Coordinator tools, `memory.md`, human-input tool, per-phase budgets | — | `search_literature` tool | `verify` package |
+
+---
 
 ## M0 — Mini scientist, end to end
 
-The goal is one complete pass, rough but real, through every function except Verify.
+**Goal:** one complete pass, rough but real, through all five phases. Each tree node is an agent with tools.
 
-1. **Harness.**
-   - `llm`: Bedrock Converse wrapper for text, JSON and image input, with token and cost accounting, plus a `FakeLLM` that replays scripted replies for tests.
-   - `interpreter`: runs a script in a subprocess with a timeout, the node folder as working directory, and credentials stripped from the environment; captures stdout/stderr and collects `results.json` and figures.
-   - `store`: creates the run directory and node folders.
-   - `journal`: append-only JSONL.
-   - `budget`: a USD cap checked before each model call.
-   - `config`: loads `src/popper/harness/default_config.yaml` with CLI overrides.
-2. **Discover engine.** The tree search of ARCHITECTURE §5: draft, debug and improve nodes run sequentially, the feedback model scores nodes, and the best node is selected. It is written once and reused by every stage.
-3. **Phases.**
-   1. *Ideation & framing*: a structural profile of the CSV, then `framing.json` from the brief and the profile. One reflection round.
-   2. *Data*: the `data` stage writes `processed.parquet` and a table of changes.
-   3. *Exploration & hypothesis*: the `explore` stage, then one model step that turns its observations into **one** hypothesis with planned experiments.
-   4. *Experiment*: one combined `experiment` stage that tests the hypothesis.
-   5. *Publication*: a fixed LaTeX template (sections following the phases), `\R{}` macros from the best nodes' `results.json`, figures from the explore and experiment nodes, an appendix with the reported nodes' code and the `exploratory` label, and a tectonic compile (falling back to `.tex` only).
-4. **CLI.** `popper run <example_dir | --brief B --data D> [--config C]`, which prints the path to the run directory and the PDF.
+### Harness (runtime)
+- **config**: package default `src/popper/harness/default_config.yaml`, then a `--config` file key by key, then the `POPPER_MODEL` environment variable for every role.
+- **llm**: Bedrock Converse with text, images and tool use, plus token and cost accounting.
+  - Retry with exponential backoff (up to 5 attempts) on throttling, timeouts and 5xx; other errors are not retried.
+  - Retries are journaled and are not research steps.
+  - `FakeLLM` replays scripted text and tool calls for tests.
+- **agent loop**: `agent_loop(role, system, task, tools, max_turns)`.
+  - Tools are registered with a JSON schema and a handler.
+  - Every tool call and result is journaled.
+  - The loop ends when the agent calls `submit`, or when it reaches `max_turns` (the node is then `buggy`).
+- **interpreter**: runs a script in a subprocess with a timeout. Credentials are stripped from the environment, and inputs are passed as `POPPER_INPUT_<NAME>`.
+- **store**: a write-once run directory.
+- **journal**: append-only JSONL.
+- **budget**: a USD cap checked before every model call.
+- **progress**: one terminal line per phase and per node (`[data] data-002 debug → ok score 7 · $0.41`); `--quiet` turns it off.
 
-**Out of M0:** splitting the experiment stage, VLM feedback, several hypotheses, researcher choice, loops back to earlier phases, reviewer, `tree.html`, holdout.
+### Tree search (`treesearch/`)
+- Draft, debug and improve steps as in ARCHITECTURE §5. Each step runs a **node agent** with these tools:
 
-## Rules that apply to every milestone
+| Tool | Does |
+|---|---|
+| `inspect_data(name)` | Schema, head, describe and missing counts of an input |
+| `run_python(code)` | Runs a scratch snippet in the node's `scratch/` folder and returns its output. Recorded, never a result |
+| `view_figure(path)` | Sends a PNG to the model |
+| `read_artifact(path)` | Reads files of the parent node or of earlier stages (`results.json`, `analysis.md`, `changes.json`, `framing.json`) |
+| `submit(code)` | The final script. The harness re-runs it from scratch as the node, and only its outputs count |
 
-- Update the Status column and ARCHITECTURE.md in the same change that finishes a milestone. ARCHITECTURE.md describes built behaviour. Plans live in `docs/specs/` and are deleted or archived when done.
+- Code checks run before the feedback model is called (exit status, timeout, required outputs, `results.json` shape).
+- The feedback model scores the node 1–10 and says whether the goal is met. The best node is the highest-scoring `ok` one.
+
+### Phases
+1. **Ideation & framing**: a structural profile, then `framing.json` (problem, questions, key variables, directions, data concerns) with one reflection round.
+2. **Data**: the `data` stage writes `processed.parquet`, `changes.json` (step, rows affected, reason) and `rows_before`/`rows_after`.
+3. **Exploration & hypothesis**: the `explore` stage (distributions, relations, groups, at least two figures), then one model step producing one hypothesis with planned experiments and its source node.
+4. **Experiment**: one combined `experiment` stage testing the hypothesis, with estimates, intervals and n.
+5. **Publication**:
+   - fixed LaTeX template with sections following the phases;
+   - `\R{stage.name}` numbers from `results.json`, with unknown names shown as `??` and warned about;
+   - the fixed label `exploratory — autonomously generated`;
+   - an appendix with the data changes and the reported code;
+   - tectonic compile, falling back to `.tex` only.
+
+### CLI
+`popper run <example_dir | --brief B --data D> [--config C] [--runs-dir R] [--quiet]`
+
+### Tests
+- **Unit:** config merge; budget stop; JSON parse retry; model-call retry; tool-loop turn limit; node selection; `results.json` validation; number filling.
+- **Integration:** the interpreter (timeout, credentials, inputs); one stage with scripted tool calls (bad replies, then recovery, then failure); one end-to-end run with `FakeLLM`.
+
+### Exit criteria
+- The real-model demo on `student_performance`:
+  - reports the planted data issues it fixed (duplicates, `absent`, impossible values, income labels);
+  - finds a positive effect of study hours;
+  - has no `??`;
+  - costs under $5 and takes under 45 minutes.
+- The CI checks pass, and `src/` is ≤ 1,700 lines.
+
+**Out:** split experiment stages, vision in feedback, several hypotheses, researcher input, loops back, reviewer, `tree.html`, holdout.
+
+---
+
+## M1 — Full experiment stages and figure feedback
+
+**Goal:** the experiment phase follows Sakana's stages, and figures are judged, not just drawn.
+
+- **Stages**: `baseline` → `main` → `robustness`. The best node of each seeds the next, and each stage has its own goal and required outputs (ARCHITECTURE §5).
+- **Stage end**: `steps_per_stage` is reached, or an `ok` node meets the goal. A per-stage override for `steps_per_stage` is added to the config.
+- **Robustness nodes**:
+  - sensitivity to the cleaning choices recorded in `changes.json`;
+  - alternative specifications;
+  - subgroup checks;
+  - resampling (bootstrap or seeds).
+  Each reports how the main estimate moved.
+- **Figure feedback**: the feedback model receives the node's figures as images. A misleading or unreadable figure lowers the score, and the reason goes into `analysis.md`.
+- **Data**: before/after distribution figures for changed columns, and checks that derived variables have plausible ranges.
+- **Publication**: a robustness section and a table of the main estimate across specifications.
+- **Tests:**
+  - stage chaining (seed code passed on) with `FakeLLM`;
+  - the feedback prompt receives images when figures exist.
+- **Exit:**
+  - the demo paper shows the study-hours estimate under at least three specifications;
+  - a fixture figure with unlabeled axes gets a lower score than a good one.
+
+**Out:** several hypotheses, researcher input, loops back.
+
+---
+
+## M2 — Science loop (coordinator agent)
+
+**Goal:** results change what the run does next. The coordinator becomes an agent that uses the same tool loop.
+
+- **Coordinator tools:**
+  - `run_stage(stage, goal_note)`;
+  - `propose_hypotheses(n)`;
+  - `revise_hypothesis(id, reason)`;
+  - `reopen_data(issue)`, which starts a new `data` node whose parent is the previous best;
+  - `ask_researcher(question, options)`;
+  - `update_memory(text)`;
+  - `finish(reason)`.
+- **Playbook**: the five phases stay the default order, stated in the coordinator prompt. The coordinator may loop back with a recorded reason. Per-phase and total budgets bound the loop.
+- **Hypotheses**: 3–5 from exploration with one reflection round, each with a rationale, planned experiments and source nodes. Each chosen hypothesis gets its own experiment trees.
+- **Researcher input**: `ask_researcher` on the CLI (choose, edit, or add a note). `--auto` lets the coordinator pick. Every choice is labelled `researcher_steered` or `agent_supplied`.
+- **Working memory**: `memory.md`, updated after each stage. Each entry cites node ids, and it is read by the coordinator and by node agents (`read_artifact`).
+- **Publication**: one results subsection per tested hypothesis, plus a "research path" section generated from the journal (what was tried, why it changed).
+- **Tests:**
+  - a scripted coordinator run with a reopen and a revision;
+  - `--auto` makes no input calls.
+- **Exit:**
+  - on a fixture dataset with a data issue that only shows during experiments (a unit mismatch in one school), the run reopens the data stage and the paper reports it;
+  - a second-round hypothesis cites first-round results.
+
+**Out:** parallel trees, literature.
+
+---
+
+## M3 — Write-up and review
+
+**Goal:** the paper is readable and checked the way Sakana's write-up is.
+
+- **Figure aggregation**: one final plotting script per paper, run from the best nodes' saved outputs, producing consistent publication figures.
+- **Writer reflection**: compile errors and LaTeX warnings are fed back for up to three rounds. Section completeness is checked.
+- **Figure and caption check**: the vision model reads each figure with its caption and flags mismatches.
+- **Number audit**: every number in the prose that did not come from `\R{}` is listed as a warning in `review.json`.
+- **Reviewer**: an LLM reviewer with a fixed rubric (soundness, clarity, limitations, faithfulness to results) writes `review.json`, and the writer revises once from it.
+- **`tree.html`**: a static page of the experiment trees, showing each node's code, output, figures, score and kind.
+- **Tests:**
+  - the number audit on a fixture text;
+  - `tree.html` renders from a fixture run directory.
+- **Exit:** on three datasets, the PDF compiles without manual fixes, `review.json` is written, and the audit reports at most 2 untraced numbers per paper.
+
+---
+
+## M4 — Evaluation
+
+**Goal:** measure what helps before adding anything else.
+
+- **Datasets** (in `evals/`):
+  - 3 synthetic datasets with planted effects and planted data issues, of different kinds (grouped, time-ordered, nonlinear);
+  - 1–2 public datasets with well-known findings.
+- **Metrics:**
+  - planted-effect recovery (direction, and magnitude within a band);
+  - data-issue fix rate;
+  - share of numbers traced to `\R{}`;
+  - reviewer score;
+  - cost, wall time and failure rate.
+- **Comparisons** at equal model and budget:
+  - agentic nodes vs single-shot nodes;
+  - `num_drafts` 1 vs 3;
+  - vision feedback on vs off;
+  - coordinator agent vs fixed playbook.
+- **Decisions**: each comparison ends in a short record in `evals/decisions.md`: what changed, the result, and the default kept.
+- **Exit:** the table is generated by one command (`popper-eval`), and the defaults in `default_config.yaml` follow the decisions.
+
+---
+
+## M5 — Literature
+
+- **Tool**: `search_literature(query)` over OpenAlex, returning metadata and abstracts. It is available to the framing, hypothesis and writer agents.
+- Framing records related work. Hypotheses note whether they replicate, extend or contradict prior findings; this is "coverage", never a novelty claim.
+- **Paper**: a related-work section and BibTeX citations. Every citation resolves to a fetched record.
+- **Exit:** the demo paper cites at least five resolved works, with no unresolved citation keys.
+
+---
+
+## M6 — Verify (optional)
+
+- `popper run --holdout 0.2` splits rows (grouped by an id column when given) before any node reads data. `data/holdout.csv` is never passed to a node.
+- `popper verify <run> <result>`:
+  1. freezes the processed-data script and the experiment script that produced the result;
+  2. records a margin chosen before the look;
+  3. runs both once on the holdout;
+  4. computes `confirmed`, `not_confirmed` or `inconclusive` in code.
+- The paper is regenerated with the new label on that result, and nothing else changes.
+- **Tests:**
+  - the holdout never reaches a node;
+  - a failed verify run is `inconclusive` and cannot be re-run.
+- **Exit:** on the demo dataset, the study-hours effect is confirmed on the holdout.
+
+---
+
+## M7 — Evidence-led extensions
+
+Candidates, each adopted only when M4 shows the need:
+- parallel workers per stage;
+- container sandbox (required before shared use);
+- resume after crash;
+- multiple datasets and joins;
+- web UI and API;
+- runs across programs.
+
+---
+
+## Rules for every milestone
+
+- Update the Status column and ARCHITECTURE.md in the same change that finishes a milestone. ARCHITECTURE.md describes built behaviour. Plans live in `docs/specs/` and are removed once done.
 - A mechanism added after M4 names the failure it fixes and its result on the evaluation set.

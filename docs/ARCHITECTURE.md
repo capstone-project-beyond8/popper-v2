@@ -42,12 +42,32 @@ cli ──► coordinator ──► understand · ground · discover · communic
                            treesearch ──► harness ──► llm (Bedrock) · interpreter (subprocess) · store · journal · budget · config
 ```
 
-- `harness` depends on nothing else in Popper. It holds no research logic.
+- `harness` depends on nothing else in Popper. It holds no research logic. Besides model access and script execution it provides the **agent loop** (§3.1).
 - `treesearch` is the generic stage engine (§5). It depends only on `harness`. It knows nodes, steps and scoring, but no stage goals.
 - Function packages depend only on `harness` and `treesearch`. They never import each other, and results pass between them as files in the run directory.
 - Default run configuration ships inside the package (`src/popper/harness/default_config.yaml`). A user file passed with `--config` overrides it key by key, and the `POPPER_MODEL` environment variable, when set, overrides every model role.
 - `coordinator` wires the functions together and is the only package that knows the playbook.
 - Prompts live next to the code that uses them (`<package>/prompts/*.md`) and are loaded as text.
+
+### 3.1 Agent loop and tools
+
+`agent_loop(role, system, task, tools, max_turns)` in the harness runs a Bedrock Converse tool-use session.
+- A tool is a name, a JSON schema and a handler. Handlers return text or an image.
+- Every call, its arguments and a truncated result are written to the journal.
+- The loop ends when the agent calls its terminal tool or reaches `max_turns`.
+- Model errors from throttling, timeouts or 5xx are retried with backoff inside `llm` and never reach the agent.
+
+| Tool | Used by | Does |
+|---|---|---|
+| `inspect_data(name)` | node agents | Schema, head, describe and missing counts of a stage input |
+| `run_python(code)` | node agents | Runs a scratch snippet in the node's `scratch/` folder; returns output (recorded, never a result) |
+| `view_figure(path)` | node agents | Sends a PNG from the node, its parent or earlier stages to the model |
+| `read_artifact(path)` | node agents | Reads run files: parent/earlier `results.json`, `analysis.md`, `changes.json`, `framing.json` (and `memory.md` from M2) |
+| `submit(code)` | node agents | Terminal: the script the harness runs as the node |
+| `run_stage`, `propose_hypotheses`, `revise_hypothesis`, `reopen_data`, `ask_researcher`, `update_memory`, `finish` | coordinator agent (M2) | Drive the phases with results; until then the coordinator is a fixed playbook |
+| `search_literature(query)` | framing, hypothesis, writer (M5) | OpenAlex metadata and abstracts |
+
+Tools only read the run directory and write inside the calling node's folder. Stage outputs are only created by submitted scripts, and run-level files only by the coordinator.
 
 ## 4. Run directory (state)
 
@@ -63,7 +83,8 @@ runs/<run_id>/
   understand/framing.json  problem restatement, questions, needed variables, directions
   hypotheses.json          from exploration: hypotheses with planned experiments and source nodes
   tree/<stage>/<node_id>/  stages: data, explore, baseline, main, robustness
-    code.py                the script as run
+    code.py                the submitted script, as run
+    scratch/               outputs of run_python snippets (not results)
     meta.json              parent, kind (draft|debug|improve|robustness), status (ok|buggy), score, goal_met, debug_depth (execution timings are in journal.jsonl)
     stdout.txt  stderr.txt
     results.json           values the script chose to report: {name: {value, ci?, n?, note?}}
@@ -80,13 +101,15 @@ The run directory is the Research Graph of v2. Nodes link to their parents throu
 
 The engine adapts the AI Scientist-v2 `bfts` loop.
 
-**Node.** One self-contained Python script. It reads the stage input (`data/raw.csv` for data prep, `data/processed.parquet` afterwards), writes `results.json` and figures into its own folder, and prints a short log. Each node runs in a fresh subprocess with a timeout, so there is no hidden state and every node can be re-run.
+**Node.** Each node is produced by a **node agent**: a tool-using model session (§3.1) that ends with one self-contained Python script. The script reads the stage inputs, writes `results.json` and figures into its node folder, and prints a short log. The harness re-runs the submitted script from scratch in a fresh subprocess with a timeout, and only that run's outputs are the node's result. The agent's scratch work is recorded in the journal, never reported. So there is no hidden state, and every node can be re-run.
 
-**Step.** Each step creates one node:
+**Step.** Each step runs one node agent, with the task set by the action:
 
 1. If the stage has fewer than `num_drafts` root nodes, **draft** a new approach.
 2. Otherwise, with probability `debug_prob`, pick a buggy leaf whose debug depth is below `max_debug_depth` and **debug** it.
-3. Otherwise, pick the best working node and **improve** it (in stage 4: add a **robustness** child).
+3. Otherwise, pick the best working node and **improve** it (in the robustness stage: add a **robustness** child).
+
+The agent gets the stage goal, the context, and for debug/improve the parent's code, errors and analysis. It may use its tools as it likes within `max_turns` and then calls `submit`. An agent that never submits yields a `buggy` node.
 
 After a node runs, code checks it first. A non-zero exit, a timeout, a missing required output or an invalid `results.json` makes the node `buggy` without a model call. Otherwise the feedback model reads the code, output and results. It can still mark the node `buggy` (for nonsensical values), writes `analysis.md`, gives a 1–10 score against the stage goal, and says whether the goal is met. The best node of a stage is the highest-scoring `ok` node; ties go to the earlier node.
 
@@ -137,4 +160,4 @@ No other package knows about exposure, reservations or error budgets. Results fr
 
 ## 9. Deliberately deferred
 
-The following are left out until evaluations show a need (see [ROADMAP.md](ROADMAP.md) M7): parallel workers, literature search and citations (OpenAlex), resume after crash, container sandbox, multiple datasets and joins, web UI and API, research programs across runs, domain packs, disclosure control, decision layer (Jev), and formal error control.
+Literature arrives in M5 and Verify in M6. The following are left out until evaluations show a need (see [ROADMAP.md](ROADMAP.md) M7): parallel workers, resume after crash, container sandbox, multiple datasets and joins, web UI and API, research programs across runs, domain packs, disclosure control, decision layer (Jev), and formal error control.
