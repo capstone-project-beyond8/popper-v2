@@ -22,7 +22,7 @@ class ExecResult:
 
 def _is_credential(name: str) -> bool:
     upper = name.upper()
-    return name.startswith("AWS_") or any(marker in upper for marker in _SECRET_MARKERS)
+    return upper.startswith("AWS_") or any(marker in upper for marker in _SECRET_MARKERS)
 
 
 def _decode(data: str | bytes | None) -> str:
@@ -31,6 +31,10 @@ def _decode(data: str | bytes | None) -> str:
     if isinstance(data, bytes):
         return data.decode("utf-8", errors="replace")
     return data
+
+
+def _tail(text: str, limit: int) -> str:
+    return text[max(len(text) - limit, 0) :]
 
 
 def run_script(
@@ -71,7 +75,7 @@ def run_script(
     return ExecResult(
         exit_code=exit_code,
         timed_out=timed_out,
-        stdout=out[-max_output_chars:],
-        stderr=err[-max_output_chars:],
+        stdout=_tail(out, max_output_chars),
+        stderr=_tail(err, max_output_chars),
         seconds=seconds,
     )

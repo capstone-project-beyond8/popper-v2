@@ -1,16 +1,17 @@
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
-from popper.harness.interpreter import run_script
+from popper.harness.interpreter import ExecResult, run_script
 
 pytestmark = pytest.mark.integration
 
 
-def _run(code: str, workdir: Path, **kwargs: object):  # type: ignore[no-untyped-def]
-    options: dict[str, object] = {"timeout": 30, "inputs": {}, "max_output_chars": 10_000}
-    options.update(kwargs)
-    return run_script(code, workdir, **options)  # type: ignore[arg-type]
+def _run(
+    code: str, workdir: Path, *, timeout: float = 30, inputs: Mapping[str, Path] | None = None
+) -> ExecResult:
+    return run_script(code, workdir, timeout=timeout, inputs=inputs or {}, max_output_chars=10_000)
 
 
 def test_success_captures_stdout(tmp_path: Path) -> None:
