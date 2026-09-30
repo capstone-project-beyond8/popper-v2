@@ -1,6 +1,7 @@
-# Default run configuration. Values are read by popper.config (M0).
+# Default run configuration. Values are read by popper.harness.config.
 # Model IDs are Bedrock model or inference-profile IDs enabled in your account.
 models:
+  ideation: anthropic.claude-sonnet-4-5      # frames the brief and proposes hypotheses
   code: anthropic.claude-sonnet-4-5          # writes and debugs analysis scripts
   feedback: anthropic.claude-sonnet-4-5      # summarizes nodes, scores, chooses
   vision: anthropic.claude-sonnet-4-5        # reads figures
@@ -9,9 +10,11 @@ search:
   num_drafts: 3          # initial root nodes per stage
   debug_prob: 0.5        # chance to debug a buggy node instead of improving the best one
   max_debug_depth: 3     # consecutive debug attempts on one lineage
-  steps_per_stage: 8     # node budget per stage
+  steps_per_stage: 6     # node budget per stage
 execution:
   timeout_seconds: 300
   max_output_chars: 8000 # stdout/stderr returned to the model
 budget:
   max_usd: 5.0
+  usd_per_mtok_input: 3.0    # USD per million input tokens
+  usd_per_mtok_output: 15.0  # USD per million output tokens

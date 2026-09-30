@@ -25,6 +25,8 @@ The `run` command arrives with the first milestone:
 uv run --env-file .env popper run examples/student_performance
 ```
 
+Defaults live in `src/popper/harness/default_config.yaml`. Pass `--config my.yaml` to override individual keys, or set `POPPER_MODEL` to use one model ID for every role.
+
 Each run writes a folder under `runs/` containing the brief, the data, every generated script with its output and figures, a journal of model calls and executions, and `report/paper.pdf`.
 
 ## Develop
