@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from popper.harness.context import ARTIFACT_CHARS, BRIEF_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 
@@ -32,8 +33,10 @@ def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
         prompt=load_prompt(
             "popper.understand",
             "framing.md",
-            brief=brief,
-            profile=json.dumps(profile, indent=2),
+            brief=part("Brief", brief, BRIEF_CHARS, untrusted=True),
+            profile=part(
+                "Data profile", json.dumps(profile, indent=2), ARTIFACT_CHARS, untrusted=True
+            ),
         ),
     )
     final = h.ask_model(
@@ -47,6 +50,6 @@ def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
             framing=json.dumps(draft.model_dump(), indent=2),
         ),
     )
-    framing = final.model_dump()
+    framing = {**final.model_dump(), "supplied_by": "agent"}
     h.run.write_json("understand/framing.json", framing)
     return framing

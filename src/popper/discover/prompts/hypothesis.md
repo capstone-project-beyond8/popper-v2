@@ -3,10 +3,8 @@ An exploratory analysis of the data has finished. Turn what it found into one te
 ## Framing
 {framing}
 
-## Exploration results
 {results}
 
-## Analysis of the exploration
 {analysis}
 
 ## Figures produced

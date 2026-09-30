@@ -19,7 +19,7 @@ GOAL = (
     "Afterwards no impossible values may remain (e.g. rates outside [0, 1], negative hours or "
     "counts, values outside a variable's physical range), and missing values in variables the "
     "questions need are either handled or explicitly justified in changes.json. "
-    "Report at least rows_before and rows_after in results.json."
+    "Report rows_before and rows_after in results.json."
 )
 
 
@@ -37,6 +37,13 @@ def _check_changes(workdir: Path) -> str | None:
     except (OSError, ValidationError) as exc:
         return f"invalid changes.json: {exc}"
     return None
+
+
+def _check_data(workdir: Path) -> str | None:
+    reported = json.loads((workdir / "results.json").read_text(encoding="utf-8"))
+    if not {"rows_before", "rows_after"} <= reported.keys():
+        return "results.json must report rows_before and rows_after"
+    return _check_changes(workdir)
 
 
 def _summarise(workdir: Path) -> str:
@@ -60,7 +67,7 @@ def prepare(h: Harness, framing: dict[str, Any]) -> Node:
         context=json.dumps(framing, indent=2),
         inputs={"raw": h.run.path("data", "raw.csv")},
         required_outputs=("processed.parquet", "changes.json", "results.json"),
-        check=_check_changes,
+        check=_check_data,
         describe=_summarise,
     )
     best = run_stage(h, spec)

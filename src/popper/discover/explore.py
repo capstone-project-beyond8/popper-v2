@@ -5,13 +5,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, StageSpec, run_stage
 
 GOAL = (
     "Explore the processed data for the research questions: distributions, relations between "
-    "variables and group differences. Flag surprises. Save informative figures, and report the "
+    "variables and group differences. Flag surprises. Save at least two informative figures, and report the "
     "key observations as numbers in results.json."
 )
 
@@ -33,7 +34,7 @@ def explore(h: Harness, framing: dict[str, Any]) -> tuple[Node, dict[str, Any]]:
         context=context,
         inputs={"data": h.run.path("data", "processed.parquet")},
         required_outputs=("results.json",),
-        min_figures=1,
+        min_figures=2,
     )
     best = run_stage(h, spec)
     hypothesis = h.ask_model(
@@ -45,11 +46,18 @@ def explore(h: Harness, framing: dict[str, Any]) -> tuple[Node, dict[str, Any]]:
             "popper.discover",
             "hypothesis.md",
             framing=context,
-            results=json.dumps(best.results, indent=2),
-            analysis=best.analysis,
+            results=part(
+                "Exploration results",
+                json.dumps(best.results, indent=2),
+                ARTIFACT_CHARS,
+                untrusted=True,
+            ),
+            analysis=part(
+                "Analysis of the exploration", best.analysis, ARTIFACT_CHARS, untrusted=True
+            ),
             figures="\n".join(f"- {f}" for f in best.figures),
         ),
     )
-    result = {**hypothesis.model_dump(), "source_node": best.id}
+    result = {**hypothesis.model_dump(), "source_node": best.id, "supplied_by": "agent"}
     h.run.write_json("hypotheses.json", [result])
     return best, result

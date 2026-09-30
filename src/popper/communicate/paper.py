@@ -10,6 +10,7 @@ from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel, ConfigDict
 
 from popper.communicate.numbers import collect_values, fill_numbers, latex_escape
+from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node
@@ -143,9 +144,14 @@ def write_paper(
             "popper.communicate",
             "writeup.md",
             keys="\n".join(f"- {k} = {_describe(v)}" for k, v in values.items()),
-            framing=json.dumps(framing, indent=2),
+            framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS),
             hypothesis=json.dumps(hypothesis, indent=2),
-            analyses=f"Exploration:\n{explore.analysis}\n\nExperiment:\n{experiment.analysis}",
+            analyses=part(
+                "Analyses",
+                f"Exploration:\n{explore.analysis}\n\nExperiment:\n{experiment.analysis}",
+                ARTIFACT_CHARS,
+                untrusted=True,
+            ),
             figures=json.dumps(figures),
         ),
     )

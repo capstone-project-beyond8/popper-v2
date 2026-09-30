@@ -1,9 +1,7 @@
 Read the research brief and the structural profile of the dataset, then frame the study.
 
-## Brief
 {brief}
 
-## Data profile
 {profile}
 
 Reply with one JSON object with exactly these keys:
