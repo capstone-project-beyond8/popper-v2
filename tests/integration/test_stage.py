@@ -20,8 +20,8 @@ def _py(body: str) -> str:
     return f"```python\n{body}\n```"
 
 
-def _harness(tmp_path: Path, code: list[str]) -> Harness:
-    replies = {"code:": iter(code), "feedback:": iter([FEEDBACK])}
+def _harness(tmp_path: Path, code: list[str], feedback: list[str] | None = None) -> Harness:
+    replies = {"code:": iter(code), "feedback:": iter(feedback or [FEEDBACK])}
 
     def respond(req: LLMRequest) -> str:
         return next(next(v for k, v in replies.items() if req.tag.startswith(k)))
@@ -104,3 +104,29 @@ def test_stage_check_rejection_makes_node_buggy(tmp_path: Path) -> None:
         run_stage(h, spec, random.Random(0))
     analysis = h.run.path("tree", spec.name) / "stage-000" / "analysis.md"
     assert "no good" in analysis.read_text(encoding="utf-8")
+
+
+_OK_CODE = _py(
+    "import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))\nopen('out.txt','w')"
+)
+
+
+def test_stage_stops_when_good_score_stops_improving(tmp_path: Path) -> None:
+    steady = FEEDBACK.replace("true", "false")
+    h = _harness(tmp_path, [_OK_CODE] * 6, [steady] * 6)
+    h.config.search.steps_per_stage = 6
+    h.config.search.good_score = 7
+    h.config.search.patience = 2
+    run_stage(h, SPEC, random.Random(0))
+    assert len(list(h.run.path("tree", SPEC.name).glob("stage-*"))) == 3
+
+
+def test_describe_text_reaches_feedback_prompt(tmp_path: Path) -> None:
+    h = _harness(tmp_path, [_OK_CODE])
+    spec = StageSpec(
+        "stage", "goal", "ctx", {}, ("results.json",), describe=lambda _: "SUMMARY-XYZ"
+    )
+    run_stage(h, spec, random.Random(0))
+    assert isinstance(h.llm, FakeLLM)
+    feedback = [c for c in h.llm.calls if c.tag.startswith("feedback:")]
+    assert "SUMMARY-XYZ" in feedback[0].prompt

@@ -11,6 +11,8 @@ search:
   debug_prob: 0.5        # chance to debug a buggy node instead of improving the best one
   max_debug_depth: 3     # consecutive debug attempts on one lineage
   steps_per_stage: 6     # node budget per stage
+  good_score: 7          # stop once the best node reaches this score...
+  patience: 2            # ...and has not improved for this many steps
 execution:
   timeout_seconds: 300
   max_output_chars: 8000 # stdout/stderr returned to the model

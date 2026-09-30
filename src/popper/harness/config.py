@@ -29,6 +29,8 @@ class Search(_Strict):
     debug_prob: float
     max_debug_depth: int
     steps_per_stage: int
+    good_score: float = 7
+    patience: int = 2
 
 
 class Execution(_Strict):

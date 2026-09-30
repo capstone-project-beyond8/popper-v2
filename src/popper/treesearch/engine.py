@@ -48,6 +48,7 @@ class StageSpec:
     seed_code: str | None = None
     min_figures: int = 0
     check: Callable[[Path], str | None] | None = None
+    describe: Callable[[Path], str] | None = None
 
 
 class ResultEntry(BaseModel):
@@ -218,6 +219,11 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         node.analysis = f"Check failed: {failed}.\n{res.stderr}"
         return
     try:
+        summary = spec.describe(node.dir) if spec.describe else "(none)"
+    except Exception as exc:  # describe runs harness code over model-written outputs
+        node.analysis = f"Check failed: could not summarise outputs: {exc}"
+        return
+    try:
         fb = h.ask_model(
             "feedback",
             schema=Feedback,
@@ -230,6 +236,7 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
                 code=node.code,
                 stdout=res.stdout,
                 results=json.dumps(node.results, indent=2),
+                summary=summary,
             ),
         )
     except ValueError as exc:
@@ -238,6 +245,14 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     node.analysis = fb.analysis
     if not fb.is_buggy:
         node.status, node.score, node.goal_met = "ok", fb.score, fb.goal_met
+
+
+def _plateaued(nodes: Sequence[Node], search: Search) -> bool:
+    best = select_best(nodes)
+    if best is None or best.score is None or best.score < search.good_score:
+        return False
+    before = select_best(nodes[: -search.patience])
+    return len(nodes) > search.patience and before is not None and best is before
 
 
 def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> Node:
@@ -249,6 +264,8 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
         kind, parent = choose_action(nodes, h.config.search, rng)
         nodes.append(_step(h, spec, i, kind, parent))
         if nodes[-1].status == "ok" and nodes[-1].goal_met:
+            break
+        if _plateaued(nodes, h.config.search):
             break
     best = select_best(nodes)
     h.journal.write("stage_end", stage=spec.name, best=best.id if best else None, steps=len(nodes))
