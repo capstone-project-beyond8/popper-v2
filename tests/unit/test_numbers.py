@@ -14,6 +14,7 @@ def test_fill_known_and_unknown() -> None:
 
 def test_interval_and_sample_size_are_their_own_keys() -> None:
     node = SimpleNamespace(
+        id="experiment-000",
         stage="experiment",
         results={"slope": {"value": 0.4213, "ci": [0.3, 0.55], "n": 549}, "rows": {"value": 600}},
     )
@@ -25,6 +26,19 @@ def test_interval_and_sample_size_are_their_own_keys() -> None:
     )
     assert tex == r"0.421 (0.3--0.55, $n = 549$) \textbf{??}"
     assert missing == [r"\R{experiment.rows.n}"]
+
+
+def test_same_stage_attempts_cannot_overwrite_keys() -> None:
+    nodes = [
+        cast(
+            Node,
+            SimpleNamespace(id=f"main-{i:03d}", stage="main", results={"effect": {"value": i}}),
+        )
+        for i in range(2)
+    ]
+    values = collect_values(nodes, selected={"main": "main-000"})
+    assert values["main-000.effect"] == 0 and values["main-001.effect"] == 1
+    assert values["main.effect"] == 0
 
 
 def test_string_values_are_escaped() -> None:

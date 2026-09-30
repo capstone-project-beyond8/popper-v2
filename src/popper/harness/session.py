@@ -64,22 +64,33 @@ class Harness:
         self.journal = Journal(self.run.path("journal.jsonl"))
 
     def execute(
-        self, code: str, workdir: Path, *, inputs: Mapping[str, Path], node: str,
+        self,
+        code: str,
+        workdir: Path,
+        *,
+        inputs: Mapping[str, Path],
+        node: str,
         purpose: Literal["scratch", "submitted", "plot"],
     ) -> ExecResult:
         fields = {"node": node, "purpose": purpose, "path": str(workdir.resolve())}
         self.journal.write("exec_start", **fields)
         try:
             result = run_script(
-                code, workdir, timeout=self.config.execution.timeout_seconds, inputs=inputs,
+                code,
+                workdir,
+                timeout=self.config.execution.timeout_seconds,
+                inputs=inputs,
                 max_output_chars=self.config.execution.max_output_chars,
             )
         except Exception as exc:
             self.journal.write("exec", **fields, error=str(exc), exit_code=None, timed_out=False)
             raise
         self.journal.write(
-            "exec", **fields, exit_code=result.exit_code,
-            timed_out=result.timed_out, seconds=result.seconds,
+            "exec",
+            **fields,
+            exit_code=result.exit_code,
+            timed_out=result.timed_out,
+            seconds=result.seconds,
         )
         return result
 
@@ -166,7 +177,12 @@ class Harness:
         return done.text
 
     def _ask_parsed(
-        self, role: Role, tag: str, system: str, prompt: str, parse: Callable[[str], R],
+        self,
+        role: Role,
+        tag: str,
+        system: str,
+        prompt: str,
+        parse: Callable[[str], R],
         images: Sequence[Path] = (),
     ) -> R:
         try:
@@ -182,11 +198,21 @@ class Harness:
         return self._ask_parsed(role, tag, system, prompt, _parse_json)
 
     def ask_model(
-        self, role: Role, *, schema: type[T], tag: str, system: str, prompt: str,
+        self,
+        role: Role,
+        *,
+        schema: type[T],
+        tag: str,
+        system: str,
+        prompt: str,
         images: Sequence[Path] = (),
         validation_context: Mapping[str, Any] | None = None,
     ) -> T:
         return self._ask_parsed(
-            role, tag, system, prompt,
-            lambda text: schema.model_validate(_parse_json(text), context=validation_context), images,
+            role,
+            tag,
+            system,
+            prompt,
+            lambda text: schema.model_validate(_parse_json(text), context=validation_context),
+            images,
         )

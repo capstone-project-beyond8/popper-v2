@@ -16,8 +16,8 @@
 \end{abstract}
 \section{Introduction}
 \VAR{w.introduction}
-\section{Data}
-\VAR{w.data}
+\section{Data and Methods}
+\VAR{sections.data_methods}
 \BLOCK{if changes}
 {\small
 \begin{longtable}{p{0.32\textwidth}rp{0.48\textwidth}}
@@ -31,31 +31,51 @@ Step & Rows & Reason \\
 \end{longtable}
 }
 \BLOCK{endif}
-\section{Exploration}
-\VAR{w.exploration}
-\section{Hypothesis}
-\VAR{w.hypothesis}
-\section{Methods}
-\VAR{w.methods}
 \section{Results}
-\VAR{w.results}
-\BLOCK{for f in figures}
-\begin{figure}[ht]
-\centering
-\includegraphics[width=0.8\textwidth]{\VAR{f.path}}
-\caption{\VAR{f.caption}}
-\end{figure}
+\subsection{Exploratory}
+\VAR{sections.exploratory}
+\subsection{Main}
+\VAR{sections.main}
+{\small
+\begin{longtable}{p{.18\textwidth}p{.18\textwidth}lrrr}
+\hline
+Attempt & Specification & Kind & Estimate & Interval & $n$ \\
+\hline
+\BLOCK{for r in rows}
+\VAR{r.identity} & \VAR{r.specification} & \VAR{r.marker} & \R{\VAR{r.key}} & \R{\VAR{r.key}.ci} & \R{\VAR{r.key}.n} \\
 \BLOCK{endfor}
-\section{Limitations}
-\VAR{w.limitations}
+\hline
+\end{longtable}
+}
+\subsection{Robustness}
+\noindent Computed stability: \textbf{\VAR{stability}}. Standing remains exploratory.
+\R{summary.supporting_count} of \R{summary.variant_count} planned ordinary variants support the main sign
+with intervals excluding zero (share \R{summary.supporting_share}); \R{summary.adversarial_count} adversarial checks.
+\BLOCK{for reason in reasons}
+\noindent \VAR{reason}
+\BLOCK{endfor}
+\VAR{sections.robustness}
+\BLOCK{if failures}
+\paragraph{Incomplete attempts}
+\BLOCK{for failure in failures}
+\noindent \VAR{failure}.
+\BLOCK{endfor}
+\BLOCK{endif}
+\section{Discussion}
+\VAR{w.discussion}
+\noindent This analysis followed adaptive exploration on discovery data. Any reserved holdout remained
+unavailable to analysis and is not evidence of verification. Subgroup analyses concern their declared
+restricted populations. Failed and missing specification attempts remain non-supporting; a single
+exposure permutation is a diagnostic, not a calibrated permutation significance test.
+\section{Conclusion}
+\VAR{w.conclusion}
+\noindent Computed stability is \VAR{stability}; this study remains exploratory.
 \appendix
-\section{Code}
-\subsection{Data preparation}
+\section{Experiment code}
+\BLOCK{for node in experiment_nodes}
+\subsection{\VAR{node.stage}: \VAR{node.id}}
 \begin{lstlisting}
-\VAR{data_code}
+\VAR{node.code}
 \end{lstlisting}
-\subsection{Experiment}
-\begin{lstlisting}
-\VAR{experiment_code}
-\end{lstlisting}
+\BLOCK{endfor}
 \end{document}

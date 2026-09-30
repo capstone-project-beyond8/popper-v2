@@ -31,10 +31,15 @@ class Search(_Strict):
     max_turns: int = Field(ge=1)
     good_score: float = 7
     patience: int = 2
-    stage_steps: dict[Literal["data", "explore", "baseline", "main", "robustness"], Annotated[int, Field(ge=1)]] = Field(default_factory=dict)
+    stage_steps: dict[
+        Literal["data", "explore", "baseline", "main", "robustness"], Annotated[int, Field(ge=1)]
+    ] = Field(default_factory=dict)
 
     def steps_for(self, stage: str) -> int:
-        return next((steps for name, steps in self.stage_steps.items() if name == stage), self.steps_per_stage)
+        return next(
+            (steps for name, steps in self.stage_steps.items() if name == stage),
+            self.steps_per_stage,
+        )
 
 
 class Execution(_Strict):
@@ -83,7 +88,9 @@ class Config(_Strict):
     @model_validator(mode="after")
     def enough_robustness_steps(self) -> "Config":
         if self.search.steps_for("robustness") < self.robustness.min_variants + 1:
-            raise ValueError("robustness budget needs room for ordinary variants and an adversarial check")
+            raise ValueError(
+                "robustness budget needs room for ordinary variants and an adversarial check"
+            )
         return self
 
 

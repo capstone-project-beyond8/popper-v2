@@ -12,7 +12,7 @@ from popper.discover.explore import explore, propose_hypothesis
 from popper.ground.data import prepare
 from popper.harness.config import Config
 from popper.harness.llm import LLM
-from popper.harness.recovery import load_state, recorded_spend
+from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
@@ -65,7 +65,10 @@ def _outcome(store: RunStore) -> RunOutcome:
 
 
 def resume(
-    run_dir: Path, *, llm: LLM, progress: Callable[[str], None] | None = None,
+    run_dir: Path,
+    *,
+    llm: LLM,
+    progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
     store = RunStore(run_dir)
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
@@ -125,6 +128,7 @@ def _continue(h: Harness) -> RunOutcome:
                 "failed_stage": failed_stage,
                 "spent_usd": h.spent_usd,
                 "missing": missing,
+                'artifacts': {e['name']: e['path'] for e in read_events(store.root) if e['event'] == 'artifact_commit'},
             },
         )
     return _outcome(store)

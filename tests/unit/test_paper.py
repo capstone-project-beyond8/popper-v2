@@ -8,7 +8,9 @@ def _writeup(results: str) -> Writeup:
         title="t",
         **dict.fromkeys(SECTIONS, "x"),
         results=results,
-        limitations="l",
+        robustness="r",
+        discussion="l",
+        conclusion="c",
         figures=[],
     )
 

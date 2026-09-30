@@ -52,7 +52,12 @@ class RunStore:
 
     @classmethod
     def create(
-        cls, runs_dir: Path, brief: Path, data: Path, *, data_config: DataConfig | None = None,
+        cls,
+        runs_dir: Path,
+        brief: Path,
+        data: Path,
+        *,
+        data_config: DataConfig | None = None,
         config: Config | None = None,
     ) -> "RunStore":
         snapshot = config or load_config(env={})
@@ -67,19 +72,30 @@ class RunStore:
             path = store.path("data", name)
             rows.to_csv(path, index=False)
             path.chmod(stat.S_IREAD)
-        store.write_json("data/split.json", {
-            **split_config.model_dump(), "discovery_rows": len(discovery), "holdout_rows": len(held),
-            "verification_eligible": not held.empty,
-            "discovery_hash": file_hash(store.path("data", "raw.csv")),
-            "holdout_hash": file_hash(store.path("data", "holdout.csv")),
-        })
+        store.write_json(
+            "data/split.json",
+            {
+                **split_config.model_dump(),
+                "discovery_rows": len(discovery),
+                "holdout_rows": len(held),
+                "verification_eligible": not held.empty,
+                "discovery_hash": file_hash(store.path("data", "raw.csv")),
+                "holdout_hash": file_hash(store.path("data", "holdout.csv")),
+            },
+        )
         config_data = snapshot.model_dump(mode="json")
         config_data["data"] = split_config.model_dump()
-        store.write_json("run.json", {
-            "format_version": 2, "status": "running", "config": config_data,
-            "inputs": {"brief": str(brief.resolve()), "data": str(data.resolve())},
-            "source_hash": file_hash(data), "brief_hash": file_hash(brief),
-        })
+        store.write_json(
+            "run.json",
+            {
+                "format_version": 2,
+                "status": "running",
+                "config": config_data,
+                "inputs": {"brief": str(brief.resolve()), "data": str(data.resolve())},
+                "source_hash": file_hash(data),
+                "brief_hash": file_hash(brief),
+            },
+        )
         return store
 
     def path(self, *parts: str) -> Path:
@@ -100,26 +116,45 @@ class RunStore:
         sequence = max((int(p.stem) for p in files), default=-1) + 1
         commits = [e for e in read_events(self.root) if e["event"] == "state_commit"]
         rel = f"state/{sequence:06d}.json"
-        path = self.write_json(rel, {
-            **state, "previous": commits[-1]["path"] if commits else None,
-        })
+        path = self.write_json(
+            rel,
+            {
+                **state,
+                "previous": commits[-1]["path"] if commits else None,
+            },
+        )
         Journal(self.path("journal.jsonl")).write("state_commit", path=rel)
         return path
 
     def new_attempt(self, folder: str) -> Path:
         base = self.path(folder)
-        sequence = max((int(p.name.removeprefix("attempt-")) for p in base.glob("attempt-*")
-                        if p.name.removeprefix("attempt-").isdigit()), default=-1) + 1
+        sequence = (
+            max(
+                (
+                    int(p.name.removeprefix("attempt-"))
+                    for p in base.glob("attempt-*")
+                    if p.name.removeprefix("attempt-").isdigit()
+                ),
+                default=-1,
+            )
+            + 1
+        )
         target = base / f"attempt-{sequence:06d}"
         target.mkdir(parents=True)
         return target
 
     def commit_artifact(self, name: str, path: Path) -> None:
         rel = path.resolve().relative_to(self.root).as_posix()
-        Journal(self.path("journal.jsonl")).write("artifact_commit", name=name, path=rel, sha256=file_hash(path))
+        Journal(self.path("journal.jsonl")).write(
+            "artifact_commit", name=name, path=rel, sha256=file_hash(path)
+        )
 
     def committed(self, name: str) -> Path | None:
-        events = [e for e in read_events(self.root) if e["event"] == "artifact_commit" and e.get("name") == name]
+        events = [
+            e
+            for e in read_events(self.root)
+            if e["event"] == "artifact_commit" and e.get("name") == name
+        ]
         if not events:
             return None
         event = events[-1]

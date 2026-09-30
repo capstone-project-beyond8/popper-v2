@@ -50,6 +50,7 @@ def test_run_python_uses_numbered_scratch_folders(tmp_path: Path) -> None:
     assert (node_dir / "scratch" / "00" / "code.py").exists()
     assert (node_dir / "scratch" / "01" / "code.py").exists()
     import json
+
     events = [json.loads(line) for line in h.run.path("journal.jsonl").read_text().splitlines()]
     assert sum(e["event"] == "exec_start" for e in events) == 2
     assert sum(e["event"] == "exec" for e in events) == 2

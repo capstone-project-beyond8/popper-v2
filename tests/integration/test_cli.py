@@ -36,21 +36,25 @@ def test_quiet_controls_progress(
     assert (fake.call_args.kwargs["progress"] is None) is silent
 
 
-def test_pdf_reads_legacy_source_without_replacing_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    tex = tmp_path / 'report' / 'paper.tex'
+def test_pdf_reads_legacy_source_without_replacing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tex = tmp_path / "report" / "paper.tex"
     tex.parent.mkdir()
-    tex.write_text('original')
-    fake = MagicMock(return_value=tmp_path / 'build-000000' / 'paper.pdf')
-    monkeypatch.setattr('popper.cli.compile_pdf', fake)
-    assert main(['pdf', str(tmp_path)]) == 0
+    tex.write_text("original")
+    fake = MagicMock(return_value=tmp_path / "build-000000" / "paper.pdf")
+    monkeypatch.setattr("popper.cli.compile_pdf", fake)
+    assert main(["pdf", str(tmp_path)]) == 0
     fake.assert_called_once_with(tex)
-    assert tex.read_text() == 'original'
+    assert tex.read_text() == "original"
 
 
-def test_resume_rejects_legacy_without_provider_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / 'run.json').write_text('{"status":"completed"}')
+def test_resume_rejects_legacy_without_provider_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "run.json").write_text('{"status":"completed"}')
     provider = MagicMock()
-    monkeypatch.setattr('popper.cli.BedrockLLM', lambda **kwargs: provider)
-    assert main(['resume', str(tmp_path)]) == 1
-    assert 'format' in capsys.readouterr().err
+    monkeypatch.setattr("popper.cli.BedrockLLM", lambda **kwargs: provider)
+    assert main(["resume", str(tmp_path)]) == 1
+    assert "format" in capsys.readouterr().err
     provider.complete.assert_not_called()

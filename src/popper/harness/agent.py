@@ -50,7 +50,8 @@ def _run(h: Harness, tag: str, turn: int, tool: Tool | None, call: ToolCall) -> 
         status=status,
     )
     return (
-        ToolResult(call.id, image=out) if isinstance(out, Path)
+        ToolResult(call.id, image=out)
+        if isinstance(out, Path)
         else ToolResult(call.id, out, status="error" if status == "error" else "success")
     )
 

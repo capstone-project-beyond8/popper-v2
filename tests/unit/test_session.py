@@ -180,6 +180,8 @@ def test_schema_retry_keeps_image_attachments(tmp_path: Path) -> None:
     class Shape(BaseModel):
         a: int
 
-    result = h.ask_model("judge", schema=Shape, tag="judge", system="s", prompt="p", images=(image,))
+    result = h.ask_model(
+        "judge", schema=Shape, tag="judge", system="s", prompt="p", images=(image,)
+    )
     assert result.a == 3
     assert all(request.messages[0].images == (image,) for request in fake.calls)

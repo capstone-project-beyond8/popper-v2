@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from popper.coordinator.run import run
+from popper.communicate.paper import compile_pdf
+from popper.coordinator.run import resume, run
 from popper.harness.config import Config, load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.recovery import load_state
@@ -25,10 +26,15 @@ FRAMING = {
 HYPOTHESIS = {
     "statement": "Scores rise with the log of weekly study hours.",
     "rationale": "Diminishing returns.",
-    "primary_estimand": {"outcome": "exam_score", "exposure": "study_hours_week",
-                         "contrast": "study hours 10 to 11", "population": "eligible students",
-                         "unit": "exam score points"},
-    "expected_direction": "positive", "refuting_result": "a nonpositive contrast",
+    "primary_estimand": {
+        "outcome": "exam_score",
+        "exposure": "study_hours_week",
+        "contrast": "study hours 10 to 11",
+        "population": "eligible students",
+        "unit": "exam score points",
+    },
+    "expected_direction": "positive",
+    "refuting_result": "a nonpositive contrast",
     "planned_test": "Regress score on log1p(study hours); bootstrap the 10 to 11 contrast",
 }
 WRITEUP = {
@@ -40,17 +46,34 @@ WRITEUP = {
     "hypothesis": "h",
     "methods": "m",
     "results": r"Contrast \R{main.primary_estimate} and unknown \R{main.nope}.",
-    "limitations": "l",
-    "figures": [{"stage": "explore", "file": "scatter.png", "caption": "Scatter"}],
+    "robustness": "sensitivity",
+    "discussion": "limitations",
+    "conclusion": "association",
+    "figures": [
+        {
+            "node_id": "explore-000",
+            "file": "scatter.png",
+            "caption": "Scatter",
+            "section": "exploratory",
+        }
+    ],
 }
 FEEDBACK = {"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "ok"}
-ROBUSTNESS = {"attempts": [
-    {"id": f"choice-{i}", "kind": "adversarial" if dim == "adversarial" else "variant",
-     "dimension": dim, "choice": "permutation" if dim == "adversarial" else f"alternative {i}",
-     "estimand": HYPOTHESIS["primary_estimand"],
-     "result_key": "placebo_estimate" if dim == "adversarial" else "primary_estimate", "seed": 7}
-    for i, dim in enumerate(("cleaning", "model", "subgroup", "resampling", "adversarial"))
-], "inapplicable": {}}
+ROBUSTNESS = {
+    "attempts": [
+        {
+            "id": f"choice-{i}",
+            "kind": "adversarial" if dim == "adversarial" else "variant",
+            "dimension": dim,
+            "choice": "permutation" if dim == "adversarial" else f"alternative {i}",
+            "estimand": HYPOTHESIS["primary_estimand"],
+            "result_key": "placebo_estimate" if dim == "adversarial" else "primary_estimate",
+            "seed": 7,
+        }
+        for i, dim in enumerate(("cleaning", "model", "subgroup", "resampling", "adversarial"))
+    ],
+    "inapplicable": {},
+}
 
 DATA = """
 import json, os
@@ -119,12 +142,17 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
             code = EXPERIMENT
             if choice["kind"] == "adversarial":
                 code = code.replace('"primary_estimate"', '"placebo_estimate"')
-                code = code.replace('x, y =', 'df["study_hours_week"] = np.random.default_rng(7).permutation(df["study_hours_week"])\nx, y =')
+                code = code.replace(
+                    "x, y =",
+                    'df["study_hours_week"] = np.random.default_rng(7).permutation(df["study_hours_week"])\nx, y =',
+                )
             return _submit(code + f"\njson.dump({choice!r}, open('specification.json','w'))\n")
         return _submit({"analyst:data": DATA, "analyst:explore": EXPLORE}.get(tag, EXPERIMENT))
     if tag.startswith("judge:"):
         return json.dumps(FEEDBACK)
-    return json.dumps({"hypothesis": HYPOTHESIS, "writeup": WRITEUP, "robustness_plan": ROBUSTNESS}[tag])
+    return json.dumps(
+        {"hypothesis": HYPOTHESIS, "writeup": WRITEUP, "robustness_plan": ROBUSTNESS}[tag]
+    )
 
 
 def _config() -> Config:
@@ -133,11 +161,22 @@ def _config() -> Config:
     return cfg
 
 
-def test_end_to_end(tmp_path: Path) -> None:
+def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     llm = FakeLLM(_respond)
-    out = run(
-        EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=_config(), llm=llm, runs_dir=tmp_path
-    )
+    lines: list[str] = []
+    def interrupted_compile(tex: Path) -> Path | None:
+        raise KeyboardInterrupt('publication interrupted')
+
+    monkeypatch.setattr('popper.communicate.paper.compile_pdf', interrupted_compile)
+    with pytest.raises(KeyboardInterrupt):
+        run(EXAMPLE / 'brief.md', EXAMPLE / 'data.csv', config=_config(), llm=llm,
+            runs_dir=tmp_path, progress=lines.append)
+    root = next(tmp_path.iterdir())
+    original = {p: p.read_bytes() for p in root.rglob('*') if p.is_file() and p.name != 'journal.jsonl'}
+    monkeypatch.setattr('popper.communicate.paper.compile_pdf', compile_pdf)
+    no_calls = FakeLLM(lambda req: pytest.fail('completed publication inputs must not replay'))
+    out = resume(root, llm=no_calls)
+    assert all(p.read_bytes() == contents for p, contents in original.items())
     assert out.status == "completed" and out.tex is not None
     tex = out.tex.read_text(encoding="utf-8")
     results = next((out.run_dir / "tree" / "main").glob("*/execution/results.json"))
@@ -160,21 +199,9 @@ def test_end_to_end(tmp_path: Path) -> None:
     assert record["status"] == "completed" and record["missing"] == [r"\R{main.nope}"]
     writer = [r for r in llm.calls if r.tag == "writeup"]
     assert len(writer) == 3 and r"\R{main.nope}: no key main.nope" in writer[1].prompt
-    lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
-    events = [json.loads(line)["event"] for line in lines]
-    assert events.count("phase") == 5 and "exec" in events
-
-
-def test_progress_lines(tmp_path: Path) -> None:
-    lines: list[str] = []
-    run(
-        EXAMPLE / "brief.md",
-        EXAMPLE / "data.csv",
-        config=_config(),
-        llm=FakeLLM(_respond),
-        runs_dir=tmp_path,
-        progress=lines.append,
-    )
+    journal_lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
+    events = [json.loads(line)["event"] for line in journal_lines]
+    assert events.count("phase") == 10 and "exec" in events
     assert lines[0] == "[framing] start · $0.00"
     assert any(re.match(r"^\[data\] data-000 draft → ok score 7 · \$\d+\.\d\d$", x) for x in lines)
 
@@ -208,7 +235,4 @@ def test_budget_exceeded_recorded(tmp_path: Path) -> None:
         runs_dir=tmp_path,
     )
     assert out.status == "budget_exceeded"
-    assert (
-        load_state(RunStore(out.run_dir))["status"]
-        == "budget_exceeded"
-    )
+    assert load_state(RunStore(out.run_dir))["status"] == "budget_exceeded"

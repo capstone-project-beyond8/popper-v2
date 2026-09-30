@@ -23,14 +23,20 @@ from popper.treesearch.engine import (
 
 
 def check_estimate(
-    workdir: Path, key: str = "primary_estimate", estimand: dict[str, Any] | None = None,
+    workdir: Path,
+    key: str = "primary_estimate",
+    estimand: dict[str, Any] | None = None,
 ) -> str | None:
     try:
         raw = json.loads((workdir / "results.json").read_text("utf-8"))
         entry = ResultEntry.model_validate_json(json.dumps(raw[key]))
         if type(entry.value) not in (int, float) or not math.isfinite(float(entry.value)):
             return f"{key} needs a finite numerical estimate"
-        if entry.ci is None or not all(math.isfinite(v) for v in entry.ci) or entry.ci[0] > entry.ci[1]:
+        if (
+            entry.ci is None
+            or not all(math.isfinite(v) for v in entry.ci)
+            or entry.ci[0] > entry.ci[1]
+        ):
             return f"{key} needs an ordered finite interval"
         if entry.n is None or entry.n <= 0:
             return f"{key} needs a positive integer sample size"
@@ -44,12 +50,16 @@ def check_estimate(
 
 
 def run_experiment_stage(
-    h: Harness, name: Literal["baseline", "main"], framing: dict[str, Any],
-    hypothesis: dict[str, Any], seed: Node | None,
+    h: Harness,
+    name: Literal["baseline", "main"],
+    framing: dict[str, Any],
+    hypothesis: dict[str, Any],
+    seed: Node | None,
 ) -> Node:
     estimand = hypothesis["primary_estimand"]
     goal = (
-        "Use a simple transparent model or test." if name == "baseline"
+        "Use a simple transparent model or test."
+        if name == "baseline"
         else f"Implement the planned test: {hypothesis['planned_test']}"
     )
     goal += (
@@ -59,18 +69,28 @@ def run_experiment_stage(
         "Save a result figure in figures/. Secondary estimands need different result keys. "
         "Do not choose preprocessing or a model to obtain a desired sign or significance."
     )
-    return run_stage(h, StageSpec(
-        name=name, goal=goal,
-        context=f"Framing:\n{json.dumps(framing)}\nHypothesis:\n{json.dumps(hypothesis)}",
-        inputs={"data": h.run.path("data", "processed.parquet")},
-        required_outputs=("results.json", "estimand.json"), min_figures=1,
-        seed_code=seed.code if seed else None, seed_node=seed.id if seed else None,
-        blind_estimates=True, check=lambda path: check_estimate(path, estimand=estimand),
-    ))
+    return run_stage(
+        h,
+        StageSpec(
+            name=name,
+            goal=goal,
+            context=f"Framing:\n{json.dumps(framing)}\nHypothesis:\n{json.dumps(hypothesis)}",
+            inputs={"data": h.run.path("data", "processed.parquet")},
+            required_outputs=("results.json", "estimand.json"),
+            min_figures=1,
+            seed_code=seed.code if seed else None,
+            seed_node=seed.id if seed else None,
+            blind_estimates=True,
+            check=lambda path: check_estimate(path, estimand=estimand),
+        ),
+    )
 
 
 def experiment(
-    h: Harness, framing: dict[str, Any], hypothesis: dict[str, Any], data_node: Node,
+    h: Harness,
+    framing: dict[str, Any],
+    hypothesis: dict[str, Any],
+    data_node: Node,
 ) -> Path:
     committed = h.run.committed("evidence")
     if committed:
@@ -82,16 +102,25 @@ def experiment(
     attempts = tuple(_attempt(item) for item in schedule.attempts)
     selected = {"baseline": baseline, "main": main}
     try:
-        selected["robustness"] = run_stage(h, StageSpec(
-            name="robustness", goal="Test the main contrast under recorded alternative analyses.",
-            context=f"Hypothesis:\n{json.dumps(hypothesis)}",
-            inputs={"data": h.run.path("data", "processed.parquet"),
+        selected["robustness"] = run_stage(
+            h,
+            StageSpec(
+                name="robustness",
+                goal="Test the main contrast under recorded alternative analyses.",
+                context=f"Hypothesis:\n{json.dumps(hypothesis)}",
+                inputs={
+                    "data": h.run.path("data", "processed.parquet"),
                     "raw": h.run.path("data", "raw.csv"),
                     "prepare": data_node.execution_dir / "code.py",
-                    "changes": data_node.execution_dir / "changes.json"},
-            required_outputs=("results.json", "estimand.json", "specification.json"),
-            seed_code=main.code, seed_node=main.id, blind_estimates=True, attempts=attempts,
-        ))
+                    "changes": data_node.execution_dir / "changes.json",
+                },
+                required_outputs=("results.json", "estimand.json", "specification.json"),
+                seed_code=main.code,
+                seed_node=main.id,
+                blind_estimates=True,
+                attempts=attempts,
+            ),
+        )
     except StageFailed:
         # Failed robustness attempts remain evidence of fragility, not a missing main result.
         pass

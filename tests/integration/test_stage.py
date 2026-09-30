@@ -196,6 +196,8 @@ def test_scheduled_attempts_run_before_debug_and_ignore_early_goal(tmp_path: Pat
     attempts = tuple(AttemptSpec(f"v{i}", "variant", f"check {i}", "ctx") for i in range(5))
     spec = StageSpec("stage", "goal", "ctx", {}, ("results.json", "out.txt"), attempts=attempts)
     run_stage(h, spec)
-    nodes = [json.loads(p.read_text()) for p in sorted(h.run.path("tree", "stage").glob("*/meta.json"))]
+    nodes = [
+        json.loads(p.read_text()) for p in sorted(h.run.path("tree", "stage").glob("*/meta.json"))
+    ]
     assert [n["attempt_id"] for n in nodes] == ["v0", "v1", "v2", "v3", "v4", "v0"]
     assert [n["kind"] for n in nodes] == ["variant"] * 5 + ["debug"]

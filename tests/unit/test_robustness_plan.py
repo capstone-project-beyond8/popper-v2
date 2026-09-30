@@ -9,14 +9,21 @@ from tests.unit.test_hypothesis import ESTIMAND
 
 def schedule() -> dict[str, Any]:
     attempts = []
-    for index, dimension in enumerate(["cleaning", "model", "subgroup", "resampling", "adversarial"]):
+    for index, dimension in enumerate(
+        ["cleaning", "model", "subgroup", "resampling", "adversarial"]
+    ):
         adversarial = dimension == "adversarial"
-        attempts.append({
-            "id": f"choice-{index}", "kind": "adversarial" if adversarial else "variant",
-            "dimension": dimension, "choice": "permutation" if adversarial else f"alternative {index}",
-            "estimand": ESTIMAND,
-            "result_key": "placebo_estimate" if adversarial else "primary_estimate", "seed": 7,
-        })
+        attempts.append(
+            {
+                "id": f"choice-{index}",
+                "kind": "adversarial" if adversarial else "variant",
+                "dimension": dimension,
+                "choice": "permutation" if adversarial else f"alternative {index}",
+                "estimand": ESTIMAND,
+                "result_key": "placebo_estimate" if adversarial else "primary_estimate",
+                "seed": 7,
+            }
+        )
     return {"attempts": attempts, "inapplicable": {}}
 
 
@@ -49,5 +56,7 @@ def test_schedule_requires_minimum_variants_adversary_and_dimension_reasons() ->
             RobustnessPlan.model_validate(bad, context=context)
     good = schedule()
     good["attempts"].pop(3)
-    good["inapplicable"] = {"resampling": "No valid resampling design for these clustered observations"}
+    good["inapplicable"] = {
+        "resampling": "No valid resampling design for these clustered observations"
+    }
     assert len(RobustnessPlan.model_validate(good, context=context).attempts) == 4

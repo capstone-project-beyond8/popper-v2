@@ -28,8 +28,10 @@ def main() -> None:
             return True
         if writing:
             return path.is_relative_to(work) and path not in inputs and path not in records
-        return path in inputs or path.is_relative_to(work) or any(
-            path.is_relative_to(root) for root in libraries
+        return (
+            path in inputs
+            or path.is_relative_to(work)
+            or any(path.is_relative_to(root) for root in libraries)
         )
 
     def check(value: Any, writing: bool = False) -> None:

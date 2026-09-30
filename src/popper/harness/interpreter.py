@@ -58,8 +58,10 @@ def run_script(
     with (workdir / "code.py").open("x", encoding="utf-8") as source:
         source.write(code)
     env = {
-        k: v for k, v in os.environ.items()
-        if not _is_credential(k) and not k.upper().startswith("POPPER_")
+        k: v
+        for k, v in os.environ.items()
+        if not _is_credential(k)
+        and not k.upper().startswith("POPPER_")
         and k.upper() not in {"PYTHONPATH", "PYTHONHOME", "PWD", "OLDPWD"}
     }
     env["MPLBACKEND"] = "Agg"
@@ -81,9 +83,19 @@ def run_script(
     exit_code: int | None
     with (workdir / "stdout.txt").open("xb") as out_f, (workdir / "stderr.txt").open("xb") as err_f:
         proc = subprocess.Popen(
-            [sys.executable, "-I", "-X", "utf8", str(Path(__file__).with_name("worker.py")),
-             json.dumps([str(p.resolve()) for p in inputs.values()])],
-            cwd=workdir, env=env, stdout=out_f, stderr=err_f, **group
+            [
+                sys.executable,
+                "-I",
+                "-X",
+                "utf8",
+                str(Path(__file__).with_name("worker.py")),
+                json.dumps([str(p.resolve()) for p in inputs.values()]),
+            ],
+            cwd=workdir,
+            env=env,
+            stdout=out_f,
+            stderr=err_f,
+            **group,
         )
         try:
             exit_code, timed_out = proc.wait(timeout=timeout), False

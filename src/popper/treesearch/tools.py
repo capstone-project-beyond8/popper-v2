@@ -65,14 +65,20 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             workdir = Path(temp)
             try:
                 r = h.execute(
-                    str(args["code"]), workdir, inputs=inputs, node=node_dir.name, purpose="scratch",
+                    str(args["code"]),
+                    workdir,
+                    inputs=inputs,
+                    node=node_dir.name,
+                    purpose="scratch",
                 )
             finally:
                 shutil.copytree(workdir, evidence)
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         if r.exit_code != 0 or r.timed_out:
-            raise ValueError(f"{output}\nFix the snippet and try again; submitted results are separate.")
+            raise ValueError(
+                f"{output}\nFix the snippet and try again; submitted results are separate."
+            )
         return output
 
     def view_figure(args: dict[str, Any]) -> Path:

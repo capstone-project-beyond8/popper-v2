@@ -59,7 +59,9 @@ def make_diagnostic(h: "Harness", node: "Node") -> None:
 
 
 def judge_input(
-    spec: "StageSpec", node: "Node", execution: ExecResult,
+    spec: "StageSpec",
+    node: "Node",
+    execution: ExecResult,
 ) -> tuple[str, tuple[Path, ...]]:
     images: tuple[Path, ...]
     if spec.blind_estimates:
@@ -67,18 +69,25 @@ def judge_input(
         code = _blinded_code(node.code)
         stdout = "Execution passed code checks. Numerical logs withheld."
         projected = {
-            key: {"value": "withheld", "ci": "withheld" if "ci" in entry else None,
-                  **({"n": entry["n"]} if "n" in entry else {})}
+            key: {
+                "value": "withheld",
+                "ci": "withheld" if "ci" in entry else None,
+                **({"n": entry["n"]} if "n" in entry else {}),
+            }
             for key, entry in node.results.items()
         }
-        summary = "Only structural diagnostics are attached. No inference from sign or significance."
+        summary = (
+            "Only structural diagnostics are attached. No inference from sign or significance."
+        )
         images = (node.dir / "judge_figures" / "samples.png",)
     else:
         goal, code, stdout, projected = spec.goal, node.code, execution.stdout, node.results
         summary = spec.describe(node.execution_dir) if spec.describe else "(none)"
         images = tuple(node.execution_dir / "figures" / name for name in node.figures)
     prompt = load_prompt(
-        "popper.treesearch", "judge.md", goal=goal,
+        "popper.treesearch",
+        "judge.md",
+        goal=goal,
         code=part("Code", code, CODE_CHARS, untrusted=True),
         stdout=part("Output", stdout, ARTIFACT_CHARS, keep="tail", untrusted=True),
         results=part("results.json", json.dumps(projected), ARTIFACT_CHARS, untrusted=True),

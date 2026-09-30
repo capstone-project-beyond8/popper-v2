@@ -17,13 +17,18 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         if req.tag.startswith("judge:"):
-            return json.dumps({"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "valid"})
-        code = "\n".join([
-            "import json, os, base64", "os.mkdir('figures')",
-            "open('figures/estimate.png','wb').write(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII='))",
-            "json.dump({'primary_estimate': {'value': 19.8765, 'ci': [18, 21], 'n': 50}} ,open('results.json','w'))",
-            f"json.dump({ESTIMAND!r}, open('estimand.json','w'))",
-        ])
+            return json.dumps(
+                {"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "valid"}
+            )
+        code = "\n".join(
+            [
+                "import json, os, base64",
+                "os.mkdir('figures')",
+                "open('figures/estimate.png','wb').write(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII='))",
+                "json.dump({'primary_estimate': {'value': 19.8765, 'ci': [18, 21], 'n': 50}} ,open('results.json','w'))",
+                f"json.dump({ESTIMAND!r}, open('estimand.json','w'))",
+            ]
+        )
         return (ToolCall("submit", "submit", {"code": code}),)
 
     cfg = load_config(env={})

@@ -165,7 +165,12 @@ def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
 
 
 def _step(
-    h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | None, reason: str,
+    h: Harness,
+    spec: StageSpec,
+    i: int,
+    kind: NodeKind,
+    parent: Node | None,
+    reason: str,
     attempt: AttemptSpec | None = None,
     rng_state: tuple[Any, ...] | None = None,
 ) -> Node:
@@ -191,9 +196,17 @@ def _step(
         seed_node=spec.seed_node,
     )
     node.dir.mkdir(parents=True)
-    h.journal.write("node_start", stage=spec.name, node=node.id, kind=kind, parent=node.parent,
-                    attempt_id=node.attempt_id, debug_depth=node.debug_depth, rng_state=rng_state,
-                    seed_node=node.seed_node)
+    h.journal.write(
+        "node_start",
+        stage=spec.name,
+        node=node.id,
+        kind=kind,
+        parent=node.parent,
+        attempt_id=node.attempt_id,
+        debug_depth=node.debug_depth,
+        rng_state=rng_state,
+        seed_node=node.seed_node,
+    )
     prompt = load_prompt(
         "popper.treesearch",
         "node.md",
@@ -237,27 +250,51 @@ def _step(
 def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> list[Node]:
     nodes: list[Node] = []
     events = read_events(h.run.root)
-    committed = {e["node"] for e in events if e["event"] == "node_commit" and e.get("stage") == stage}
+    committed = {
+        e["node"] for e in events if e["event"] == "node_commit" and e.get("stage") == stage
+    }
     for event in events:
-        if event["event"] == "node_start" and event.get("stage") == stage and event["node"] not in committed and include_abandoned:
+        if (
+            event["event"] == "node_start"
+            and event.get("stage") == stage
+            and event["node"] not in committed
+            and include_abandoned
+        ):
             node_dir = h.run.path("tree", stage, str(event["node"]))
             source = node_dir / "execution" / "code.py"
-            nodes.append(Node(
-                id=event["node"], stage=stage, parent=event.get("parent"), kind=event["kind"],
-                debug_depth=event.get("debug_depth", 0), dir=node_dir,
-                code=source.read_text("utf-8") if source.exists() else "", status="buggy", score=None,
-                goal_met=False, analysis="Interrupted attempt; no committed evaluation.", results={},
-                figures=[], reason="interrupted", attempt_id=event.get("attempt_id"), seed_node=event.get("seed_node"),
-            ))
+            nodes.append(
+                Node(
+                    id=event["node"],
+                    stage=stage,
+                    parent=event.get("parent"),
+                    kind=event["kind"],
+                    debug_depth=event.get("debug_depth", 0),
+                    dir=node_dir,
+                    code=source.read_text("utf-8") if source.exists() else "",
+                    status="buggy",
+                    score=None,
+                    goal_met=False,
+                    analysis="Interrupted attempt; no committed evaluation.",
+                    results={},
+                    figures=[],
+                    reason="interrupted",
+                    attempt_id=event.get("attempt_id"),
+                    seed_node=event.get("seed_node"),
+                )
+            )
         if event["event"] != "node_commit" or event.get("stage") != stage:
             continue
         node_dir = h.run.path("tree", stage, str(event["node"]))
         metadata = json.loads((node_dir / "meta.json").read_text("utf-8"))
         code_file = node_dir / "execution" / "code.py"
-        nodes.append(Node(
-            **metadata, dir=node_dir, code=code_file.read_text("utf-8") if code_file.exists() else "",
-            results=_read_results(node_dir / "execution") if metadata["status"] == "ok" else {},
-        ))
+        nodes.append(
+            Node(
+                **metadata,
+                dir=node_dir,
+                code=code_file.read_text("utf-8") if code_file.exists() else "",
+                results=_read_results(node_dir / "execution") if metadata["status"] == "ok" else {},
+            )
+        )
     return nodes
 
 
@@ -341,11 +378,15 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
     if states:
         rng.setstate(cast(tuple[Any, ...], _tuple_state(states[-1])))
     if not any(e["event"] == "stage_start" for e in events):
-        h.journal.write("stage_start", stage=spec.name, steps=steps, seed=7, rng_state=rng.getstate())
+        h.journal.write(
+            "stage_start", stage=spec.name, steps=steps, seed=7, rng_state=rng.getstate()
+        )
     folders = [p for p in h.run.path("tree", spec.name).glob(f"{spec.name}-*") if p.is_dir()]
     next_id = max((int(p.name.rsplit("-", 1)[1]) for p in folders), default=-1) + 1
     remaining = steps - len(folders)
-    if not spec.attempts and (any(n.status == "ok" and n.goal_met for n in nodes) or _plateaued(nodes, h.config.search)):
+    if not spec.attempts and (
+        any(n.status == "ok" and n.goal_met for n in nodes) or _plateaued(nodes, h.config.search)
+    ):
         remaining = 0
     for i in range(next_id, next_id + max(remaining, 0)):
         kind: NodeKind
@@ -359,15 +400,27 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
             else:
                 successful = {n.attempt_id for n in nodes if n.status == "ok"}
                 parents = {n.parent for n in nodes}
-                parent = next((n for n in nodes if n.status == "buggy" and n.id not in parents
-                               and n.attempt_id not in successful
-                               and n.debug_depth < h.config.search.max_debug_depth), None)
+                parent = next(
+                    (
+                        n
+                        for n in nodes
+                        if n.status == "buggy"
+                        and n.id not in parents
+                        and n.attempt_id not in successful
+                        and n.debug_depth < h.config.search.max_debug_depth
+                    ),
+                    None,
+                )
                 if parent is None:
                     break
                 kind = "debug"
                 attempt = next(a for a in spec.attempts if a.id == parent.attempt_id)
-            effective = replace(spec, goal=attempt.goal, context=f"{spec.context}\n{attempt.context}",
-                                check=attempt.check or spec.check)
+            effective = replace(
+                spec,
+                goal=attempt.goal,
+                context=f"{spec.context}\n{attempt.context}",
+                check=attempt.check or spec.check,
+            )
             reason = f"{kind} specification {attempt.id}"
         else:
             kind, parent = choose_action(nodes, h.config.search, rng)

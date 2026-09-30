@@ -3,7 +3,10 @@ Write the sections of a short research report as LaTeX body text (no preamble, n
 ## Numbers you may cite
 {keys}
 
-Cite numbers only as \R{{key}}, copying a key exactly from the list above. A key ending in `.ci` is a 95\% interval and one ending in `.n` is a sample size; cite them only where they are listed, e.g. slope \R{{experiment.slope}} (95\% CI \R{{experiment.slope.ci}}, $n = \R{{experiment.slope.n}}$). Never type a number yourself. Put units and percent signs outside the macro (write \%). Do not state the evidence label; the template adds it.
+Cite quantitative values only as \R{{key}}, copying a key exactly. `.ci` is the reported interval;
+`.n` is sample size. Put units outside macros. Never invent numbers, labels or figure paths.
+Do not write the words stable, fragile or confirmed; code supplies the evidence label.
+Interpret direction relative to the selected hypothesis, including equally legitimate negative results.
 
 {framing}
 
@@ -12,11 +15,14 @@ Cite numbers only as \R{{key}}, copying a key exactly from the list above. A key
 
 {analyses}
 
-## Figure files available, by stage
+## Figure files available, by node identity
 {figures}
 
-Reference figures only through the "figures" list, by stage and file name. Never write \includegraphics yourself.
+Choose existing figures through the figures list only. Do not write includegraphics or label commands.
+Code reserves one slot for its specification curve and places at most three other figures.
+Captions also use \R{{key}}. Discuss adaptive exploration, unavailable reserved holdout, restricted
+subgroup populations and failed attempts. Do not claim independent verification.
 
 Reply with one JSON object with exactly these keys:
-- "title", "abstract", "introduction", "data", "exploration", "hypothesis", "methods", "results", "limitations": LaTeX body text
-- "figures": list of {{"stage": "explore" or "experiment", "file": figure file name in that stage, "caption": caption text}}
+- "title", "abstract", "introduction", "data", "exploration", "hypothesis", "methods", "results", "robustness", "discussion", "conclusion": LaTeX body text
+- "figures": list of {{"node_id": node identity, "file": existing file name, "caption": text, "section": "data_methods"|"exploratory"|"main"|"robustness"}}

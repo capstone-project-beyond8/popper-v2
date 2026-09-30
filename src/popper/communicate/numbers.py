@@ -26,16 +26,28 @@ def latex_escape(text: str) -> str:
     return "".join(_ESCAPES.get(c, c) for c in text)
 
 
-def collect_values(nodes: Sequence[Node]) -> dict[str, Any]:
-    """Every citable number by key: `stage.name`, plus `stage.name.ci` and `stage.name.n`."""
+def collect_values(
+    nodes: Sequence[Node], *, selected: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """Canonical node keys; stage aliases only identify explicitly selected or unique nodes."""
     values: dict[str, Any] = {}
+    aliases = (
+        dict(selected)
+        if selected is not None
+        else {
+            node.stage: node.id for node in nodes if sum(n.stage == node.stage for n in nodes) == 1
+        }
+    )
     for node in nodes:
         for name, entry in node.results.items():
-            key = f"{node.stage}.{name}"
-            values[key] = entry["value"]
-            for part in ("ci", "n"):
-                if part in entry:
-                    values[f"{key}.{part}"] = entry[part]
+            keys = [f"{node.id}.{name}"]
+            if aliases.get(node.stage) == node.id:
+                keys.append(f"{node.stage}.{name}")
+            for key in keys:
+                values[key] = entry["value"]
+                for part in ("ci", "n"):
+                    if part in entry:
+                        values[f"{key}.{part}"] = entry[part]
     return values
 
 

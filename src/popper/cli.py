@@ -41,8 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "resume":
         try:
             outcome = resume(
-                args.run_dir, llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
-                progress=None if args.quiet else lambda line: print(line, file=sys.stderr, flush=True),
+                args.run_dir,
+                llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
+                progress=None
+                if args.quiet
+                else lambda line: print(line, file=sys.stderr, flush=True),
             )
         except (OSError, ValueError) as exc:
             print(str(exc), file=sys.stderr)
@@ -56,14 +59,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "pdf":
         tex = args.run_dir / "report" / "paper.tex"
         store = RunStore(args.run_dir)
-        report = store.committed('report')
+        report = store.committed("report")
         if report:
-            tex = store.path(json.loads(report.read_text('utf-8'))['tex'])
+            tex = store.path(json.loads(report.read_text("utf-8"))["tex"])
         if not tex.is_file():
             parser.error(f"file not found: {tex}")
         pdf = compile_pdf(tex)
         if pdf is None:
-            print(_NO_PDF.format(log=tex.parent / 'build-*' / 'compile.log'), file=sys.stderr)
+            print(_NO_PDF.format(log=tex.parent / "build-*" / "compile.log"), file=sys.stderr)
             return 1
         print(pdf)
         return 0
@@ -100,5 +103,12 @@ def main(argv: list[str] | None = None) -> int:
         print(outcome.pdf)
     else:
         print(outcome.tex)
-        print(_NO_PDF.format(log=outcome.tex.parent / 'build-*' / 'compile.log' if outcome.tex else outcome.run_dir), file=sys.stderr)
+        print(
+            _NO_PDF.format(
+                log=outcome.tex.parent / "build-*" / "compile.log"
+                if outcome.tex
+                else outcome.run_dir
+            ),
+            file=sys.stderr,
+        )
     return 0
