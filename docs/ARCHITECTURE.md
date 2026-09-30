@@ -39,11 +39,13 @@ The order is a playbook, not a state machine. Changing it does not change the pa
 cli ──► coordinator ──► understand · ground · discover · communicate · (verify)
                                │
                                ▼
-                            harness ──► llm (Bedrock) · interpreter (subprocess) · store · journal · budget
+                           treesearch ──► harness ──► llm (Bedrock) · interpreter (subprocess) · store · journal · budget · config
 ```
 
 - `harness` depends on nothing else in Popper. It holds no research logic.
-- Function packages depend only on `harness` and on shared types. They never import each other, and results pass between them as files in the run directory.
+- `treesearch` is the generic stage engine (§5). It depends only on `harness`. It knows nodes, steps and scoring, but no stage goals.
+- Function packages depend only on `harness` and `treesearch`. They never import each other, and results pass between them as files in the run directory.
+- Default run configuration ships inside the package (`src/popper/harness/default_config.yaml`). A user file passed with `--config` overrides it key by key, and the `POPPER_MODEL` environment variable, when set, overrides every model role.
 - `coordinator` wires the functions together and is the only package that knows the playbook.
 - Prompts live next to the code that uses them (`<package>/prompts/*.md`) and are loaded as text.
 
@@ -86,7 +88,9 @@ The engine adapts the AI Scientist-v2 `bfts` loop.
 2. Otherwise, with probability `debug_prob`, pick a buggy leaf whose debug depth is below `max_debug_depth` and **debug** it.
 3. Otherwise, pick the best working node and **improve** it (in stage 4: add a **robustness** child).
 
-After a node runs, the feedback model reads its code, output and figures. It marks the node `buggy` (error, missing required outputs, or nonsensical values) or `ok`, writes `analysis.md`, and gives a 1–10 score against the stage goal. The best node of a stage is the highest-scoring `ok` node, confirmed by a final model comparison of the top candidates.
+After a node runs, code checks it first. A non-zero exit, a timeout, a missing required output or an invalid `results.json` makes the node `buggy` without a model call. Otherwise the feedback model reads the code, output and results. It can still mark the node `buggy` (for nonsensical values), writes `analysis.md`, gives a 1–10 score against the stage goal, and says whether the goal is met. The best node of a stage is the highest-scoring `ok` node; ties go to the earlier node.
+
+Scripts receive their inputs through environment variables (`POPPER_INPUT_<NAME>`, absolute paths) and write outputs to their working directory. `results.json` maps snake_case names to `{"value": number | string, "ci": [low, high]?, "n": int?, "note": str?}`.
 
 **Stages.** The same engine runs every tree stage; only the goal, the input and the required outputs change. The best node of one stage seeds the next.
 

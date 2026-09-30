@@ -1,22 +1,23 @@
 # Repository operating guide
 
 - Code is the source of truth. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes built behaviour and the rules the code keeps. [docs/ROADMAP.md](docs/ROADMAP.md) orders the work and holds the size caps.
-- Commands, dependencies and tool settings are in [pyproject.toml](pyproject.toml). Run configuration is in [config/default.yaml](config/default.yaml).
+- Commands, dependencies and tool settings are in [pyproject.toml](pyproject.toml). Default run configuration is in [src/popper/harness/default_config.yaml](src/popper/harness/default_config.yaml).
 
 ## Layout
 
 | Path | Owns |
 |---|---|
-| `src/popper/harness/` | Model access, script execution, run store, journal, budget. No research logic |
+| `src/popper/harness/` | Model access, script execution, run store, journal, budget, config (defaults in `default_config.yaml`). No research logic |
+| `src/popper/treesearch/` | Generic stage engine: nodes, draft/debug/improve steps, scoring, best-node selection |
 | `src/popper/understand/` | Ideation & framing: data profile, framing |
 | `src/popper/ground/` | Data phase: preparation stage goals and checks |
-| `src/popper/discover/` | Tree-search engine; exploration & hypothesis and experiment phases |
+| `src/popper/discover/` | Exploration & hypothesis and experiment phases |
 | `src/popper/communicate/` | Publication: LaTeX write-up, figure aggregation, review |
 | `src/popper/coordinator/` | The playbook that runs the five phases in order |
 | `src/popper/cli.py` | Entry point |
 | `examples/` | Briefs and datasets for demos and evaluation |
 
-Function packages import only `harness` and never each other. Prompts live in `<package>/prompts/`.
+Function packages import only `harness` and `treesearch`, and never each other. Prompts live in `<package>/prompts/`.
 
 ## Rules
 
