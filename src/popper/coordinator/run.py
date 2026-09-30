@@ -63,11 +63,11 @@ def run(
         explore_node = explore(h, framing)
         hypothesis = propose_hypothesis(h, framing, explore_node)
         _phase(h, "experiment")
-        experiment_node = experiment(h, framing, hypothesis, data_node)
+        evidence = experiment(h, framing, hypothesis, data_node)
         _phase(h, "publication")
         changes = json.loads((data_node.execution_dir / "changes.json").read_text("utf-8"))
         tex, pdf, missing = write_paper(
-            h, framing, changes, explore_node, hypothesis, experiment_node, data_node
+            h, framing, changes, explore_node, hypothesis, evidence, data_node
         )
         status = "completed"
     except StageFailed as exc:

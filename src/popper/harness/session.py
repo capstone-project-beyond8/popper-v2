@@ -184,7 +184,9 @@ class Harness:
     def ask_model(
         self, role: Role, *, schema: type[T], tag: str, system: str, prompt: str,
         images: Sequence[Path] = (),
+        validation_context: Mapping[str, Any] | None = None,
     ) -> T:
         return self._ask_parsed(
-            role, tag, system, prompt, lambda text: schema.model_validate(_parse_json(text)), images,
+            role, tag, system, prompt,
+            lambda text: schema.model_validate(_parse_json(text), context=validation_context), images,
         )

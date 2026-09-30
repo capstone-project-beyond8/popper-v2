@@ -44,6 +44,13 @@ WRITEUP = {
     "figures": [{"stage": "explore", "file": "scatter.png", "caption": "Scatter"}],
 }
 FEEDBACK = {"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "ok"}
+ROBUSTNESS = {"attempts": [
+    {"id": f"choice-{i}", "kind": "adversarial" if dim == "adversarial" else "variant",
+     "dimension": dim, "choice": "permutation" if dim == "adversarial" else f"alternative {i}",
+     "estimand": HYPOTHESIS["primary_estimand"],
+     "result_key": "placebo_estimate" if dim == "adversarial" else "primary_estimate", "seed": 7}
+    for i, dim in enumerate(("cleaning", "model", "subgroup", "resampling", "adversarial"))
+], "inapplicable": {}}
 
 DATA = """
 import json, os
@@ -107,10 +114,17 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     if tag.startswith("framing"):
         return json.dumps(FRAMING)
     if tag.startswith("analyst:"):
+        if tag == "analyst:robustness":
+            choice = next(item for item in ROBUSTNESS["attempts"] if json.dumps(item) in req.prompt)
+            code = EXPERIMENT
+            if choice["kind"] == "adversarial":
+                code = code.replace('"primary_estimate"', '"placebo_estimate"')
+                code = code.replace('x, y =', 'df["study_hours_week"] = np.random.default_rng(7).permutation(df["study_hours_week"])\nx, y =')
+            return _submit(code + f"\njson.dump({choice!r}, open('specification.json','w'))\n")
         return _submit({"analyst:data": DATA, "analyst:explore": EXPLORE}.get(tag, EXPERIMENT))
     if tag.startswith("judge:"):
         return json.dumps(FEEDBACK)
-    return json.dumps({"hypothesis": HYPOTHESIS, "writeup": WRITEUP}[tag])
+    return json.dumps({"hypothesis": HYPOTHESIS, "writeup": WRITEUP, "robustness_plan": ROBUSTNESS}[tag])
 
 
 def _config() -> Config:

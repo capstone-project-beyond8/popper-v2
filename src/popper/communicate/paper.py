@@ -19,7 +19,7 @@ from popper.communicate.numbers import (
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
-from popper.treesearch.engine import Node
+from popper.treesearch.engine import Node, load_nodes
 
 _SYSTEM = "You are a careful scientific writer. Reply with JSON only."
 _WRITER_RETRIES = 2  # re-asks when the prose cites numbers that have no value
@@ -141,9 +141,11 @@ def write_paper(
     changes: list[dict[str, Any]],
     explore: Node,
     hypothesis: dict[str, Any],
-    experiment: Node,
+    evidence: Path,
     data_node: Node,
 ) -> tuple[Path, Path | None, list[str]]:
+    manifest = json.loads(evidence.read_text("utf-8"))
+    experiment = next(n for n in load_nodes(h, "main") if n.id == manifest["selected"]["main"])
     values = collect_values([data_node, explore, experiment])
     figures = {n.stage: n.figures for n in (explore, experiment)}
     prompt = load_prompt(
@@ -185,6 +187,7 @@ def write_paper(
             ],
             data_code=data_node.code,
             experiment_code=experiment.code,
+            stability=manifest["stability"],
         ),
         values,
     )

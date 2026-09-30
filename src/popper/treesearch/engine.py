@@ -1,9 +1,10 @@
 """Staged tree search adapted from AI-Scientist-v2: one node is one script run in a subprocess."""
 
+import json
 import random
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -14,11 +15,12 @@ from popper.harness.config import Search
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
+from popper.harness.recovery import read_events
 from popper.harness.session import Harness
 from popper.treesearch.judge import judge_input, make_diagnostic
 from popper.treesearch.tools import node_tools
 
-NodeKind = Literal["draft", "debug", "improve"]
+NodeKind = Literal["draft", "debug", "improve", "variant", "adversarial"]
 
 _SYSTEM = "You are a careful data scientist. Follow the format instructions exactly."
 
@@ -39,10 +41,21 @@ class Node:
     results: dict[str, dict[str, Any]]
     figures: list[str]
     reason: str
+    attempt_id: str | None = None
+    seed_node: str | None = None
 
     @property
     def execution_dir(self) -> Path:
         return self.dir / "execution"
+
+
+@dataclass(frozen=True)
+class AttemptSpec:
+    id: str
+    kind: Literal["variant", "adversarial"]
+    goal: str
+    context: str
+    check: Callable[[Path], str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +72,7 @@ class StageSpec:
     blind_estimates: bool = False
     steps: int | None = None
     seed_node: str | None = None
+    attempts: tuple[AttemptSpec, ...] = ()
 
 
 class ResultEntry(BaseModel):
@@ -151,7 +165,8 @@ def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
 
 
 def _step(
-    h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | None, reason: str
+    h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | None, reason: str,
+    attempt: AttemptSpec | None = None,
 ) -> Node:
     node_id = f"{spec.name}-{i:03d}"
     limit = h.config.execution.max_output_chars
@@ -171,6 +186,8 @@ def _step(
         results={},
         figures=[],
         reason=reason,
+        attempt_id=attempt.id if attempt else None,
+        seed_node=spec.seed_node,
     )
     prompt = load_prompt(
         "popper.treesearch",
@@ -208,7 +225,23 @@ def _step(
     meta = {k: v for k, v in asdict(node).items() if k not in ("code", "results", "dir")}
     h.run.write_json(f"tree/{spec.name}/{node_id}/meta.json", meta)
     h.run.write_text(f"tree/{spec.name}/{node_id}/analysis.md", node.analysis)
+    h.journal.write("node_commit", stage=spec.name, node=node_id)
     return node
+
+
+def load_nodes(h: Harness, stage: str) -> list[Node]:
+    nodes: list[Node] = []
+    for event in read_events(h.run.root):
+        if event["event"] != "node_commit" or event.get("stage") != stage:
+            continue
+        node_dir = h.run.path("tree", stage, str(event["node"]))
+        metadata = json.loads((node_dir / "meta.json").read_text("utf-8"))
+        code_file = node_dir / "execution" / "code.py"
+        nodes.append(Node(
+            **metadata, dir=node_dir, code=code_file.read_text("utf-8") if code_file.exists() else "",
+            results=_read_results(node_dir / "execution") if metadata["status"] == "ok" else {},
+        ))
+    return nodes
 
 
 def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out: bool) -> str:
@@ -273,20 +306,44 @@ def _plateaued(nodes: Sequence[Node], search: Search) -> bool:
 def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> Node:
     rng = rng or random.Random()
     steps = spec.steps or h.config.search.steps_for(spec.name)
+    if len(spec.attempts) > steps:
+        raise ValueError("scheduled attempts exceed stage step budget")
     h.journal.write("stage_start", stage=spec.name, steps=steps)
     nodes: list[Node] = []
     for i in range(steps):
-        kind, parent = choose_action(nodes, h.config.search, rng)
-        reason = _reason(kind, parent, nodes, h.config.search)
-        node = _step(h, spec, i, kind, parent, reason)
+        kind: NodeKind
+        attempt = None
+        effective = spec
+        if spec.attempts:
+            tried = {n.attempt_id for n in nodes}
+            attempt = next((a for a in spec.attempts if a.id not in tried), None)
+            if attempt is not None:
+                kind, parent = attempt.kind, None
+            else:
+                successful = {n.attempt_id for n in nodes if n.status == "ok"}
+                parents = {n.parent for n in nodes}
+                parent = next((n for n in nodes if n.status == "buggy" and n.id not in parents
+                               and n.attempt_id not in successful
+                               and n.debug_depth < h.config.search.max_debug_depth), None)
+                if parent is None:
+                    break
+                kind = "debug"
+                attempt = next(a for a in spec.attempts if a.id == parent.attempt_id)
+            effective = replace(spec, goal=attempt.goal, context=f"{spec.context}\n{attempt.context}",
+                                check=attempt.check or spec.check)
+            reason = f"{kind} specification {attempt.id}"
+        else:
+            kind, parent = choose_action(nodes, h.config.search, rng)
+            reason = _reason(kind, parent, nodes, h.config.search)
+        node = _step(h, effective, i, kind, parent, reason, attempt)
         nodes.append(node)
         score = f" score {node.score:g}" if node.status == "ok" else ""
         h.progress(
             f"[{spec.name}] {node.id} {node.kind} → {node.status}{score} · ${h.spent_usd:.2f}"
         )
-        if node.status == "ok" and node.goal_met:
+        if not spec.attempts and node.status == "ok" and node.goal_met:
             break
-        if _plateaued(nodes, h.config.search):
+        if not spec.attempts and _plateaued(nodes, h.config.search):
             break
     best = select_best(nodes)
     h.journal.write("stage_end", stage=spec.name, best=best.id if best else None, steps=len(nodes))

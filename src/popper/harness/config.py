@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Role = Literal["theorist", "analyst", "judge", "writer"]
 
@@ -48,6 +48,11 @@ class DataConfig(_Strict):
     group_column: str | None = None
 
 
+class Robustness(_Strict):
+    stability_share: float = Field(default=0.8, gt=0, le=1)
+    min_variants: int = Field(default=3, ge=3)
+
+
 class Price(_Strict):
     input: float  # USD per million tokens
     output: float
@@ -73,6 +78,13 @@ class Config(_Strict):
     execution: Execution
     budget: Budget
     data: DataConfig = Field(default_factory=DataConfig)
+    robustness: Robustness = Field(default_factory=Robustness)
+
+    @model_validator(mode="after")
+    def enough_robustness_steps(self) -> "Config":
+        if self.search.steps_for("robustness") < self.robustness.min_variants + 1:
+            raise ValueError("robustness budget needs room for ordinary variants and an adversarial check")
+        return self
 
 
 def _merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:

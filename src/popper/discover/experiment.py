@@ -5,8 +5,21 @@ import math
 from pathlib import Path
 from typing import Any, Literal
 
+from popper.discover.robustness import (
+    RobustnessPlan,
+    Specification,
+    collect_evidence,
+    plan_robustness,
+)
 from popper.harness.session import Harness
-from popper.treesearch.engine import Node, ResultEntry, StageSpec, run_stage
+from popper.treesearch.engine import (
+    AttemptSpec,
+    Node,
+    ResultEntry,
+    StageFailed,
+    StageSpec,
+    run_stage,
+)
 
 
 def check_estimate(
@@ -58,6 +71,57 @@ def run_experiment_stage(
 
 def experiment(
     h: Harness, framing: dict[str, Any], hypothesis: dict[str, Any], data_node: Node,
-) -> Node:
+) -> Path:
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None)
-    return run_experiment_stage(h, "main", framing, hypothesis, baseline)
+    main = run_experiment_stage(h, "main", framing, hypothesis, baseline)
+    plan = plan_robustness(h, hypothesis, main, data_node)
+    schedule = RobustnessPlan.model_validate(json.loads(plan.read_text("utf-8"))["schedule"])
+    attempts = tuple(_attempt(item) for item in schedule.attempts)
+    selected = {"baseline": baseline, "main": main}
+    try:
+        selected["robustness"] = run_stage(h, StageSpec(
+            name="robustness", goal="Test the main contrast under recorded alternative analyses.",
+            context=f"Hypothesis:\n{json.dumps(hypothesis)}",
+            inputs={"data": h.run.path("data", "processed.parquet"),
+                    "raw": h.run.path("data", "raw.csv"),
+                    "prepare": data_node.execution_dir / "code.py",
+                    "changes": data_node.execution_dir / "changes.json"},
+            required_outputs=("results.json", "estimand.json", "specification.json"),
+            seed_code=main.code, seed_node=main.id, blind_estimates=True, attempts=attempts,
+        ))
+    except StageFailed:
+        # Failed robustness attempts remain evidence of fragility, not a missing main result.
+        pass
+    return collect_evidence(h, hypothesis, selected, plan)
+
+
+def _attempt(item: Specification) -> AttemptSpec:
+    goal = (
+        f"Implement only this recorded {item.dimension} alternative: {item.choice}. "
+        "Adapt the seeded main script; keep the declared exposure, outcome, contrast and units. "
+        "For cleaning alternatives, rerun recorded preparation on the raw discovery input with "
+        "the declared change; the preparation script and change log are mounted as prepare and changes. "
+        f"Write {item.result_key} in results.json with value, 95% ci and positive integer n. "
+        "Write the declared estimand to estimand.json and this specification exactly to specification.json. "
+        "Do not write a pass/fail flag or a stability label."
+    )
+    if item.kind == "adversarial":
+        goal += (
+            f" Permute the exposure once with numpy.random.default_rng({item.seed}).permutation, "
+            "then refit the SAME estimator and primary contrast. Report the placebo interval, "
+            "not a permutation p-value. Do not retry seeds to obtain a desired outcome."
+        )
+
+    def check(path: Path) -> str | None:
+        failure = check_estimate(path, item.result_key, item.estimand.model_dump())
+        if failure:
+            return failure
+        try:
+            saved = Specification.model_validate_json((path / "specification.json").read_bytes())
+            if saved != item:
+                return "executed specification metadata differs from the recorded choice"
+        except (OSError, ValueError) as exc:
+            return f"invalid specification metadata: {exc}"
+        return None
+
+    return AttemptSpec(item.id, item.kind, goal, json.dumps(item.model_dump(mode="json")), check)
