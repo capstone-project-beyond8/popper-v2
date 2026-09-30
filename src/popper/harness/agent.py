@@ -77,6 +77,13 @@ def agent_loop(
             continue
         submitted = next((c for c in done.tool_calls if c.name == terminal), None)
         if submitted:
+            h.journal.write(
+                "tool_call",
+                tag=tag,
+                turn=turn,
+                tool=terminal,
+                args=head(json.dumps(submitted.input, default=str), _JOURNAL_LIMIT),
+            )
             return submitted.input
         assistant = Message("assistant", done.text, tool_calls=done.tool_calls)
         if done.tool_calls:

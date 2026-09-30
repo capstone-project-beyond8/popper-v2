@@ -4,6 +4,8 @@ An AI scientist for quantitative tabular data. From a research brief and a CSV, 
 
 Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/ROADMAP.md](docs/ROADMAP.md) · Contributing: [AGENTS.md](AGENTS.md)
 
+![Popper architecture](docs/images/architecture.svg)
+
 ## Setup
 
 Requirements:

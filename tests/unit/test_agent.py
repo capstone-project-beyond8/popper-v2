@@ -117,6 +117,5 @@ def test_tool_calls_are_journaled(tmp_path: Path) -> None:
     _run(h)
     lines = h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()
     calls = [e for e in map(json.loads, lines) if e["event"] == "tool_call"]
-    assert len(calls) == 1
-    assert calls[0]["tool"] == "echo"
+    assert [c["tool"] for c in calls] == ["echo", "submit"]
     assert calls[0]["result"] == "echoed"
