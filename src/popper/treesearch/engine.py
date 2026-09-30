@@ -135,7 +135,8 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
         "node.md",
         goal=spec.goal,
         context=spec.context,
-        inputs="\n".join(f"- POPPER_INPUT_{n.upper()}" for n in spec.inputs) or "- (none)",
+        inputs="\n".join(f"- POPPER_INPUT_{n.upper()} ({p.name})" for n, p in spec.inputs.items())
+        or "- (none)",
         outputs="\n".join(f"- {o}" for o in spec.required_outputs),
         task=_task(spec, kind, parent),
     )
