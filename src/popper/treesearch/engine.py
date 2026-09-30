@@ -41,6 +41,10 @@ class Node:
     figures: list[str]
     reason: str
 
+    @property
+    def execution_dir(self) -> Path:
+        return self.dir / "execution"
+
 
 @dataclass(frozen=True)
 class StageSpec:
@@ -210,21 +214,21 @@ def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out:
     if exit_code != 0:
         return f"exit code {exit_code}"
     for output in spec.required_outputs:
-        if not (node.dir / output).exists():
+        if not (node.execution_dir / output).exists():
             return f"missing required output {output}"
-    if len(list((node.dir / "figures").glob("*.png"))) < spec.min_figures:
+    if len(list((node.execution_dir / "figures").glob("*.png"))) < spec.min_figures:
         return f"expected at least {spec.min_figures} figure(s) in figures/"
     try:
-        node.results = _read_results(node.dir)
+        node.results = _read_results(node.execution_dir)
     except ValueError as exc:
         return f"invalid results.json: {exc}"
-    return (spec.check(node.dir) if spec.check else None) or ""
+    return (spec.check(node.execution_dir) if spec.check else None) or ""
 
 
 def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     res = run_script(
         node.code,
-        node.dir,
+        node.execution_dir,
         timeout=h.config.execution.timeout_seconds,
         inputs=spec.inputs,
         max_output_chars=limit,
@@ -236,14 +240,14 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         timed_out=res.timed_out,
         seconds=res.seconds,
     )
-    node.figures = sorted(p.name for p in (node.dir / "figures").glob("*.png"))
+    node.figures = sorted(p.name for p in (node.execution_dir / "figures").glob("*.png"))
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
     if failed:
         node.results = {}
         node.analysis = f"Check failed: {failed}.\n{res.stderr}"
         return
     try:
-        summary = spec.describe(node.dir) if spec.describe else "(none)"
+        summary = spec.describe(node.execution_dir) if spec.describe else "(none)"
     except Exception as exc:  # describe runs harness code over model-written outputs
         node.analysis = f"Check failed: could not summarise outputs: {exc}"
         return

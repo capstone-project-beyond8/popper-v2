@@ -119,7 +119,7 @@ def test_end_to_end(tmp_path: Path) -> None:
     )
     assert out.status == "completed" and out.tex is not None
     tex = out.tex.read_text(encoding="utf-8")
-    results = next((out.run_dir / "tree" / "experiment").glob("*/results.json"))
+    results = next((out.run_dir / "tree" / "experiment").glob("*/execution/results.json"))
     slope = json.loads(results.read_text(encoding="utf-8"))["slope"]["value"]
     assert f"{slope:.3g}" in tex and r"\textbf{??}" in tex
     assert "exploratory --- autonomously generated" in tex and "\\usepackage{amsmath}" in tex

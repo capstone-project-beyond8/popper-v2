@@ -60,5 +60,73 @@ def test_non_ascii_output_survives(tmp_path: Path) -> None:
 def test_timeout_does_not_wait_for_child_processes(tmp_path: Path) -> None:
     code = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\ntime.sleep(30)"
     result = _run(code, tmp_path, timeout=2)
-    assert result.timed_out
+    assert result.exit_code != 0
+    assert "subprocess" in result.stderr
     assert result.seconds < 10
+
+
+@pytest.mark.parametrize("operation", ["read", "write", "list"])
+def test_script_cannot_access_sibling_evidence(tmp_path: Path, operation: str) -> None:
+    private = tmp_path / "private"
+    private.mkdir()
+    secret = private / "holdout.csv"
+    secret.write_text("secret-row")
+    code = {
+        "read": f"print(open({str(secret)!r}).read())",
+        "write": f"open({str(secret)!r}, 'w').write('changed')",
+        "list": f"import os; print(os.listdir({str(private)!r}))",
+    }[operation]
+    result = _run(code, tmp_path / "execution")
+    assert result.exit_code != 0
+    assert "secret-row" not in result.stdout
+    assert secret.read_text() == "secret-row"
+
+
+def test_readonly_input_and_relative_escape(tmp_path: Path) -> None:
+    raw = tmp_path / "raw.csv"
+    raw.write_text("x\n1\n")
+    result = _run(
+        "import os; open(os.environ['POPPER_INPUT_DATA'], 'w').write('changed')",
+        tmp_path / "execution",
+        inputs={"data": raw},
+    )
+    assert result.exit_code != 0 and raw.read_text() == "x\n1\n"
+    escape = _run("print(open('../raw.csv').read())", tmp_path / "scratch")
+    assert escape.exit_code != 0
+
+
+def test_scientific_stack_can_execute(tmp_path: Path) -> None:
+    code = """
+import numpy as np, pandas as pd, statsmodels.api as sm
+import matplotlib.pyplot as plt
+df = pd.DataFrame({'x': np.arange(10), 'y': np.arange(10) * 2})
+df.to_parquet('table.parquet')
+fit = sm.OLS(df.y, sm.add_constant(df.x)).fit()
+plt.plot(df.x, fit.fittedvalues)
+plt.savefig('plot.png')
+print(pd.read_parquet('table.parquet').shape)
+"""
+    result = _run(code, tmp_path)
+    assert result.exit_code == 0, result.stderr
+    assert "(10, 2)" in result.stdout and (tmp_path / "plot.png").is_file()
+
+
+def test_symlink_cannot_expand_file_access(tmp_path: Path) -> None:
+    secret = tmp_path / "holdout.csv"
+    secret.write_text("held-row")
+    work = tmp_path / "execution"
+    work.mkdir()
+    try:
+        (work / "alias.csv").symlink_to(secret)
+    except OSError:
+        pytest.skip("symlink creation requires OS permission")
+    result = _run("print(open('alias.csv').read())", work)
+    assert result.exit_code != 0 and "held-row" not in result.stdout
+
+
+@pytest.mark.parametrize("name", ["code.py", "stdout.txt", "stderr.txt"])
+def test_script_cannot_rewrite_execution_record(tmp_path: Path, name: str) -> None:
+    code = f"open({name!r}, 'w').write('rewritten')"
+    result = _run(code, tmp_path)
+    assert result.exit_code != 0
+    assert (tmp_path / "code.py").read_text("utf-8") == code

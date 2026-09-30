@@ -1,5 +1,7 @@
 """Analyst node tools: inspect data, run scratch snippets, view figures, read artifacts."""
 
+import shutil
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -41,6 +43,8 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         resolved = (h.run.root / rel).resolve()
         if not resolved.is_relative_to(root):
             raise ValueError("path is outside the run directory")
+        if resolved.is_relative_to(root / "data") or resolved.name in {"run.json", "split.json"}:
+            raise ValueError("private input metadata and holdout cannot be read")
         return resolved
 
     def inspect_data(args: dict[str, Any]) -> str:
@@ -56,15 +60,15 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
 
     def run_python(args: dict[str, Any]) -> str:
         nonlocal scratch
-        workdir = node_dir / "scratch" / f"{scratch:02d}"
+        evidence = node_dir / "scratch" / f"{scratch:02d}"
         scratch += 1
-        r = run_script(
-            str(args["code"]),
-            workdir,
-            timeout=h.config.execution.timeout_seconds,
-            inputs=inputs,
-            max_output_chars=h.config.execution.max_output_chars,
-        )
+        with tempfile.TemporaryDirectory(prefix="popper-scratch-") as temp:
+            workdir = Path(temp)
+            r = run_script(
+                str(args["code"]), workdir, timeout=h.config.execution.timeout_seconds,
+                inputs=inputs, max_output_chars=h.config.execution.max_output_chars,
+            )
+            shutil.copytree(workdir, evidence)
         timed = " (timed out)" if r.timed_out else ""
         return fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
 

@@ -1,5 +1,6 @@
 """Run generated scripts in isolated subprocesses."""
 
+import json
 import os
 import signal
 import subprocess
@@ -53,10 +54,18 @@ def run_script(
     max_output_chars: int,
 ) -> ExecResult:
     workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "code.py").write_text(code, encoding="utf-8")
-    env = {k: v for k, v in os.environ.items() if not _is_credential(k)}
+    workdir = workdir.resolve()
+    with (workdir / "code.py").open("x", encoding="utf-8") as source:
+        source.write(code)
+    env = {
+        k: v for k, v in os.environ.items()
+        if not _is_credential(k) and not k.upper().startswith("POPPER_")
+        and k.upper() not in {"PYTHONPATH", "PYTHONHOME", "PWD", "OLDPWD"}
+    }
     env["MPLBACKEND"] = "Agg"
     env["PYTHONUTF8"] = "1"
+    for key in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TMP", "TEMP", "MPLCONFIGDIR"):
+        env[key] = str(workdir)
     env["AWS_SHARED_CREDENTIALS_FILE"] = os.devnull
     env["AWS_CONFIG_FILE"] = os.devnull
     env["AWS_EC2_METADATA_DISABLED"] = "true"
@@ -70,9 +79,11 @@ def run_script(
 
     start = time.perf_counter()
     exit_code: int | None
-    with (workdir / "stdout.txt").open("wb") as out_f, (workdir / "stderr.txt").open("wb") as err_f:
+    with (workdir / "stdout.txt").open("xb") as out_f, (workdir / "stderr.txt").open("xb") as err_f:
         proc = subprocess.Popen(
-            [sys.executable, "code.py"], cwd=workdir, env=env, stdout=out_f, stderr=err_f, **group
+            [sys.executable, "-I", "-X", "utf8", str(Path(__file__).with_name("worker.py")),
+             json.dumps([str(p.resolve()) for p in inputs.values()])],
+            cwd=workdir, env=env, stdout=out_f, stderr=err_f, **group
         )
         try:
             exit_code, timed_out = proc.wait(timeout=timeout), False

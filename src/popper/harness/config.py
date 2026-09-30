@@ -38,6 +38,12 @@ class Execution(_Strict):
     max_output_chars: int
 
 
+class DataConfig(_Strict):
+    holdout_fraction: float = Field(default=0.2, ge=0, lt=1)
+    split_seed: int = 7
+    group_column: str | None = None
+
+
 class Price(_Strict):
     input: float  # USD per million tokens
     output: float
@@ -62,6 +68,7 @@ class Config(_Strict):
     search: Search
     execution: Execution
     budget: Budget
+    data: DataConfig = Field(default_factory=DataConfig)
 
 
 def _merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:

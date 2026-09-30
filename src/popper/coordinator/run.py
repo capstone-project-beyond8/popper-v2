@@ -43,7 +43,7 @@ def run(
     runs_dir: Path,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
-    store = RunStore.create(runs_dir, brief, data)
+    store = RunStore.create(runs_dir, brief, data, data_config=config.data)
     h = Harness(config, llm, store)
     if progress is not None:
         h.progress = progress
@@ -64,7 +64,7 @@ def run(
         _phase(h, "experiment")
         experiment_node = experiment(h, framing, hypothesis, explore_node.code)
         _phase(h, "publication")
-        changes = json.loads((data_node.dir / "changes.json").read_text("utf-8"))
+        changes = json.loads((data_node.execution_dir / "changes.json").read_text("utf-8"))
         tex, pdf, missing = write_paper(
             h, framing, changes, explore_node, hypothesis, experiment_node, data_node
         )

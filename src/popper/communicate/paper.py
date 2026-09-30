@@ -117,7 +117,7 @@ def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[
         name = f"{node.stage}-{ref.file}"
         target = h.run.path("report", "figures", name)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(node.dir / "figures" / ref.file, target)
+        shutil.copyfile(node.execution_dir / "figures" / ref.file, target)
         placed.append({"path": f"figures/{name}", "caption": ref.caption})
     return placed
 

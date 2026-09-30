@@ -79,6 +79,6 @@ def prepare(h: Harness, framing: dict[str, Any]) -> Node:
     target = h.run.path("data", "processed.parquet")
     if target.exists():
         raise FileExistsError(target)
-    shutil.copyfile(best.dir / "processed.parquet", target)
+    shutil.copyfile(best.execution_dir / "processed.parquet", target)
     target.chmod(stat.S_IREAD)
     return best
