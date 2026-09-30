@@ -32,11 +32,14 @@ def _node(
         analysis="",
         results={},
         figures=[],
+        reason="",
     )
 
 
 def _search(num_drafts: int = 3) -> Search:
-    return Search(num_drafts=num_drafts, debug_prob=0.5, max_debug_depth=2, steps_per_stage=10)
+    return Search(
+        num_drafts=num_drafts, debug_prob=0.5, max_debug_depth=2, steps_per_stage=10, max_turns=12
+    )
 
 
 def test_drafts_first() -> None:

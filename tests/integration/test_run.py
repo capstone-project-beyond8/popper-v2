@@ -5,7 +5,7 @@ import pytest
 
 from popper.coordinator.run import run
 from popper.harness.config import Config, load_config
-from popper.harness.llm import FakeLLM, LLMRequest
+from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 
 pytestmark = pytest.mark.integration
 
@@ -37,7 +37,7 @@ WRITEUP = {
     "limitations": "l",
     "figures": [{"stage": "explore", "file": "scatter.png", "caption": "Scatter"}],
 }
-FEEDBACK = {"is_buggy": False, "analysis": "ok", "score": 7, "goal_met": True}
+FEEDBACK = {"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "ok"}
 
 DATA = """
 import json, os
@@ -87,17 +87,17 @@ json.dump({"slope": {"value": float(slope), "ci": ci, "n": len(x)}}, open("resul
 """
 
 
-def _py(body: str) -> str:
-    return f"```python\n{body}\n```"
+def _submit(code: str) -> tuple[ToolCall, ...]:
+    return (ToolCall("submit-1", "submit", {"code": code}),)
 
 
-def _respond(req: LLMRequest) -> str:
+def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     tag = req.tag
     if tag.startswith("framing"):
         return json.dumps(FRAMING)
-    if tag.startswith("code:"):
-        return _py({"code:data": DATA, "code:explore": EXPLORE}.get(tag, EXPERIMENT))
-    if tag.startswith("feedback:"):
+    if tag.startswith("analyst:"):
+        return _submit({"analyst:data": DATA, "analyst:explore": EXPLORE}.get(tag, EXPERIMENT))
+    if tag.startswith("judge:"):
         return json.dumps(FEEDBACK)
     return json.dumps({"hypothesis": HYPOTHESIS, "writeup": WRITEUP}[tag])
 
@@ -131,8 +131,8 @@ def test_end_to_end(tmp_path: Path) -> None:
 
 
 def test_failed_stage_recorded(tmp_path: Path) -> None:
-    def respond(req: LLMRequest) -> str:
-        return _py("raise RuntimeError('boom')") if req.tag == "code:data" else _respond(req)
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        return _submit("raise RuntimeError('boom')") if req.tag == "analyst:data" else _respond(req)
 
     cfg = _config()
     cfg.search.steps_per_stage = 2

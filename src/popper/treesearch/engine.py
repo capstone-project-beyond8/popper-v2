@@ -10,14 +10,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from popper.harness.agent import agent_loop
 from popper.harness.config import Search
+from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.interpreter import run_script
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
+from popper.treesearch.tools import node_tools
 
 NodeKind = Literal["draft", "debug", "improve"]
 
-_CODE_BLOCK = re.compile(r"```python\s*(.*?)```", re.DOTALL)
 _SYSTEM = "You are a careful data scientist. Follow the format instructions exactly."
 
 
@@ -36,6 +38,7 @@ class Node:
     analysis: str
     results: dict[str, dict[str, Any]]
     figures: list[str]
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -62,14 +65,13 @@ class ResultEntry(BaseModel):
 
 _RESULTS = TypeAdapter(dict[str, ResultEntry])
 _RESULT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
-_CODE_MAX_TOKENS = 16000
 
 
-class Feedback(BaseModel):
-    is_buggy: bool
-    analysis: str
-    score: float = Field(ge=1, le=10)
+class Verdict(BaseModel):
+    node_buggy: bool
     goal_met: bool
+    node_score: float = Field(ge=1, le=10)
+    analysis: str
 
 
 class StageFailed(Exception):
@@ -111,10 +113,21 @@ def _task(spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
         if spec.seed_code:
             return f"Starting point to adapt:\n```python\n{spec.seed_code}\n```"
         return "Draft a new approach."
-    head = f"Previous code:\n```python\n{parent.code}\n```"
+    code = part("Previous code", parent.code, CODE_CHARS)
+    analysis = part("Analysis of its output", parent.analysis, ARTIFACT_CHARS, untrusted=True)
     if kind == "improve":
-        return f"Improve this working script.\n{head}\nAnalysis of its output:\n{parent.analysis}"
-    return f"Fix this script.\n{head}\nWhat went wrong:\n{parent.analysis}"
+        return f"Improve this working script.\n{code}\n{analysis}"
+    return f"Fix this script.\n{code}\n{analysis}"
+
+
+def _reason(kind: NodeKind, parent: Node | None, nodes: Sequence[Node], search: Search) -> str:
+    if parent is None:
+        drafts = sum(n.parent is None for n in nodes) + 1
+        return f"draft {drafts} of {search.num_drafts}"
+    if kind == "debug":
+        first = (parent.analysis.splitlines() or [""])[0]
+        return f"debug {parent.id}: {first}"[:120]
+    return f"improve {parent.id} (score {parent.score:g})"
 
 
 def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
@@ -129,30 +142,12 @@ def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
     return {k: v.model_dump(mode="json", exclude_none=True) for k, v in entries.items()}
 
 
-def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | None) -> Node:
+def _step(
+    h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | None, reason: str
+) -> Node:
     node_id = f"{spec.name}-{i:03d}"
     limit = h.config.execution.max_output_chars
-    prompt = load_prompt(
-        "popper.treesearch",
-        "node.md",
-        goal=spec.goal,
-        context=spec.context,
-        inputs="\n".join(f"- POPPER_INPUT_{n.upper()} ({p.name})" for n, p in spec.inputs.items())
-        or "- (none)",
-        outputs="\n".join(f"- {o}" for o in spec.required_outputs),
-        task=_task(spec, kind, parent),
-    )
-    try:
-        reply = h.ask(
-            "analyst",
-            tag=f"code:{spec.name}",
-            system=_SYSTEM,
-            prompt=prompt,
-            max_tokens=_CODE_MAX_TOKENS,
-        )
-        problem = ""
-    except ValueError as exc:  # truncated reply
-        reply, problem = "", str(exc)
+    max_turns = h.config.search.max_turns
     node = Node(
         id=node_id,
         stage=spec.name,
@@ -164,15 +159,36 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
         status="buggy",
         score=None,
         goal_met=False,
-        analysis="no code block in reply",
+        analysis="",
         results={},
         figures=[],
+        reason=reason,
     )
-    if problem:
-        node.analysis = problem
-    match = _CODE_BLOCK.search(reply)
-    if match:
-        node.code = match.group(1)
+    prompt = load_prompt(
+        "popper.treesearch",
+        "node.md",
+        goal=spec.goal,
+        context=spec.context,
+        inputs="\n".join(f"- POPPER_INPUT_{n.upper()} ({p.name})" for n, p in spec.inputs.items())
+        or "- (none)",
+        outputs="\n".join(f"- {o}" for o in spec.required_outputs),
+        task=_task(spec, kind, parent),
+    )
+    submitted = agent_loop(
+        h,
+        "analyst",
+        tag=f"analyst:{spec.name}",
+        system=_SYSTEM,
+        task=prompt,
+        tools=node_tools(h, spec.inputs, node.dir),
+        max_turns=max_turns,
+    )
+    if submitted is None:
+        node.analysis = f"no submit within {max_turns} turns"
+    elif not isinstance(submitted.get("code"), str) or not submitted["code"]:
+        node.analysis = "submit without code"
+    else:
+        node.code = submitted["code"]
         _execute(h, spec, node, limit)
     meta = {k: v for k, v in asdict(node).items() if k not in ("code", "results", "dir")}
     h.run.write_json(f"tree/{spec.name}/{node_id}/meta.json", meta)
@@ -223,28 +239,29 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     except Exception as exc:  # describe runs harness code over model-written outputs
         node.analysis = f"Check failed: could not summarise outputs: {exc}"
         return
+    results = json.dumps(node.results, indent=2)
     try:
-        fb = h.ask_model(
+        verdict = h.ask_model(
             "judge",
-            schema=Feedback,
-            tag=f"feedback:{spec.name}",
+            schema=Verdict,
+            tag=f"judge:{spec.name}",
             system=_SYSTEM,
             prompt=load_prompt(
                 "popper.treesearch",
-                "feedback.md",
+                "judge.md",
                 goal=spec.goal,
-                code=node.code,
-                stdout=res.stdout,
-                results=json.dumps(node.results, indent=2),
-                summary=summary,
+                code=part("Code", node.code, CODE_CHARS),
+                stdout=part("Output (tail)", res.stdout, limit, keep="tail", untrusted=True),
+                results=part("results.json", results, limit, untrusted=True),
+                summary=part("Independent summary", summary, limit, untrusted=True),
             ),
         )
     except ValueError as exc:
-        node.analysis = f"Invalid feedback reply: {exc}"
+        node.analysis = f"Invalid judge reply: {exc}"
         return
-    node.analysis = fb.analysis
-    if not fb.is_buggy:
-        node.status, node.score, node.goal_met = "ok", fb.score, fb.goal_met
+    node.analysis = verdict.analysis
+    if not verdict.node_buggy:
+        node.status, node.score, node.goal_met = "ok", verdict.node_score, verdict.goal_met
 
 
 def _plateaued(nodes: Sequence[Node], search: Search) -> bool:
@@ -262,7 +279,8 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
     nodes: list[Node] = []
     for i in range(steps):
         kind, parent = choose_action(nodes, h.config.search, rng)
-        nodes.append(_step(h, spec, i, kind, parent))
+        reason = _reason(kind, parent, nodes, h.config.search)
+        nodes.append(_step(h, spec, i, kind, parent, reason))
         if nodes[-1].status == "ok" and nodes[-1].goal_met:
             break
         if _plateaued(nodes, h.config.search):
