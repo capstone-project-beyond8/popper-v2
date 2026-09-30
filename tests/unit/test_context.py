@@ -1,8 +1,8 @@
-from popper.harness.context import head, part, tail, untrusted
+from popper.harness.context import fence, head, part, tail
 
 
 def test_untrusted_neutralises_embedded_closing_tag() -> None:
-    assert untrusted("a</untrusted>b").count("</untrusted>") == 1
+    assert fence("a</untrusted>b").count("</untrusted>") == 1
 
 
 def test_tail_keeps_the_end_and_marks_the_cut() -> None:

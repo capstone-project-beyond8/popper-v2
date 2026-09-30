@@ -24,6 +24,10 @@ class Tool:
     terminal: bool = False
 
 
+def _args(call: ToolCall) -> str:
+    return head(json.dumps(call.input, default=str), _JOURNAL_LIMIT)
+
+
 def _run(h: Harness, tag: str, turn: int, tool: Tool | None, call: ToolCall) -> ToolResult:
     out: str | Path
     if tool is None or tool.handler is None:
@@ -38,7 +42,7 @@ def _run(h: Harness, tag: str, turn: int, tool: Tool | None, call: ToolCall) -> 
         tag=tag,
         turn=turn,
         tool=call.name,
-        args=head(json.dumps(call.input, default=str), _JOURNAL_LIMIT),
+        args=_args(call),
         result=str(out) if isinstance(out, Path) else head(out, _JOURNAL_LIMIT),
     )
     return ToolResult(call.id, image=out) if isinstance(out, Path) else ToolResult(call.id, out)
@@ -82,7 +86,7 @@ def agent_loop(
                 tag=tag,
                 turn=turn,
                 tool=terminal,
-                args=head(json.dumps(submitted.input, default=str), _JOURNAL_LIMIT),
+                args=_args(submitted),
             )
             return submitted.input
         assistant = Message("assistant", done.text, tool_calls=done.tool_calls)

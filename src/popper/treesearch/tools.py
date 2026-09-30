@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from popper.harness.agent import Tool
-from popper.harness.context import ARTIFACT_CHARS, head, untrusted
+from popper.harness.context import ARTIFACT_CHARS, fence, head
 from popper.harness.interpreter import run_script
 from popper.harness.session import Harness
 
@@ -52,7 +52,7 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             text = _describe_table(path)
         else:
             text = path.read_text(encoding="utf-8", errors="replace")
-        return untrusted(head(text, ARTIFACT_CHARS))
+        return fence(head(text, ARTIFACT_CHARS))
 
     def run_python(args: dict[str, Any]) -> str:
         nonlocal scratch
@@ -66,9 +66,7 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             max_output_chars=h.config.execution.max_output_chars,
         )
         timed = " (timed out)" if r.timed_out else ""
-        return untrusted(
-            f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
-        )
+        return fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
 
     def view_figure(args: dict[str, Any]) -> Path:
         path = inside(str(args.get("path", "")))
@@ -85,7 +83,7 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         if not path.is_file():
             raise ValueError("artifact does not exist")
         text = path.read_text(encoding="utf-8", errors="replace")
-        return untrusted(head(text, ARTIFACT_CHARS))
+        return fence(head(text, ARTIFACT_CHARS))
 
     return [
         Tool(

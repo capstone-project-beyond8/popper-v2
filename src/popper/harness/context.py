@@ -11,7 +11,7 @@ ARTIFACT_CHARS = 8000
 CODE_CHARS = 20000
 
 
-def untrusted(text: str) -> str:
+def fence(text: str) -> str:
     return f"<untrusted>\n{text.replace('</untrusted>', '</untrusted_>')}\n</untrusted>"
 
 
@@ -36,7 +36,4 @@ def part(
     untrusted: bool = False,
 ) -> str:
     body = (head if keep == "head" else tail)(text, limit)
-    return f"## {title}\n{_fence(body) if untrusted else body}"
-
-
-_fence = untrusted
+    return f"## {title}\n{fence(body) if untrusted else body}"

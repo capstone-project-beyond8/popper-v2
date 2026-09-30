@@ -288,7 +288,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
         h.progress(
             f"[{spec.name}] {node.id} {node.kind} → {node.status}{score} · ${h.spent_usd:.2f}"
         )
-        if nodes[-1].status == "ok" and nodes[-1].goal_met:
+        if node.status == "ok" and node.goal_met:
             break
         if _plateaued(nodes, h.config.search):
             break
