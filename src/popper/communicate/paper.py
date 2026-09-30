@@ -1,6 +1,7 @@
 """Write the LaTeX report: prose from the model, numbers from results.json, the rest from code."""
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -121,6 +122,19 @@ def _copy_figures(h: Harness, writeup: Writeup, nodes: list[Node]) -> list[dict[
     return placed
 
 
+def _problems(writeup: Writeup, values: dict[str, Any]) -> str:
+    """Numbers without a value and unbalanced inline math, one line per problem."""
+    sections = {k: str(v) for k, v in writeup.model_dump().items() if k != "figures"}
+    _, unresolved = fill_numbers("\n".join(sections.values()), values)
+    lines = [explain_missing(ref, values) for ref in unresolved]
+    lines += [
+        f"{name}: odd number of $ signs; close every inline formula"
+        for name, text in sections.items()
+        if len(re.findall(r"(?<!\\)\$", text)) % 2
+    ]
+    return "\n".join(f"- {line}" for line in lines)
+
+
 def write_paper(
     h: Harness,
     framing: dict[str, Any],
@@ -148,14 +162,12 @@ def write_paper(
     )
     writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=prompt)
     for _ in range(_WRITER_RETRIES):
-        prose = "\n".join(str(v) for k, v in writeup.model_dump().items() if k != "figures")
-        _, unresolved = fill_numbers(prose, values)
-        if not unresolved:
+        problems = _problems(writeup, values)
+        if not problems:
             break
-        problems = "\n".join(f"- {explain_missing(ref, values)}" for ref in unresolved)
         retry = (
-            f"{prompt}\n\nYour previous reply cited numbers that have no value:\n{problems}\n"
-            "Use only the keys listed above. Reply again with the full JSON."
+            f"{prompt}\n\nYour previous reply had these problems:\n{problems}\n"
+            "Fix them and reply again with the full JSON."
         )
         writeup = h.ask_model("writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=retry)
     placed = _copy_figures(h, writeup, [explore, experiment])
