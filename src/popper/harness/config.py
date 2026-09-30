@@ -9,7 +9,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict
 
-Role = Literal["ideation", "code", "feedback", "vision", "writeup"]
+Role = Literal["theorist", "analyst", "judge", "writer"]
 
 
 class _Strict(BaseModel):
@@ -17,11 +17,10 @@ class _Strict(BaseModel):
 
 
 class Models(_Strict):
-    ideation: str
-    code: str
-    feedback: str
-    vision: str
-    writeup: str
+    theorist: str
+    analyst: str
+    judge: str
+    writer: str
 
 
 class Search(_Strict):

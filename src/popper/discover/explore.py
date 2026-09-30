@@ -37,7 +37,7 @@ def explore(h: Harness, framing: dict[str, Any]) -> tuple[Node, dict[str, Any]]:
     )
     best = run_stage(h, spec)
     hypothesis = h.ask_model(
-        "ideation",
+        "theorist",
         schema=Hypothesis,
         tag="hypothesis",
         system="You are a careful research scientist. Reply with JSON only.",

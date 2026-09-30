@@ -144,7 +144,7 @@ def _step(h: Harness, spec: StageSpec, i: int, kind: NodeKind, parent: Node | No
     )
     try:
         reply = h.ask(
-            "code",
+            "analyst",
             tag=f"code:{spec.name}",
             system=_SYSTEM,
             prompt=prompt,
@@ -225,7 +225,7 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         return
     try:
         fb = h.ask_model(
-            "feedback",
+            "judge",
             schema=Feedback,
             tag=f"feedback:{spec.name}",
             system=_SYSTEM,

@@ -135,7 +135,7 @@ def write_paper(
     values = collect_values([data_node, explore, experiment])
     figures = {n.stage: n.figures for n in (explore, experiment)}
     writeup = h.ask_model(
-        "writeup",
+        "writer",
         schema=Writeup,
         tag="writeup",
         system=_SYSTEM,

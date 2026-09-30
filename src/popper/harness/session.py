@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from popper.harness.config import Config, Role
-from popper.harness.llm import LLM, LLMRequest
+from popper.harness.llm import LLM, LLMRequest, Message
 from popper.harness.store import RunStore
 
 T = TypeVar("T", bound=BaseModel)
@@ -73,7 +73,7 @@ class Harness:
         if self.spent_usd >= budget.max_usd:
             raise BudgetExceeded(f"spent ${self.spent_usd:.4f} of ${budget.max_usd:.2f}")
         model: str = getattr(self.config.models, role)
-        req = LLMRequest(model, tag, system, prompt, tuple(images))
+        req = LLMRequest(model, tag, system, (Message("user", prompt, images=tuple(images)),))
         try:
             done = self.llm.complete(req, max_tokens)
         except Exception as exc:

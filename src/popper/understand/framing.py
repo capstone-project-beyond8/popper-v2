@@ -25,7 +25,7 @@ class Framing(BaseModel):
 def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
     h.run.write_json("understand/profile.json", profile)
     draft = h.ask_model(
-        "ideation",
+        "theorist",
         schema=Framing,
         tag="framing",
         system=_SYSTEM,
@@ -37,7 +37,7 @@ def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
         ),
     )
     final = h.ask_model(
-        "ideation",
+        "theorist",
         schema=Framing,
         tag="framing:reflect",
         system=_SYSTEM,
