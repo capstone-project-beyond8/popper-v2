@@ -6,6 +6,7 @@ import pytest
 
 from popper.harness import interpreter
 from popper.harness.interpreter import ExecResult, run_script
+from popper.harness.store import RunStore
 
 pytestmark = pytest.mark.integration
 
@@ -176,3 +177,28 @@ def test_script_cannot_write_into_shared_matplotlib_cache(
     result = _run(f"open({str(target)!r}, 'w').write('x')", tmp_path / "execution")
     assert result.exit_code != 0
     assert not target.exists()
+
+
+@pytest.mark.slow
+def test_native_reader_cannot_recover_holdout_rows(tmp_path: Path) -> None:
+    source = tmp_path / "data.csv"
+    source.write_text("id,v\n" + "".join(f"{i},val-{i}-unique\n" for i in range(10)))
+    research = tmp_path / "research.md"
+    research.write_text("study")
+    store = RunStore.create(tmp_path / "runs", research, source)
+    held = store.read_holdout()["v"].tolist()
+    code = """
+import os
+from pathlib import Path
+from pyarrow import fs
+
+local = fs.LocalFileSystem()
+folder = Path(os.environ['POPPER_INPUT_RAW']).parent
+for info in local.get_file_info(fs.FileSelector(str(folder), recursive=True)):
+    if info.type != fs.FileType.File:
+        continue
+    with local.open_input_stream(info.path) as f:
+        print(info.path, f.read())
+"""
+    result = _run(code, tmp_path / "execution", inputs={"raw": store.path("data", "raw.csv")})
+    assert all(v not in result.stdout for v in held)
