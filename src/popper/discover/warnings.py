@@ -64,7 +64,8 @@ def hypothesis_warnings(
             continue
         for attr in ("description", "confounder"):
             status = getattr(assumption, attr).status
-            if status != "confirmed":
+            # confounder is optional: only a proposed value is relied on
+            if status == "proposed" or (attr == "description" and status == "unknown"):
                 warnings.append(
                     f"The hypothesis relies on assumption {assumption_id}, "
                     f"whose {attr} is {status}, not confirmed."
