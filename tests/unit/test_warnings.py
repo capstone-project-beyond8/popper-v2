@@ -70,7 +70,7 @@ def test_proposed_unknown_and_assumption_entries_are_reported() -> None:
         "design:",
         "assumptions:\n  - {id: a1, description: {value: x, status: proposed, evidence: [q]}}\ndesign:",
     )
-    joined = "\n".join(_warn(front))
+    joined = "\n".join(_warn(front, assumptions=("a1", "a9")))
     assert "unit of score is proposed" in joined
     assert "meaning of hours is unknown" in joined
     assert "assumption a1, whose description is proposed" in joined
