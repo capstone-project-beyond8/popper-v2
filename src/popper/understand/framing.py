@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from popper.harness.context import ARTIFACT_CHARS, BRIEF_CHARS, part
+from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
 
@@ -23,7 +23,7 @@ class Framing(BaseModel):
     data_concerns: list[str]
 
 
-def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
+def frame(h: Harness, research: str, profile: dict[str, Any]) -> dict[str, Any]:
     committed = h.run.committed("framing")
     if committed:
         result: dict[str, Any] = json.loads(committed.read_text("utf-8"))
@@ -38,7 +38,7 @@ def frame(h: Harness, brief: str, profile: dict[str, Any]) -> dict[str, Any]:
         prompt=load_prompt(
             "popper.understand",
             "framing.md",
-            brief=part("Brief", brief, BRIEF_CHARS, untrusted=True),
+            research=part("Research context", research, RESEARCH_CHARS, untrusted=True),
             profile=part(
                 "Data profile", json.dumps(profile, indent=2), ARTIFACT_CHARS, untrusted=True
             ),

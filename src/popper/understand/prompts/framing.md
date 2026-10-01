@@ -1,6 +1,6 @@
-Read the research brief and the structural profile of the dataset, then frame the study.
+Read the research context and the structural profile of the dataset, then frame the study.
 
-{brief}
+{research}
 
 {profile}
 

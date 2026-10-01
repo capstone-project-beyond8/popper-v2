@@ -23,7 +23,7 @@ def test_resume_keeps_committed_prefix_and_completes_once(tmp_path: Path) -> Non
 
     with pytest.raises(KeyboardInterrupt):
         run(
-            EXAMPLE / "brief.md",
+            EXAMPLE / "research.md",
             EXAMPLE / "data.csv",
             config=_config(),
             llm=FakeLLM(interrupt),
@@ -72,7 +72,7 @@ def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(
             raise KeyboardInterrupt()
         return (ToolCall("submit", "submit", {"code": script}),)
 
-    store = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg)
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     spec = StageSpec("stage", "goal", "context", {}, ("results.json",))
     with pytest.raises(KeyboardInterrupt):
         run_stage(Harness(cfg, FakeLLM(first), store), spec)
@@ -103,7 +103,7 @@ def test_resume_rejects_legacy_format_and_retains_budget_stop(tmp_path: Path) ->
     cfg = _config()
     cfg.budget.max_usd = 0
     outcome = run(
-        EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg, llm=fake, runs_dir=tmp_path
+        EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg, llm=fake, runs_dir=tmp_path
     )
     assert resume(outcome.run_dir, llm=fake).status == "budget_exceeded"
 
@@ -112,7 +112,7 @@ def test_resume_after_node_commit_reconstructs_stage_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cfg = _config()
-    store = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg)
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     h = Harness(
         cfg,
         FakeLLM(
@@ -151,7 +151,7 @@ def test_resume_after_node_commit_reconstructs_stage_end(
 
 def test_locked_run_cannot_be_resumed_and_journal_is_untouched(tmp_path: Path) -> None:
     cfg = _config()
-    store = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg)
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     with store.lock():
         before = read_events(store.root)
         with pytest.raises(RuntimeError, match="in use"):

@@ -57,9 +57,9 @@ def test_discovery_files_keep_source_cells_exactly(tmp_path: Path) -> None:
     rows = [["02134", "NA", "7", "x"], ["00501", "1.50", "8", ""]] * 5
     source = tmp_path / "data.csv"
     source.write_bytes(("\r\n".join(",".join(r) for r in [header, *rows]) + "\r\n").encode())
-    brief = tmp_path / "brief.md"
-    brief.write_text("brief")
-    store = RunStore.create(tmp_path / "runs", brief, source)
+    research = tmp_path / "research.md"
+    research.write_text("study")
+    store = RunStore.create(tmp_path / "runs", research, source)
     cells = []
     for name in ("raw.csv", "holdout.csv"):
         raw = store.path("data", name).read_bytes()

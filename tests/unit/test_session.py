@@ -14,7 +14,7 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 
 
 def _harness(tmp_path: Path, fake: FakeLLM) -> Harness:
-    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     return Harness(load_config(env={}), fake, run)
 
 
@@ -63,7 +63,7 @@ def test_ask_model_retries_once_on_bad_json(tmp_path: Path) -> None:
 
 
 def test_store_is_write_once(tmp_path: Path) -> None:
-    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     run.write_json("x.json", {})
     with pytest.raises(FileExistsError):
         run.write_json("x.json", {})
@@ -133,7 +133,7 @@ class _Flaky:
 
 
 def _flaky_harness(tmp_path: Path, llm: _Flaky) -> tuple[Harness, list[float]]:
-    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     delays: list[float] = []
     return Harness(load_config(env={}), llm, run, sleep=delays.append), delays
 

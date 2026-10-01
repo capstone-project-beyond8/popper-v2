@@ -13,6 +13,7 @@ from popper.ground.data import prepare
 from popper.harness.config import Config
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
+from popper.harness.research import parse_research
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
@@ -36,15 +37,16 @@ def _phase(h: Harness, name: str) -> None:
 
 
 def run(
-    brief: Path,
+    research: Path,
     data: Path,
     *,
     config: Config,
+    auto: bool = False,
     llm: LLM,
     runs_dir: Path,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
-    store = RunStore.create(runs_dir, brief, data, config=config)
+    store = RunStore.create(runs_dir, research, data, config=config, auto=auto)
     h = Harness(config, llm, store)
     if progress is not None:
         h.progress = progress
@@ -78,7 +80,9 @@ def resume(
 
 def _resume_locked(store: RunStore, llm: LLM, progress: Callable[[str], None] | None) -> RunOutcome:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
-    if metadata.get("format_version") != 3:
+    if metadata.get("format_version") == 3:
+        raise ValueError("run format 3 is no longer supported; start a new run")
+    if metadata.get("format_version") != 4:
         raise ValueError("unsupported run format; older runs cannot reserve unseen data or resume")
     state = load_state(store)
     if state["status"] == "completed":
@@ -103,7 +107,9 @@ def _continue(h: Harness) -> RunOutcome:
             raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
         _phase(h, "framing")
         framing = frame(
-            h, store.path("brief.md").read_text("utf-8"), profile_csv(store.path("data", "raw.csv"))
+            h,
+            parse_research(store.path("research.md").read_text("utf-8")).body,
+            profile_csv(store.path("data", "raw.csv")),
         )
         _phase(h, "data")
         data_node = prepare(h, framing)

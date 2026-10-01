@@ -11,6 +11,7 @@ from popper.coordinator.run import resume, run
 from popper.harness.config import Config, load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.recovery import load_state
+from popper.harness.research import parse_research
 from popper.harness.store import RunStore
 
 pytestmark = pytest.mark.integration
@@ -179,7 +180,7 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("popper.communicate.paper.compile_pdf", interrupted_compile)
     with pytest.raises(KeyboardInterrupt):
         run(
-            EXAMPLE / "brief.md",
+            EXAMPLE / "research.md",
             EXAMPLE / "data.csv",
             config=_config(),
             llm=llm,
@@ -208,9 +209,9 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert hypotheses_path is not None
     hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))
     assert hypotheses and all(x["supplied_by"] == "agent" for x in hypotheses)
-    brief = (EXAMPLE / "brief.md").read_text(encoding="utf-8")
+    body = parse_research((EXAMPLE / "research.md").read_text(encoding="utf-8")).body
     request = next(r for r in llm.calls if r.tag == "framing")
-    assert f"<untrusted>\n{brief}\n</untrusted>" in request.prompt
+    assert f"<untrusted>\n{body}\n</untrusted>" in request.prompt
     assert (out.run_dir / "data" / "processed.parquet").exists()
     record = load_state(RunStore(out.run_dir))
     assert record["status"] == "completed" and record["missing"] == [r"\R{main.nope}"]
@@ -237,7 +238,7 @@ def test_failed_stage_recorded(tmp_path: Path) -> None:
     cfg = _config()
     cfg.search.steps_per_stage = 2
     out = run(
-        EXAMPLE / "brief.md",
+        EXAMPLE / "research.md",
         EXAMPLE / "data.csv",
         config=cfg,
         llm=FakeLLM(respond),
@@ -252,7 +253,7 @@ def test_budget_exceeded_recorded(tmp_path: Path) -> None:
     cfg = _config()
     cfg.budget.max_usd = 0
     out = run(
-        EXAMPLE / "brief.md",
+        EXAMPLE / "research.md",
         EXAMPLE / "data.csv",
         config=cfg,
         llm=FakeLLM(_respond),

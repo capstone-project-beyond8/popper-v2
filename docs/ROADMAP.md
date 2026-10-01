@@ -52,7 +52,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - Stages `data`, `explore` and one combined experiment stage (§5.4).
 - Harness: model client with retry, agent loop, the Analyst tools, context assembly with untrusted wrapping, sandbox, journal, write-once run store, money budget priced per model with prompt caching, failure classes, progress (§7).
 - Publication: fixed template, named-result numbers with `??` on unknown names, the fixed `exploratory` label, generated appendix, PDF when an engine exists (§10 steps 3, 4, 8).
-- CLI: `popper run <example_dir | --brief B --data D> [--config C] [--runs-dir R] [--quiet]`, and `popper pdf <run>`.
+- CLI: `popper run <example_dir | --research R --data D> [--config C] [--runs-dir R] [--quiet]`, and `popper pdf <run>`.
 
 **Acceptance.**
 - On `student_performance` with a real model: the paper reports the planted data issues it fixed (duplicates, `absent`, impossible values, income labels), finds a positive effect of study hours, has no `??`, costs under $5 and finishes under 45 minutes.

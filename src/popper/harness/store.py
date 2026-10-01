@@ -18,6 +18,7 @@ import pandas as pd
 
 from popper.harness.config import Config, DataConfig, load_config
 from popper.harness.recovery import Journal, read_events
+from popper.harness.research import ResearchError, check_columns, parse_research
 
 
 def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -63,21 +64,25 @@ class RunStore:
     def create(
         cls,
         runs_dir: Path,
-        brief: Path,
+        research: Path,
         data: Path,
         *,
-        data_config: DataConfig | None = None,
         config: Config | None = None,
+        auto: bool = False,
     ) -> "RunStore":
         snapshot = config or load_config(env={})
-        split_config = data_config or snapshot.data
-        discovery, held = split_rows(
-            pd.read_csv(data, dtype=str, keep_default_na=False), split_config
+        split_config = snapshot.data
+        frame = pd.read_csv(data, dtype=str, keep_default_na=False)
+        mismatches = check_columns(
+            parse_research(research.read_text("utf-8")), [str(c) for c in frame.columns]
         )
+        if mismatches:
+            raise ResearchError("; ".join(mismatches))
+        discovery, held = split_rows(frame, split_config)
         run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         store = cls(runs_dir / run_id)
         store.root.mkdir(parents=True)
-        shutil.copyfile(brief, store.root / "brief.md")
+        shutil.copyfile(research, store.root / "research.md")
         (store.root / "data").mkdir()
         for name, rows in (("raw.csv", discovery), ("holdout.csv", held)):
             path = store.path("data", name)
@@ -99,12 +104,13 @@ class RunStore:
         store.write_json(
             "run.json",
             {
-                "format_version": 3,
+                "format_version": 4,
                 "status": "running",
+                "auto": auto,
                 "config": config_data,
-                "inputs": {"brief": str(brief.resolve()), "data": str(data.resolve())},
+                "inputs": {"research": str(research.resolve()), "data": str(data.resolve())},
                 "source_hash": file_hash(data),
-                "brief_hash": file_hash(brief),
+                "research_hash": file_hash(research),
             },
         )
         return store

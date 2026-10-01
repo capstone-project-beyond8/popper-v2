@@ -25,7 +25,7 @@ def test_version_flag_prints_version() -> None:
 def test_quiet_controls_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str], silent: bool
 ) -> None:
-    (tmp_path / "brief.md").write_text("b", encoding="utf-8")
+    (tmp_path / "research.md").write_text("b", encoding="utf-8")
     (tmp_path / "data.csv").write_text("a\n1\n", encoding="utf-8")
     (tmp_path / "config.yaml").write_text("data: {group_column: student_id}")
     fake = MagicMock(
@@ -59,4 +59,21 @@ def test_resume_rejects_legacy_without_provider_calls(
     monkeypatch.setattr("popper.cli.BedrockLLM", lambda **kwargs: provider)
     assert main(["resume", str(tmp_path)]) == 1
     assert "format" in capsys.readouterr().err
+    provider.complete.assert_not_called()
+
+
+@pytest.mark.integration
+def test_invalid_research_fails_before_any_run_or_model_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "research.md").write_text(
+        "---\nvariables:\n  Score: {role: outcome}\n---\nbody", encoding="utf-8"
+    )
+    (tmp_path / "data.csv").write_text("score\n1\n", encoding="utf-8")
+    provider = MagicMock()
+    monkeypatch.setattr("popper.cli.BedrockLLM", lambda **kwargs: provider)
+    runs = tmp_path / "runs"
+    assert main(["run", str(tmp_path), "--runs-dir", str(runs)]) == 1
+    assert "Score" in capsys.readouterr().err
+    assert not runs.exists()
     provider.complete.assert_not_called()

@@ -11,6 +11,7 @@ from popper.communicate.paper import compile_pdf
 from popper.coordinator.run import resume, run
 from popper.harness.config import load_config
 from popper.harness.llm import BedrockLLM
+from popper.harness.research import ResearchError
 from popper.harness.store import RunStore
 
 _NO_PDF = "PDF not built (install tectonic, latexmk or pdflatex, or see {log})"
@@ -20,10 +21,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="popper", description="AI scientist for tabular data.")
     parser.add_argument("--version", action="version", version=f"popper {__version__}")
     sub = parser.add_subparsers(dest="command")
-    run_p = sub.add_parser("run", help="run all phases on a brief and a CSV file")
-    run_p.add_argument("dir", nargs="?", type=Path, help="folder with brief.md and data.csv")
-    run_p.add_argument("--brief", type=Path, help="path to the brief")
+    run_p = sub.add_parser("run", help="run all phases on a research context and a CSV file")
+    run_p.add_argument("dir", nargs="?", type=Path, help="folder with research.md and data.csv")
+    run_p.add_argument("--research", type=Path, help="path to research.md")
     run_p.add_argument("--data", type=Path, help="path to the CSV data")
+    run_p.add_argument("--auto", action="store_true", help="do not stop for researcher review")
     run_p.add_argument("--config", type=Path, help="YAML overrides for the default config")
     run_p.add_argument("--runs-dir", type=Path, default=Path("runs"), help="where runs are written")
     run_p.add_argument("--quiet", action="store_true", help="do not print progress lines")
@@ -73,25 +75,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.command != "run":
         parser.print_help()
         return 0
-    brief: Path | None = args.brief
+    research: Path | None = args.research
     data: Path | None = args.data
     if args.dir is not None:
-        brief, data = brief or args.dir / "brief.md", data or args.dir / "data.csv"
-    if brief is None or data is None:
-        parser.error("give DIR, or both --brief and --data")
-    for path in (brief, data):
+        research, data = research or args.dir / "research.md", data or args.dir / "data.csv"
+    if research is None or data is None:
+        parser.error("give DIR, or both --research and --data")
+    for path in (research, data):
         if not path.is_file():
             parser.error(f"file not found: {path}")
     sys.stderr.reconfigure(errors="replace")  # type: ignore[union-attr]
     base = args.dir / "config.yaml" if args.dir is not None else None
-    outcome = run(
-        brief,
-        data,
-        config=load_config(args.config, base=base if base and base.is_file() else None),
-        llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
-        runs_dir=args.runs_dir,
-        progress=None if args.quiet else lambda line: print(line, file=sys.stderr, flush=True),
-    )
+    try:
+        outcome = run(
+            research,
+            data,
+            auto=args.auto,
+            config=load_config(args.config, base=base if base and base.is_file() else None),
+            llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
+            runs_dir=args.runs_dir,
+            progress=None if args.quiet else lambda line: print(line, file=sys.stderr, flush=True),
+        )
+    except ResearchError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     print(outcome.run_dir)
     if outcome.status != "completed":
         print(outcome.message, file=sys.stderr)

@@ -15,7 +15,7 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 
 
 def _harness(tmp_path: Path, llm: LLM) -> Harness:
-    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     return Harness(load_config(env={}), llm, run)
 
 
