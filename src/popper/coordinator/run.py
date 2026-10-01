@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from popper.communicate.paper import write_paper
+from popper.coordinator.limitations import limitations
 from popper.discover.experiment import experiment
 from popper.discover.explore import explore, propose_hypothesis
 from popper.ground.steward import Concern, Foundation, ground, load_foundation
@@ -224,15 +225,38 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             frame = _reviewed_frame(h, research, report, None)
         _promote(store, foundation)
         framing = frame.framing.model_dump()
+        facts = foundation.as_dict()
+        notes = frame.research.notes
         _phase(h, "explore")
-        explore_node = explore(h, framing)
-        hypothesis = propose_hypothesis(h, framing, explore_node)
+        explore_node = explore(h, frame.research, framing, facts)
+        hypothesis = propose_hypothesis(h, frame.research, framing, facts, explore_node)
         _phase(h, "experiment")
-        evidence = experiment(h, framing, hypothesis, foundation.preparation)
+        evidence = experiment(
+            h, framing, hypothesis, foundation.preparation, notes.get("experiment", "")
+        )
         _phase(h, "publication")
         changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))
+        committed = store.committed("hypothesis")
+        assert committed is not None
+        warnings = json.loads((committed.parent / "warnings.json").read_text("utf-8"))
+        reviewed = store.committed("frame_reviewed")
+        assert reviewed is not None
+        names = {c.id: c.name.value for c in frame.research.concepts}
         tex, pdf, missing = write_paper(
-            h, framing, changes, explore_node, hypothesis, evidence, foundation.preparation
+            h,
+            framing,
+            changes,
+            explore_node,
+            hypothesis,
+            evidence,
+            foundation.preparation,
+            limitations=limitations(facts, warnings),
+            operationalization=[
+                {**o, "concept": names.get(o["concept_id"]) or o["concept_id"]}
+                for o in facts["operationalization"]
+            ],
+            steered=(reviewed.parent / "provenance.json").exists(),
+            notes=notes.get("writing", ""),
         )
         status = "completed"
     except _AwaitingReview as waiting:

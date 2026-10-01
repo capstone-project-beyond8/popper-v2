@@ -8,6 +8,7 @@ from popper.communicate.paper import (
     _render_report,
     _select_figures,
 )
+from popper.coordinator.limitations import PREPARATION_ACCESS
 from popper.treesearch.engine import Node
 from tests.integration.test_run import WRITEUP
 
@@ -64,6 +65,16 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
             "summary.adversarial_count": 1,
             "data.rows_removed": 73,
         },
+        ["Only 5 clusters & few", PREPARATION_ACCESS],
+        [
+            {
+                "concept": "Effort",
+                "concept_id": "effort",
+                "columns": ["hours"],
+                "proxy_strength": "proxy",
+            }
+        ],
+        True,
     )
     headings = [
         r"\section{Introduction}",
@@ -86,6 +97,11 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     assert "All 4 variants" in tex and missing == [r"\R{main.nope}"]
     assert tex.index("Step & Rows") < tex.index(r"\section{Results}")
     assert "drop & 73 & missing" in tex
+    assert "Effort & hours & proxy" in tex and "proposed by the data agent" in tex
+    assert tex.index("Effort & hours") < tex.index(r"\section{Results}")
+    assert r"\item Only 5 clusters \& few" in tex and PREPARATION_ACCESS in tex
+    assert tex.index(r"\subsection{Limitations}") < tex.index(r"\section{Conclusion}")
+    assert "reviewed and steered by the researcher" in tex
 
 
 def test_figure_references_are_identity_based_bounded_known_and_exploration_first() -> None:

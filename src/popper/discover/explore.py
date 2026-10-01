@@ -1,13 +1,15 @@
 """Exploration and hypothesis phase."""
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
 from popper.discover.hypothesis import Hypothesis, HypothesisProposal
-from popper.harness.context import ARTIFACT_CHARS, part
+from popper.discover.warnings import hypothesis_warnings
+from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
+from popper.harness.research import ResearchContext
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, StageSpec, run_stage
 
@@ -18,8 +20,34 @@ GOAL = (
 )
 
 
-def explore(h: Harness, framing: dict[str, Any]) -> Node:
-    context = json.dumps(framing, indent=2)
+def _frame_context(
+    research: ResearchContext, framing: dict[str, Any], foundation: dict[str, Any]
+) -> str:
+    """The framing plus what the data steward concluded about measuring and trusting it."""
+    shown = {
+        "Concepts": [c.model_dump(mode="json") for c in research.concepts],
+        "Operationalization (proposed by the data agent)": foundation["operationalization"],
+        "Data concerns": foundation["concerns"],
+        "Readiness": foundation["readiness"],
+    }
+    parts = [f"Framing:\n{json.dumps(framing, indent=2)}"]
+    parts += [
+        part(title, json.dumps(value, indent=2), ARTIFACT_CHARS, untrusted=True)
+        for title, value in shown.items()
+    ]
+    return "\n\n".join(parts)
+
+
+def _notes(research: ResearchContext, key: Literal["explore", "hypothesis"]) -> str:
+    return part(
+        "Researcher notes", research.notes.get(key, "(none)"), RESEARCH_CHARS, untrusted=True
+    )
+
+
+def explore(
+    h: Harness, research: ResearchContext, framing: dict[str, Any], foundation: dict[str, Any]
+) -> Node:
+    context = f"{_frame_context(research, framing, foundation)}\n\n{_notes(research, 'explore')}"
     spec = StageSpec(
         name="explore",
         goal=GOAL,
@@ -31,12 +59,18 @@ def explore(h: Harness, framing: dict[str, Any]) -> Node:
     return run_stage(h, spec)
 
 
-def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[str, Any]:
+def propose_hypothesis(
+    h: Harness,
+    research: ResearchContext,
+    framing: dict[str, Any],
+    foundation: dict[str, Any],
+    best: Node,
+) -> dict[str, Any]:
     committed = h.run.committed("hypothesis")
     if committed:
         result: dict[str, Any] = json.loads(committed.read_text("utf-8"))[0]
         return result
-    context = json.dumps(framing, indent=2)
+    processed = pd.read_parquet(h.run.path("data", "processed.parquet"))
     hypothesis = h.ask_model(
         "theorist",
         schema=HypothesisProposal,
@@ -45,7 +79,8 @@ def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[
         prompt=load_prompt(
             "popper.discover",
             "hypothesis.md",
-            framing=context,
+            framing=_frame_context(research, framing, foundation),
+            notes=_notes(research, "hypothesis"),
             results=part(
                 "Exploration results",
                 json.dumps(best.results, indent=2),
@@ -57,14 +92,14 @@ def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[
             ),
             figures="\n".join(f"- {f}" for f in best.figures),
         ),
-        validation_context={
-            "columns": pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
-        },
+        validation_context={"columns": processed.columns.tolist()},
     )
     result = Hypothesis(
         **hypothesis.model_dump(), id="hypothesis-001", source_nodes=[best.id], supplied_by="agent"
     ).model_dump(mode="json")
     attempt = h.run.new_attempt("hypotheses").relative_to(h.run.root).as_posix()
+    warnings = hypothesis_warnings(result, research, foundation["operationalization"], processed)
+    h.run.write_json(f"{attempt}/warnings.json", warnings)
     path = h.run.write_json(f"{attempt}/hypotheses.json", [result])
     h.run.commit_artifact("hypothesis", path)
     return result

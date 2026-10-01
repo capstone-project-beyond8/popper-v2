@@ -253,6 +253,9 @@ def _render_report(
     manifest: dict[str, Any],
     figures: list[dict[str, str]],
     values: dict[str, Any],
+    limitations: list[str],
+    operationalization: list[dict[str, Any]],
+    steered: bool,
 ) -> tuple[str, list[str]]:
     sections = {
         "data_methods": "\n\n".join((w.data, w.hypothesis, w.methods)),
@@ -297,6 +300,16 @@ def _render_report(
             }
             for c in changes
         ],
+        operationalization=[
+            {
+                "concept": latex_escape(str(o.get("concept") or o["concept_id"])),
+                "columns": latex_escape(", ".join(o["columns"])),
+                "strength": latex_escape(o["proxy_strength"]),
+            }
+            for o in operationalization
+        ],
+        limitations=[latex_escape(item) for item in limitations],
+        steered=steered,
         experiment_nodes=[n for n in nodes if n.stage in _CODE_STAGES and n.status == "ok"],
     )
     return fill_numbers(tex, values)
@@ -310,6 +323,11 @@ def write_paper(
     hypothesis: dict[str, Any],
     evidence: Path,
     preparation: Path,
+    *,
+    limitations: list[str],
+    operationalization: list[dict[str, Any]],
+    steered: bool = False,
+    notes: str = "",
 ) -> tuple[Path, Path | None, list[str]]:
     committed = h.run.committed("report")
     if committed:
@@ -349,6 +367,7 @@ def write_paper(
             untrusted=True,
         ),
         figures=json.dumps(figures),
+        notes=part("Researcher notes", notes or "(none)", ARTIFACT_CHARS, untrusted=True),
     )
     prompt += "\nRecorded evidence and failed attempts:\n" + json.dumps(manifest)
     saved_writeup = h.run.committed("writeup")
@@ -399,7 +418,18 @@ def write_paper(
     for node in experiments:
         if node.status == "ok" and node.stage in _CODE_STAGES:
             h.run.write_text(f"{prefix}/code/{node.id}.py", node.code)
-    tex, missing = _render_report(writeup, changes, experiments, rows, manifest, placed, values)
+    tex, missing = _render_report(
+        writeup,
+        changes,
+        experiments,
+        rows,
+        manifest,
+        placed,
+        values,
+        limitations,
+        operationalization,
+        steered,
+    )
     if missing:
         h.journal.write("numbers_missing", keys=missing)
     path = h.run.write_text(f"{prefix}/paper.tex", tex)

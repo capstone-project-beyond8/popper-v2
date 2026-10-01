@@ -1,7 +1,8 @@
 An exploratory analysis of the data has finished. Turn what it found into one testable hypothesis.
 
-## Framing
 {framing}
+
+{notes}
 
 {results}
 

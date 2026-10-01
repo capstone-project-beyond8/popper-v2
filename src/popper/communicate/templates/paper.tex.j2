@@ -11,6 +11,9 @@
 \begin{document}
 \maketitle
 \noindent\textit{exploratory --- autonomously generated}
+\BLOCK{if steered}
+\noindent\textit{research frame reviewed and steered by the researcher}
+\BLOCK{endif}
 \begin{abstract}
 \VAR{w.abstract}
 \end{abstract}
@@ -26,6 +29,20 @@ Step & Rows & Reason \\
 \hline
 \BLOCK{for c in changes}
 \VAR{c.step} & \VAR{c.rows_affected} & \VAR{c.reason} \\
+\BLOCK{endfor}
+\hline
+\end{longtable}
+}
+\BLOCK{endif}
+\BLOCK{if operationalization}
+{\small
+\begin{longtable}{p{0.28\textwidth}p{0.38\textwidth}l}
+\caption{How each concept is measured, as proposed by the data agent.}\\
+\hline
+Concept & Columns & Proxy strength \\
+\hline
+\BLOCK{for o in operationalization}
+\VAR{o.concept} & \VAR{o.columns} & \VAR{o.strength} \\
 \BLOCK{endfor}
 \hline
 \end{longtable}
@@ -67,6 +84,12 @@ with intervals excluding zero (share \R{summary.supporting_share}); \R{summary.a
 never passed to analysis code as inputs, and they are not evidence of verification. Subgroup analyses concern their declared
 restricted populations. Failed and missing specification attempts remain non-supporting; a single
 exposure permutation is a diagnostic, not a calibrated permutation significance test.
+\subsection{Limitations}
+\begin{itemize}
+\BLOCK{for item in limitations}
+\item \VAR{item}
+\BLOCK{endfor}
+\end{itemize}
 \section{Conclusion}
 \VAR{w.conclusion}
 \noindent Computed stability is \VAR{stability}; this study remains exploratory.
