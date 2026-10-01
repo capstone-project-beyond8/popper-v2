@@ -8,7 +8,7 @@ from pathlib import Path
 
 from popper import __version__
 from popper.communicate.paper import compile_pdf
-from popper.coordinator.run import resume, run
+from popper.coordinator.run import RunOutcome, resume, run
 from popper.harness.config import load_config
 from popper.harness.llm import BedrockLLM
 from popper.harness.research import ResearchError
@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pdf_p.add_argument("run_dir", type=Path, help="run folder containing report/paper.tex")
     resume_p = sub.add_parser("resume", help="continue an interrupted run from committed evidence")
     resume_p.add_argument("run_dir", type=Path)
+    resume_p.add_argument("--review", type=Path, help="review.yaml with the researcher's signals")
     resume_p.add_argument("--quiet", action="store_true")
     return parser
 
@@ -45,6 +46,12 @@ def _ask_on_terminal(question: str, proposed: str) -> str | None:
     return reply or proposed
 
 
+def _print_review_steps(outcome: RunOutcome) -> None:
+    print(f"Review the research frame: {outcome.review}")
+    print(f"  popper resume {outcome.run_dir}    # approve every item")
+    print(f"  popper resume {outcome.run_dir} --review {outcome.review}    # apply edited signals")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -53,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome = resume(
                 args.run_dir,
                 llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
+                review=args.review,
                 progress=None
                 if args.quiet
                 else lambda line: print(line, file=sys.stderr, flush=True),
@@ -61,6 +69,9 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 1
         print(outcome.run_dir)
+        if outcome.status == "awaiting_review":
+            _print_review_steps(outcome)
+            return 0
         if outcome.status != "completed":
             print(outcome.message, file=sys.stderr)
             return 1
@@ -109,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print(outcome.run_dir)
+    if outcome.status == "awaiting_review":
+        _print_review_steps(outcome)
+        return 0
     if outcome.status != "completed":
         print(outcome.message, file=sys.stderr)
         return 1

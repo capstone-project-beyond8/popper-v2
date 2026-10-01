@@ -18,17 +18,31 @@ from popper.harness.research import parse_research
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
-from popper.understand.frame import understand
+from popper.understand.frame import load_frame, understand
+from popper.understand.review import (
+    ReviewOutcome,
+    apply_review,
+    approve_all,
+    commit_review,
+    load_review,
+    write_review,
+)
 
 
 @dataclass(frozen=True)
 class RunOutcome:
     run_dir: Path
-    status: Literal["completed", "failed", "budget_exceeded"]
+    status: Literal["completed", "failed", "budget_exceeded", "awaiting_review"]
     tex: Path | None
     pdf: Path | None
     message: str
     missing: list[str]
+    review: Path | None = None
+
+
+class _AwaitingReview(Exception):
+    def __init__(self, review: Path) -> None:
+        self.review = review
 
 
 def _phase(h: Harness, name: str) -> None:
@@ -65,42 +79,62 @@ def _outcome(store: RunStore) -> RunOutcome:
         tex = store.path(record["tex"])
         pdf = store.path(record["pdf"]) if record["pdf"] else None
         missing = record["missing"]
-    return RunOutcome(store.root, state["status"], tex, pdf, state.get("message", ""), missing)
+    review = store.path(state["review"]) if state.get("review") else None
+    return RunOutcome(
+        store.root, state["status"], tex, pdf, state.get("message", ""), missing, review
+    )
 
 
 def resume(
     run_dir: Path,
     *,
     llm: LLM,
+    review: Path | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
     store = RunStore(run_dir)
     with store.lock():
-        return _resume_locked(store, llm, progress)
+        return _resume_locked(store, llm, review, progress)
 
 
-def _resume_locked(store: RunStore, llm: LLM, progress: Callable[[str], None] | None) -> RunOutcome:
+def _answer(store: RunStore, review: Path | None) -> ReviewOutcome | None:
+    """The researcher's signals applied to the committed frame; no model call, errors raise."""
+    committed = store.committed("frame")
+    if committed is None or store.committed("frame_reviewed"):
+        return None
+    columns = list(read_table(store.path("data", "raw.csv")).columns)
+    frame = load_frame(committed)
+    return apply_review(frame, load_review(review) if review else approve_all(frame), columns)
+
+
+def _resume_locked(
+    store: RunStore, llm: LLM, review: Path | None, progress: Callable[[str], None] | None
+) -> RunOutcome:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
     if metadata.get("format_version") == 3:
         raise ValueError("run format 3 is no longer supported; start a new run")
     if metadata.get("format_version") != 4:
         raise ValueError("unsupported run format; older runs cannot reserve unseen data or resume")
     state = load_state(store)
+    if review is not None and state["status"] != "awaiting_review":
+        raise ValueError("the run is not awaiting review")
     if state["status"] == "completed":
         return _outcome(store)
+    outcome = _answer(store, review) if state["status"] == "awaiting_review" else None
     config = Config.model_validate(metadata["config"])
     h = Harness(config, llm, store, spent_usd=recorded_spend(store))
     if progress is not None:
         h.progress = progress
     h.journal.write("resume", spent_usd=h.spent_usd)
-    return _continue(h)
+    return _continue(h, outcome)
 
 
-def _continue(h: Harness) -> RunOutcome:
+def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     store = h.run
     failed_stage: str | None = None
-    status: Literal["completed", "failed", "budget_exceeded"] = "failed"
+    status: Literal["completed", "failed", "budget_exceeded", "awaiting_review"] = "failed"
     message = ""
+    review_path: Path | None = None
     tex = pdf = None
     missing: list[str] = []
     try:
@@ -113,7 +147,20 @@ def _continue(h: Harness) -> RunOutcome:
             store.write_json(
                 "data/ida-raw.json", {"results": report.results, "layout": report.layout}
             )
-        framing = understand(h, research, report).framing.model_dump()
+        reviewed = store.committed("frame_reviewed")
+        if reviewed:
+            frame = load_frame(reviewed)
+        else:
+            frame = understand(h, research, report)
+            if json.loads(store.path("run.json").read_text("utf-8")).get("auto"):
+                store.commit_artifact(
+                    "frame_reviewed", store.path("understand", frame.attempt, "framing.json")
+                )
+            elif answered is None:
+                raise _AwaitingReview(write_review(frame, store))
+            else:
+                frame = commit_review(h, answered, report)
+        framing = frame.framing.model_dump()
         _phase(h, "data")
         data_node = prepare(h, framing)
         _phase(h, "explore")
@@ -127,6 +174,8 @@ def _continue(h: Harness) -> RunOutcome:
             h, framing, changes, explore_node, hypothesis, evidence, data_node
         )
         status = "completed"
+    except _AwaitingReview as waiting:
+        status, review_path = "awaiting_review", waiting.review
     except StageFailed as exc:
         failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
@@ -143,6 +192,7 @@ def _continue(h: Harness) -> RunOutcome:
                 "failed_stage": failed_stage,
                 "spent_usd": h.spent_usd,
                 "missing": missing,
+                "review": review_path.relative_to(store.root).as_posix() if review_path else None,
                 "artifacts": {
                     e["name"]: e["path"]
                     for e in read_events(store.root)

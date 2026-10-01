@@ -341,7 +341,8 @@ def _tools(
     ]
 
 
-def _load(path: Path) -> Frame:
+def load_frame(path: Path) -> Frame:
+    """The frame stored beside a committed `framing.json`."""
     folder = path.parent
     return Frame(
         ResearchContext.model_validate_json((folder / "research.json").read_text("utf-8")),
@@ -351,6 +352,31 @@ def _load(path: Path) -> Frame:
     )
 
 
+def save_frame(
+    run: RunStore,
+    attempt: Path,
+    context: ResearchContext,
+    framing: Framing,
+    warnings: list[str],
+    asked: list[dict[str, Any]],
+    review: Mapping[str, object] | None = None,
+) -> Frame:
+    """Write a frame into its attempt folder and commit it; a review makes it the reviewed frame."""
+    rel = attempt.relative_to(run.root).as_posix()
+    run.write_json(f"{rel}/research.json", context.model_dump(mode="json"))
+    run.write_text(f"{rel}/research.md", render_research(context))
+    run.write_json(f"{rel}/questions.json", asked)
+    run.write_json(f"{rel}/warnings.json", warnings)
+    if review is not None:
+        run.write_json(
+            f"{rel}/provenance.json",
+            {"supplied_by": "researcher", "researcher_steered": True, "review": review},
+        )
+    path = run.write_json(f"{rel}/framing.json", framing.model_dump())
+    run.commit_artifact("frame" if review is None else "frame_reviewed", path)
+    return Frame(context, framing, warnings, attempt.name)
+
+
 def understand(
     h: Harness,
     research: ResearchContext,
@@ -358,11 +384,12 @@ def understand(
     *,
     guidance: str = "",
     rejected: Mapping[str, object] = {},
+    review: Mapping[str, object] | None = None,
 ) -> Frame:
-    committed = h.run.committed("frame")
-    if committed:
-        return _load(committed)
     run: RunStore = h.run
+    committed = run.committed("frame" if review is None else "frame_reviewed")
+    if committed:
+        return load_frame(committed)
     attempt = run.new_attempt("understand")
     declared = render_research(research.model_copy(update={"body": ""})).replace("---\n", "", 0)
     task = load_prompt(
@@ -396,11 +423,4 @@ def understand(
     )
     framing: Framing = result["framing"]
     warnings = [*framing_warnings(context, framing), *problems]
-    rel = attempt.relative_to(run.root).as_posix()
-    run.write_json(f"{rel}/research.json", context.model_dump(mode="json"))
-    run.write_text(f"{rel}/research.md", render_research(context))
-    run.write_json(f"{rel}/questions.json", asked)
-    run.write_json(f"{rel}/warnings.json", warnings)
-    path = run.write_json(f"{rel}/framing.json", framing.model_dump())
-    run.commit_artifact("frame", path)
-    return Frame(context, framing, warnings, attempt.name)
+    return save_frame(run, attempt, context, framing, warnings, asked, review)

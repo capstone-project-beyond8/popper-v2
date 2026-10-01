@@ -197,6 +197,7 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             EXAMPLE / "research.md",
             EXAMPLE / "data.csv",
             config=_config(),
+            auto=True,
             llm=llm,
             runs_dir=tmp_path,
             progress=lines.append,
@@ -254,6 +255,7 @@ def test_failed_stage_recorded(tmp_path: Path) -> None:
         EXAMPLE / "research.md",
         EXAMPLE / "data.csv",
         config=cfg,
+        auto=True,
         llm=FakeLLM(respond),
         runs_dir=tmp_path,
     )
@@ -269,6 +271,7 @@ def test_budget_exceeded_recorded(tmp_path: Path) -> None:
         EXAMPLE / "research.md",
         EXAMPLE / "data.csv",
         config=cfg,
+        auto=True,
         llm=FakeLLM(_respond),
         runs_dir=tmp_path,
     )

@@ -77,3 +77,24 @@ def test_invalid_research_fails_before_any_run_or_model_call(
     assert "Score" in capsys.readouterr().err
     assert not runs.exists()
     provider.complete.assert_not_called()
+
+
+@pytest.mark.parametrize("flags", [["--quiet"], []])
+def test_resume_prints_review_steps_and_reports_invalid_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+) -> None:
+    review = tmp_path / "understand" / "attempt-000000" / "review.yaml"
+    waiting = SimpleNamespace(run_dir=tmp_path, status="awaiting_review", review=review)
+    fake = MagicMock(return_value=waiting)
+    monkeypatch.setattr("popper.cli.resume", fake)
+    monkeypatch.setattr("popper.cli.BedrockLLM", MagicMock())
+    assert main(["resume", str(tmp_path), "--review", "mine.yaml", *flags]) == 0
+    assert fake.call_args.kwargs["review"] == Path("mine.yaml")
+    out = capsys.readouterr().out
+    assert str(review) in out and "--review" in out
+    fake.side_effect = ValueError("review.yaml: missing questions.q1")
+    assert main(["resume", str(tmp_path), *flags]) == 1
+    assert "missing questions.q1" in capsys.readouterr().err

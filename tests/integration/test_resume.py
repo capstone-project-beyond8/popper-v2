@@ -26,6 +26,7 @@ def test_resume_keeps_committed_prefix_and_completes_once(tmp_path: Path) -> Non
             EXAMPLE / "research.md",
             EXAMPLE / "data.csv",
             config=_config(),
+            auto=True,
             llm=FakeLLM(interrupt),
             runs_dir=tmp_path,
         )
