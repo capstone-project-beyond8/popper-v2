@@ -38,17 +38,22 @@ Test what can silently break and is worth the upkeep. Nothing else.
 - **Unit** (`tests/unit/`): pure logic with real edge cases, such as tree-search node selection, `results.json` → LaTeX macro rendering, and config loading.
 - **Integration** (`tests/integration/`, marker `integration`): one end-to-end run with `FakeLLM` and the real interpreter, plus interpreter timeouts and failures.
 - No tests for prompts, for trivial wrappers, or ones that only mirror the implementation. No provider calls in tests.
+- Mark tests that run the full pipeline or import the scientific stack in a child script with `slow`. Extend the existing pipeline test or test at stage level with `FakeLLM`; do not add another full pipeline run.
+- Scripts generated in tests import only what the assertion needs.
+- Tests run in parallel: use `tmp_path`, share no global state or working directory, and avoid wall-clock assertions that fail on a loaded machine.
 
 ## Verification
 
 ```sh
 uv sync
-uv run pytest
 uv run ruff check .
 uv run mypy
+uv run pytest <changed test files>          # while working
+uv run pytest -m "not slow"                 # before handing off a change
+uv run pytest -n 8 --dist worksteal         # before merging, or after changing harness/, treesearch/ or coordinator/
 ```
 
-Run all four before handing off a change. Report what ran and what failed.
+Run ruff, mypy and the matching pytest tier before handing off. Report what ran and what failed. Run tests through the project environment (`uv run`), not `uv run --with`: the script sandbox only reads the project environment's libraries.
 
 ## Commits
 

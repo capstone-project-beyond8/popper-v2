@@ -15,6 +15,7 @@ pytestmark = pytest.mark.integration
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 
 
+@pytest.mark.slow
 def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
     invalid_reply_sent = False
 

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from popper.harness import interpreter
 from popper.harness.interpreter import ExecResult, run_script
 
 pytestmark = pytest.mark.integration
@@ -29,10 +30,10 @@ def test_error_returns_traceback(tmp_path: Path) -> None:
 
 
 def test_timeout_kills_script(tmp_path: Path) -> None:
-    result = _run("import time; time.sleep(10)", tmp_path, timeout=1)
+    result = _run("import time; time.sleep(60)", tmp_path, timeout=1)
     assert result.timed_out
     assert result.exit_code is None
-    assert result.seconds < 5
+    assert result.seconds < 30
 
 
 def test_credentials_are_not_passed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,11 +60,11 @@ def test_non_ascii_output_survives(tmp_path: Path) -> None:
 
 
 def test_timeout_does_not_wait_for_child_processes(tmp_path: Path) -> None:
-    code = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\ntime.sleep(30)"
+    code = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\ntime.sleep(120)"
     result = _run(code, tmp_path, timeout=2)
     assert result.exit_code != 0
     assert "subprocess" in result.stderr
-    assert result.seconds < 10
+    assert result.seconds < 60
 
 
 @pytest.mark.parametrize("operation", ["read", "write", "list"])
@@ -126,6 +127,7 @@ def test_readonly_input_and_relative_escape(tmp_path: Path) -> None:
     assert escape.exit_code != 0
 
 
+@pytest.mark.slow
 def test_scientific_stack_can_execute(tmp_path: Path) -> None:
     code = """
 import numpy as np, pandas as pd, statsmodels.api as sm
@@ -161,3 +163,16 @@ def test_script_cannot_rewrite_execution_record(tmp_path: Path, name: str) -> No
     result = _run(code, tmp_path)
     assert result.exit_code != 0
     assert (tmp_path / "code.py").read_text("utf-8") == code
+
+
+def test_script_cannot_write_into_shared_matplotlib_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "mpl-cache"
+    cache.mkdir()
+    monkeypatch.setattr(interpreter, "_matplotlib_cache", lambda: cache)
+    monkeypatch.setattr(interpreter, "_ensured_caches", {cache})
+    target = cache / "planted.json"
+    result = _run(f"open({str(target)!r}, 'w').write('x')", tmp_path / "execution")
+    assert result.exit_code != 0
+    assert not target.exists()

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -110,27 +111,45 @@ json.dump([{"step": "clean", "rows_affected": "rows_removed", "reason": "quality
 json.dump({"rows_before": {"value": n0}, "rows_after": {"value": len(df)}, "rows_removed": {"value": n0-len(df)}},
           open("results.json", "w"))
 """
-EXPLORE = """
+PNG = r"""
+import struct, zlib
+def write_png(path):
+    def chunk(tag, data):
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+    rows = b"".join(b"\x00" + bytes(range(0, 256, 32)) for _ in range(8))
+    header = struct.pack(">IIBBBBB", 8, 8, 8, 0, 0, 0, 0)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+"""
+EXPLORE = (
+    """
 import json, os
-import matplotlib.pyplot as plt
-import pandas as pd
-df = pd.read_parquet(os.environ["POPPER_INPUT_DATA"])
+import numpy as np
+import pyarrow.parquet as pq
+"""
+    + PNG
+    + """
+table = pq.read_table(os.environ["POPPER_INPUT_DATA"])
+hours, score = table.column("study_hours_week").to_numpy(), table.column("exam_score").to_numpy()
 os.makedirs("figures", exist_ok=True)
-plt.scatter(df["study_hours_week"], df["exam_score"])
-plt.savefig("figures/scatter.png")
-plt.figure()
-plt.hist(df["exam_score"])
-plt.savefig("figures/hist.png")
-corr = float(df["study_hours_week"].corr(df["exam_score"]))
+write_png("figures/scatter.png")
+write_png("figures/hist.png")
+corr = float(np.corrcoef(hours, score)[0, 1])
 json.dump({"corr_study_score": {"value": corr}}, open("results.json", "w"))
 """
-EXPERIMENT = """
+)
+EXPERIMENT = (
+    """
 import json, os
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-df = pd.read_parquet(os.environ["POPPER_INPUT_DATA"])
-x, y = np.log1p(df["study_hours_week"].to_numpy()), df["exam_score"].to_numpy()
+import pyarrow.parquet as pq
+"""
+    + PNG
+    + """
+table = pq.read_table(os.environ["POPPER_INPUT_DATA"])
+hours, score = table.column("study_hours_week").to_numpy(), table.column("exam_score").to_numpy()
+x, y = np.log1p(hours), score
 slope = np.polyfit(x, y, 1)[0]
 rng = np.random.default_rng(0)
 boots = []
@@ -139,11 +158,11 @@ for _ in range(200):
     boots.append(np.polyfit(x[i], y[i], 1)[0])
 ci = [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))]
 os.makedirs("figures", exist_ok=True)
-plt.scatter(x, y)
-plt.savefig("figures/fit.png")
+write_png("figures/fit.png")
 scale = float(np.log(12) - np.log(11))
 json.dump({"primary_estimate": {"value": float(slope) * scale, "ci": [c * scale for c in ci], "n": len(x)}}, open("results.json", "w"))
 """
+)
 EXPERIMENT += f"\njson.dump({HYPOTHESIS['primary_estimand']!r}, open('estimand.json','w'))\n"
 
 
@@ -182,7 +201,7 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
                 code = code.replace('"primary_estimate"', '"placebo_estimate"')
                 code = code.replace(
                     "x, y =",
-                    'df["study_hours_week"] = np.random.default_rng(7).permutation(df["study_hours_week"])\nx, y =',
+                    "hours = np.random.default_rng(7).permutation(hours)\nx, y =",
                 )
             return _submit(code)
         return _submit(EXPLORE if tag == "analyst:explore" else EXPERIMENT)
@@ -199,14 +218,15 @@ def _config() -> Config:
     return cfg
 
 
-def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    llm = FakeLLM(_respond)
+@pytest.mark.slow
+def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def interrupt(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag == "analyst:main":
+            raise KeyboardInterrupt("interrupted during analyst")
+        return _respond(req)
+
+    llm = FakeLLM(interrupt)
     lines: list[str] = []
-
-    def interrupted_compile(tex: Path) -> Path | None:
-        raise KeyboardInterrupt("publication interrupted")
-
-    monkeypatch.setattr("popper.communicate.paper.compile_pdf", interrupted_compile)
     with pytest.raises(KeyboardInterrupt):
         run(
             EXAMPLE / "research.md",
@@ -217,10 +237,39 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             runs_dir=tmp_path,
             progress=lines.append,
         )
-    root = next(tmp_path.iterdir())
+    root = next(p for p in tmp_path.iterdir() if p.is_dir())
+    prefix = {
+        p: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in root.rglob("*")
+        if p.is_file() and p.name != "journal.jsonl"
+    }
+
+    def interrupted_compile(tex: Path) -> Path | None:
+        raise KeyboardInterrupt("publication interrupted")
+
+    fake = FakeLLM(_respond)
+    monkeypatch.setattr("popper.communicate.paper.compile_pdf", interrupted_compile)
+    with pytest.raises(KeyboardInterrupt):
+        resume(root, llm=fake)
+    assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in prefix.items())
+    assert not any(
+        req.tag
+        in {
+            "theorist",
+            "hypothesis",
+            "steward",
+            "analyst:explore",
+            "analyst:baseline",
+            "judge:baseline",
+        }
+        for req in fake.calls
+    )
+    assert (root / "tree" / "main" / "main-001" / "meta.json").is_file()
+    assert not (root / "tree" / "main" / "main-000" / "meta.json").exists()
     original = {
         p: p.read_bytes() for p in root.rglob("*") if p.is_file() and p.name != "journal.jsonl"
     }
+
     monkeypatch.setattr("popper.communicate.paper.compile_pdf", compile_pdf)
     no_calls = FakeLLM(lambda req: pytest.fail("completed publication inputs must not replay"))
     out = resume(root, llm=no_calls)
@@ -244,22 +293,24 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert (out.run_dir / "data" / "processed.parquet").exists()
     record = load_state(RunStore(out.run_dir))
     assert record["status"] == "completed" and record["missing"] == [r"\R{main.nope}"]
-    writer = [r for r in llm.calls if r.tag == "writeup"]
+    writer = [r for r in fake.calls if r.tag == "writeup"]
     assert len(writer) == 3 and r"\R{main.nope}: no key main.nope" in writer[1].prompt
+    # phases: 4 before the analyst interrupt, then 5 on each of the two resumes
     journal_lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
     events = [json.loads(line)["event"] for line in journal_lines]
-    assert events.count("phase") == 10 and "exec" in events
+    assert events.count("phase") == 14 and "exec" in events
     data = out.run_dir / "data"
     raw_ids = set(pd.read_csv(data / "raw.csv").student_id)
     held_only = set(pd.read_csv(data / "holdout.csv").student_id) - raw_ids
     assert held_only  # duplicated source rows may share ids across the split; the rest may not
     assert set(pd.read_parquet(data / "processed.parquet").student_id) <= raw_ids
-    assert not any("holdout" in req.prompt for req in llm.calls)
+    assert not any("holdout" in req.prompt for req in (*llm.calls, *fake.calls))
     assert not any("holdout" in p.read_text("utf-8") for p in out.run_dir.glob("tree/*/*/code.py"))
     assert lines[0] == "[framing] start · $0.00"
     assert any(re.match(r"^\[ground\] start · \$\d+\.\d\d$", x) for x in lines)
     assert not (out.run_dir / "tree" / "data").exists()
     assert (out.run_dir / "data" / "ida.json").exists()
+    assert resume(root, llm=no_calls).tex == out.tex
 
 
 def test_reviewed_frame_run_never_exposes_holdout_rows(tmp_path: Path) -> None:

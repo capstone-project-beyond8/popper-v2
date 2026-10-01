@@ -23,6 +23,10 @@ class ExecResult:
     seconds: float
 
 
+def _matplotlib_cache() -> Path:
+    return Path.home() / ".cache" / "popper" / "matplotlib"
+
+
 def _is_credential(name: str) -> bool:
     upper = name.upper()
     return upper.startswith("AWS_") or any(marker in upper for marker in _SECRET_MARKERS)
@@ -45,6 +49,39 @@ def _tail(text: str, limit: int) -> str:
     return text[max(len(text) - limit, 0) :]
 
 
+def _base_env() -> dict[str, str]:
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not _is_credential(k)
+        and not k.upper().startswith("POPPER_")
+        and k.upper() not in {"PYTHONPATH", "PYTHONHOME", "PWD", "OLDPWD"}
+    }
+    env["MPLBACKEND"] = "Agg"
+    return env
+
+
+_ensured_caches: set[Path] = set()
+
+
+def _ensure_matplotlib_cache(cache: Path, env: Mapping[str, str]) -> None:
+    """Refresh the shared font cache once per process so scripts only read it. Failures are non-fatal."""
+    if cache in _ensured_caches:
+        return
+    _ensured_caches.add(cache)
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [sys.executable, "-I", "-c", "import matplotlib.font_manager"],
+            env={**env, "MPLCONFIGDIR": str(cache)},
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def run_script(
     code: str,
     workdir: Path,
@@ -57,14 +94,10 @@ def run_script(
     workdir = workdir.resolve()
     with (workdir / "code.py").open("x", encoding="utf-8") as source:
         source.write(code)
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not _is_credential(k)
-        and not k.upper().startswith("POPPER_")
-        and k.upper() not in {"PYTHONPATH", "PYTHONHOME", "PWD", "OLDPWD"}
-    }
-    env["MPLBACKEND"] = "Agg"
+    env = _base_env()
+    cache = _matplotlib_cache()
+    _ensure_matplotlib_cache(cache, env)
+    env["MPLCONFIGDIR"] = str(cache)
     env["PYTHONUTF8"] = "1"
     for key in (
         "HOME",
@@ -74,7 +107,6 @@ def run_script(
         "TMP",
         "TEMP",
         "TMPDIR",
-        "MPLCONFIGDIR",
     ):
         env[key] = str(workdir)
     env["AWS_SHARED_CREDENTIALS_FILE"] = os.devnull
