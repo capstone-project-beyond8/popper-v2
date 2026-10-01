@@ -9,8 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validat
 
 from popper.discover.hypothesis import Method, Text
 from popper.harness.config import Config
+from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
-from popper.treesearch.engine import Node, ResultEntry, load_nodes, select_best
+from popper.treesearch.engine import Node, load_nodes, select_best
 
 Dimension = Literal["cleaning", "model", "subgroup", "resampling", "adversarial"]
 

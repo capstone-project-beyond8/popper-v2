@@ -11,6 +11,7 @@ from popper.discover.experiment import experiment
 from popper.discover.explore import explore, propose_hypothesis
 from popper.ground.data import prepare
 from popper.harness.config import Config
+from popper.harness.descriptive import describe_table, format_description, read_table
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.research import parse_research
@@ -18,7 +19,6 @@ from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
 from popper.understand.framing import frame
-from popper.understand.profile import profile_csv
 
 
 @dataclass(frozen=True)
@@ -106,11 +106,13 @@ def _continue(h: Harness) -> RunOutcome:
         if h.spent_usd >= h.config.budget.max_usd:
             raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
         _phase(h, "framing")
-        framing = frame(
-            h,
-            parse_research(store.path("research.md").read_text("utf-8")).body,
-            profile_csv(store.path("data", "raw.csv")),
-        )
+        research = parse_research(store.path("research.md").read_text("utf-8"))
+        report = describe_table(read_table(store.path("data", "raw.csv")), research)
+        if not store.path("data", "ida-raw.json").exists():
+            store.write_json(
+                "data/ida-raw.json", {"results": report.results, "layout": report.layout}
+            )
+        framing = frame(h, research.body, format_description(report))
         _phase(h, "data")
         data_node = prepare(h, framing)
         _phase(h, "explore")

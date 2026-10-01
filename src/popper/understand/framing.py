@@ -23,13 +23,12 @@ class Framing(BaseModel):
     data_concerns: list[str]
 
 
-def frame(h: Harness, research: str, profile: dict[str, Any]) -> dict[str, Any]:
+def frame(h: Harness, research: str, description: str) -> dict[str, Any]:
     committed = h.run.committed("framing")
     if committed:
         result: dict[str, Any] = json.loads(committed.read_text("utf-8"))
         return result
     attempt = h.run.new_attempt("understand").relative_to(h.run.root).as_posix()
-    h.run.write_json(f"{attempt}/profile.json", profile)
     draft = h.ask_model(
         "theorist",
         schema=Framing,
@@ -39,9 +38,7 @@ def frame(h: Harness, research: str, profile: dict[str, Any]) -> dict[str, Any]:
             "popper.understand",
             "framing.md",
             research=part("Research context", research, RESEARCH_CHARS, untrusted=True),
-            profile=part(
-                "Data profile", json.dumps(profile, indent=2), ARTIFACT_CHARS, untrusted=True
-            ),
+            profile=part("Data description", description, ARTIFACT_CHARS, untrusted=True),
         ),
     )
     final = h.ask_model(

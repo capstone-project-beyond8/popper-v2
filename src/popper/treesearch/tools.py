@@ -4,10 +4,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from popper.harness.agent import Tool
 from popper.harness.context import ARTIFACT_CHARS, fence, head
+from popper.harness.descriptive import describe_table, format_description, read_table
 from popper.harness.session import Harness
 
 ARTIFACTS = {"results.json", "analysis.md", "changes.json", "framing.json", "hypotheses.json"}
@@ -19,15 +18,6 @@ def _schema(**props: str) -> dict[str, Any]:
         "properties": {k: {"type": "string", "description": v} for k, v in props.items()},
         "required": list(props),
     }
-
-
-def _describe_table(path: Path) -> str:
-    df = pd.read_csv(path) if path.suffix == ".csv" else pd.read_parquet(path)
-    return (
-        f"dtypes:\n{df.dtypes.to_string()}\n\nhead(5):\n{df.head(5).to_string()}\n\n"
-        f"describe:\n{df.describe(include='all').to_string()}\n\n"
-        f"missing:\n{df.isna().sum().to_string()}"
-    )
 
 
 def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[Tool]:
@@ -50,7 +40,7 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             raise ValueError(f"unknown input {name!r}; available: {', '.join(inputs)}")
         path = inputs[name]
         if path.suffix in (".csv", ".parquet"):
-            text = _describe_table(path)
+            text = format_description(describe_table(read_table(path)))
         else:
             text = path.read_text(encoding="utf-8", errors="replace")
         return fence(head(text, ARTIFACT_CHARS))
@@ -98,8 +88,8 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
     return [
         Tool(
             "inspect_data",
-            "Describe one stage input. For CSV or Parquet: dtypes, first 5 rows, describe() and "
-            f"missing counts; other files are returned as text. Output is cut at {ARTIFACT_CHARS} "
+            "Describe one stage input. For CSV or Parquet: structure, missing values, distribution "
+            f"and design statistics per column; other files are returned as text. Output is cut at {ARTIFACT_CHARS} "
             "characters.",
             _schema(name="Input name: the part before the colon in the task's Inputs list."),
             inspect_data,

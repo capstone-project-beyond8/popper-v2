@@ -15,11 +15,11 @@ from popper.discover.robustness import (
     load_robustness_plan,
     plan_robustness,
 )
+from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
 from popper.treesearch.engine import (
     AttemptSpec,
     Node,
-    ResultEntry,
     StageFailed,
     StageSpec,
     run_stage,
