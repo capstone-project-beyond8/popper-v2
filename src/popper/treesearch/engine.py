@@ -17,7 +17,7 @@ from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
 from popper.harness.recovery import read_events
 from popper.harness.session import Harness
-from popper.treesearch.judge import judge_input, make_diagnostic
+from popper.treesearch.judge import JudgeReference, judge_input, make_diagnostic
 from popper.treesearch.tools import node_tools
 
 NodeKind = Literal["draft", "debug", "improve", "variant", "adversarial"]
@@ -56,6 +56,7 @@ class AttemptSpec:
     goal: str
     context: str
     check: Callable[[Path], str | None] | None = None
+    judge_reference: JudgeReference | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class StageSpec:
     steps: int | None = None
     seed_node: str | None = None
     attempts: tuple[AttemptSpec, ...] = ()
+    judge_reference: JudgeReference | None = None
 
 
 class ResultEntry(BaseModel):
@@ -430,6 +432,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
                 goal=attempt.goal,
                 context=f"{spec.context}\n{attempt.context}",
                 check=attempt.check or spec.check,
+                judge_reference=attempt.judge_reference or spec.judge_reference,
             )
             reason = f"{kind} specification {attempt.id}"
         else:

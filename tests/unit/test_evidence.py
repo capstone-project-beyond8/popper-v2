@@ -30,7 +30,7 @@ def _manifest(root: Path) -> Path:
                 "id": node_id,
                 "stage": stage,
                 "kind": kind,
-                "attempt_id": None,
+                "attempt_id": "permuted" if kind == "adversarial" else None,
                 "status": "ok",
                 "results": result.name,
                 "code": None,
@@ -53,6 +53,17 @@ def _manifest(root: Path) -> Path:
     )
     for name in ("hypothesis.json", "schedule.json", "results.json"):
         (root / name).write_text("{}")
+    (root / "schedule.json").write_text(
+        json.dumps(
+            {
+                "schedule": {
+                    "attempts": [
+                        {"id": "permuted", "kind": "adversarial", "result_key": "placebo_estimate"}
+                    ]
+                }
+            }
+        )
+    )
     path = root / "evidence.json"
     path.write_text(
         json.dumps(
@@ -95,3 +106,20 @@ def test_evidence_rejects_escaped_reference_and_unknown_version(tmp_path: Path) 
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="version"):
         load_evidence(path, tmp_path)
+
+
+def test_secondary_placebo_cannot_replace_primary_and_repair_keeps_identity(tmp_path: Path) -> None:
+    evidence = load_evidence(_manifest(tmp_path), tmp_path)
+    primary = {"value": 2, "ci": [1, 3], "n": 20}
+    placebo = {"value": 0, "ci": [-1, 1], "n": 20}
+    (tmp_path / "main-000.json").write_text(
+        json.dumps({"primary_estimate": primary, "placebo_estimate": placebo})
+    )
+    repaired = evidence["nodes"][2]
+    repaired["kind"] = "debug"
+    (tmp_path / repaired["results"]).write_text(
+        json.dumps({"primary_estimate": primary, "placebo_estimate": placebo})
+    )
+    rows = {row["id"]: row for row in evidence_rows(evidence, tmp_path)}
+    assert rows["main-000"]["value"] == 2 and not rows["main-000"]["adversarial"]
+    assert rows["robustness-002"]["value"] == 0 and rows["robustness-002"]["adversarial"]

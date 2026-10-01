@@ -270,7 +270,11 @@ def _render_report(
             for row in rows
         ],
         changes=[
-            {k: latex_escape(str(c.get(k, ""))) for k in ("step", "rows_affected", "reason")}
+            {
+                "step": latex_escape(str(c["step"])),
+                "reason": latex_escape(str(c["reason"])),
+                "rows_affected": rf"\R{{data.{c['rows_affected']}}}",
+            }
             for c in changes
         ],
         experiment_nodes=[

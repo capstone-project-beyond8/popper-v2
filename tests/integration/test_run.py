@@ -86,9 +86,9 @@ df["family_income"] = df["family_income"].str.lower().replace({"medium": "mid"})
 df = df[df["study_hours_week"].between(0, 60) & ~(df["attendance_rate"] > 1)]
 df = df.dropna()
 df.to_parquet("processed.parquet")
-json.dump([{"step": "clean", "rows_affected": n0 - len(df), "reason": "quality"}],
+json.dump([{"step": "clean", "rows_affected": "rows_removed", "reason": "quality"}],
           open("changes.json", "w"))
-json.dump({"rows_before": {"value": n0}, "rows_after": {"value": len(df)}},
+json.dump({"rows_before": {"value": n0}, "rows_after": {"value": len(df)}, "rows_removed": {"value": n0-len(df)}},
           open("results.json", "w"))
 """
 EXPLORE = """

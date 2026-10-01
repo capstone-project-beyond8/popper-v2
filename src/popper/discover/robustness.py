@@ -8,6 +8,7 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
 from popper.discover.hypothesis import PrimaryEstimand, Text
+from popper.harness.config import Config
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, ResultEntry, load_nodes, select_best
 
@@ -80,6 +81,25 @@ class RobustnessPlan(BaseModel):
         return self
 
 
+def schedule_context(config: Config, hypothesis: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "estimand": hypothesis["primary_estimand"],
+        "steps": config.search.steps_for("robustness"),
+        "min_variants": config.robustness.min_variants,
+    }
+
+
+def load_robustness_plan(
+    path: Path, config: Config, hypothesis: Mapping[str, Any]
+) -> RobustnessPlan:
+    record = json.loads(path.read_text("utf-8"))
+    if record.get("format_version") != 1:
+        raise ValueError("unsupported robustness schedule version")
+    return RobustnessPlan.model_validate(
+        record["schedule"], context=schedule_context(config, hypothesis)
+    )
+
+
 def supports(main: ResultEntry, variant: ResultEntry | None) -> bool:
     if (
         variant is None
@@ -118,7 +138,6 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_nod
     committed = h.run.committed("robustness_plan")
     if committed:
         return committed
-    primary = hypothesis["primary_estimand"]
     steps = h.config.search.steps_for("robustness")
     proposal = h.ask_model(
         "theorist",
@@ -138,11 +157,7 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_nod
             "result_key: primary_estimate|placebo_estimate, seed: 7}], inapplicable: {dimension: reason}}. "
             "Adversarial choice must be exactly permutation. Do not include estimates or a label."
         ),
-        validation_context={
-            "estimand": primary,
-            "steps": steps,
-            "min_variants": h.config.robustness.min_variants,
-        },
+        validation_context=schedule_context(h.config, hypothesis),
     )
     destination = h.run.new_attempt("discover/robustness").relative_to(h.run.root).as_posix()
     path = h.run.write_json(
@@ -163,7 +178,7 @@ def collect_evidence(
     selected: Mapping[str, Node],
     plan: Path,
 ) -> Path:
-    schedule = RobustnessPlan.model_validate(json.loads(plan.read_text("utf-8"))["schedule"])
+    schedule = load_robustness_plan(plan, h.config, hypothesis)
     nodes = [
         node
         for stage in ("baseline", "main", "robustness")

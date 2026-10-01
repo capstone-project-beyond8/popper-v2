@@ -2,6 +2,8 @@
 
 import ast
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,13 +33,44 @@ def validate_image(path: Path) -> Path:
 
 
 class _MaskLiterals(ast.NodeTransformer):
+    def __init__(self, columns: Mapping[str, str]) -> None:
+        self.columns = columns
+
     def visit_Constant(self, node: ast.Constant) -> ast.Constant:
-        return ast.copy_location(ast.Constant(value="<withheld>"), node)
+        value = (
+            f"<{self.columns[node.value]}_column>"
+            if isinstance(node.value, str) and node.value in self.columns
+            else "<withheld>"
+        )
+        return ast.copy_location(ast.Constant(value=value), node)
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.AST:
+        value: ast.expr = node
+        while isinstance(value, ast.UnaryOp) and isinstance(value.op, (ast.USub, ast.UAdd)):
+            value = value.operand
+        if isinstance(value, ast.Constant) and type(value.value) in (int, float, complex):
+            return ast.copy_location(ast.Constant(value="<withheld>"), node)
+        return self.generic_visit(node)
 
 
-def _blinded_code(code: str) -> str:
+@dataclass(frozen=True)
+class JudgeReference:
+    """Phase-validated column roles and code-owned, effect-free requirements; never raw prose."""
+
+    column_roles: Mapping[str, str]
+    requirements: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.column_roles) != 2 or set(self.column_roles.values()) != {
+            "outcome",
+            "exposure",
+        }:
+            raise ValueError("Judge reference requires distinct outcome and exposure column roles")
+
+
+def _blinded_code(code: str, columns: Mapping[str, str] | None = None) -> str:
     try:
-        return ast.unparse(_MaskLiterals().visit(ast.parse(code)))
+        return ast.unparse(_MaskLiterals(columns or {}).visit(ast.parse(code)))
     except (ValueError, SyntaxError):
         return "Source could not be projected."
 
@@ -66,7 +99,10 @@ def judge_input(
     images: tuple[Path, ...]
     if spec.blind_estimates:
         goal = "Assess analysis validity, completeness and method fidelity; estimates are withheld."
-        code = _blinded_code(node.code)
+        reference = spec.judge_reference
+        if reference:
+            goal += "\nValidated method reference:\n" + "\n".join(reference.requirements)
+        code = _blinded_code(node.code, reference.column_roles if reference else None)
         stdout = "Execution passed code checks. Numerical logs withheld."
         projected = {
             key: {

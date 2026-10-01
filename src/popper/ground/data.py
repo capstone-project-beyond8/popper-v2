@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, StageSpec, run_stage
@@ -15,7 +15,9 @@ GOAL = (
     "Prepare the raw data for analysis. Fix column types, missing values, duplicate rows, "
     "impossible values and inconsistent categories. Derive the variables the research questions "
     "need. Write every change to changes.json as a list of "
-    '{"step", "rows_affected", "reason"} objects. Write the cleaned table to processed.parquet. '
+    '{"step", "rows_affected", "reason"} objects. rows_affected is a named result key, NOT a '
+    "literal count: write its nonnegative integer value in results.json, then cite that key "
+    "(e.g. rows_removed) in changes.json. Write the cleaned table to processed.parquet. "
     "Afterwards no impossible values may remain (e.g. rates outside [0, 1], negative hours or "
     "counts, values outside a variable's physical range), and missing values in variables the "
     "questions need are either handled or explicitly justified in changes.json. "
@@ -27,14 +29,19 @@ class Change(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     step: str
-    rows_affected: int | str
+    rows_affected: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]*$")
     reason: str
 
 
 def _check_changes(workdir: Path) -> str | None:
     try:
-        TypeAdapter(list[Change]).validate_json((workdir / "changes.json").read_bytes())
-    except (OSError, ValidationError) as exc:
+        changes = TypeAdapter(list[Change]).validate_json((workdir / "changes.json").read_bytes())
+        results = json.loads((workdir / "results.json").read_text("utf-8"))
+        for change in changes:
+            value = results[change.rows_affected]["value"]
+            if type(value) is not int or value < 0:
+                return f"{change.rows_affected} must be a nonnegative integer count in results.json"
+    except (OSError, ValidationError, ValueError, KeyError, TypeError) as exc:
         return f"invalid changes.json: {exc}"
     return None
 

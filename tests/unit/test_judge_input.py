@@ -5,7 +5,7 @@ import pytest
 
 from popper.harness.interpreter import ExecResult
 from popper.treesearch.engine import Node, StageSpec
-from popper.treesearch.judge import judge_input, validate_image
+from popper.treesearch.judge import _blinded_code, judge_input, validate_image
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII="
@@ -62,3 +62,14 @@ def test_bad_images_are_rejected_before_provider_call(tmp_path: Path, contents: 
         validate_image(path)
     with pytest.raises(ValueError):
         validate_image(tmp_path / "missing.png")
+
+
+def test_signed_estimate_literals_have_identical_blinded_projections() -> None:
+    codes = [
+        "primary_estimate = -0.731",
+        "primary_estimate = +0.731",
+        "primary_estimate = 0.731",
+        "primary_estimate = -(0.731)",
+        "primary_estimate = -(-0.731)",
+    ]
+    assert len({_blinded_code(code) for code in codes}) == 1

@@ -53,15 +53,18 @@ def load_evidence(path: Path, run_root: Path) -> dict[str, Any]:
 
 
 def evidence_rows(evidence: Mapping[str, Any], run_root: Path) -> list[dict[str, Any]]:
+    schedule = json.loads(artifact_path(run_root, evidence["plan"]).read_text("utf-8"))["schedule"]
+    specifications = {item["id"]: item for item in schedule["attempts"]}
     rows = []
     for order, node in enumerate(evidence["nodes"]):
         if node["status"] != "ok":
             continue
-        adversarial = node["kind"] == "adversarial"
-        # Debug attempts inherit the specification's result key, not their node kind.
+        specification = (
+            specifications[node["attempt_id"]] if node["stage"] == "robustness" else None
+        )
+        adversarial = specification is not None and specification["kind"] == "adversarial"
+        result_key = specification["result_key"] if specification else "primary_estimate"
         results = json.loads(artifact_path(run_root, node["results"]).read_text("utf-8"))
-        result_key = "placebo_estimate" if "placebo_estimate" in results else "primary_estimate"
-        adversarial = adversarial or result_key == "placebo_estimate"
         entry = ResultEntry.model_validate_json(json.dumps(results[result_key]))
         if not isinstance(entry.value, (int, float)) or entry.ci is None or entry.n is None:
             raise ValueError("experiment result is missing its estimate, interval or sample size")

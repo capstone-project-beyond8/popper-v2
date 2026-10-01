@@ -1,9 +1,12 @@
+import json
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from popper.discover.robustness import RobustnessPlan
+from popper.discover.robustness import RobustnessPlan, load_robustness_plan
+from popper.harness.config import load_config
 from tests.unit.test_hypothesis import ESTIMAND
 
 
@@ -60,3 +63,20 @@ def test_schedule_requires_minimum_variants_adversary_and_dimension_reasons() ->
         "resampling": "No valid resampling design for these clustered observations"
     }
     assert len(RobustnessPlan.model_validate(good, context=context).attempts) == 4
+
+
+def test_saved_schedule_uses_configured_budget_and_estimand(tmp_path: Path) -> None:
+    cfg = load_config(env={})
+    cfg.search.stage_steps["robustness"] = 8
+    cfg.robustness.min_variants = 6
+    proposal = schedule()
+    for i in range(2):
+        proposal["attempts"].insert(
+            0, {**proposal["attempts"][0], "id": f"extra-{i}", "choice": f"extra model {i}"}
+        )
+    path = tmp_path / "robustness_plan.json"
+    path.write_text(json.dumps({"format_version": 1, "schedule": proposal}))
+    assert len(load_robustness_plan(path, cfg, {"primary_estimand": ESTIMAND}).attempts) == 7
+    cfg.search.stage_steps["robustness"] = 6
+    with pytest.raises(ValueError, match="budget"):
+        load_robustness_plan(path, cfg, {"primary_estimand": ESTIMAND})

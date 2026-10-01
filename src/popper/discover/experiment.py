@@ -1,14 +1,19 @@
 """Sequential experiments for one declared primary estimand."""
 
+import hashlib
 import json
 import math
+import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+import pandas as pd
+
 from popper.discover.robustness import (
-    RobustnessPlan,
     Specification,
     collect_evidence,
+    load_robustness_plan,
     plan_robustness,
 )
 from popper.harness.session import Harness
@@ -20,6 +25,88 @@ from popper.treesearch.engine import (
     StageSpec,
     run_stage,
 )
+from popper.treesearch.judge import JudgeReference
+
+_METHOD_TERMS = (
+    (r"\b(regress\w*|ols)\b", "regression"),
+    (r"\b(linear|ols)\b", "linear model"),
+    (r"\b(logistic|logit|binomial)\b", "logistic model"),
+    (r"\blog(?:1p)?\b", "log transform"),
+    (r"\b(bootstrap|bootstrapping)\b", "bootstrap"),
+    (r"\b(permutation|permute)\b", "permutation"),
+    (r"\b(median|mean)[ -]imput\w*|\bimputation\b", "imputation"),
+    (r"\b(robust|huber)\b", "robust estimator"),
+    (r"\brandom forest\b", "random forest"),
+    (r"\b(gam|spline\w*)\b", "nonlinear smooth model"),
+    (r"\b(cluster\w*)\b", "cluster-aware uncertainty"),
+)
+
+
+def method_reference(
+    hypothesis: Mapping[str, Any], columns: Sequence[str], *, purpose: str, choice: str = ""
+) -> JudgeReference:
+    """Only checked column roles and closed method vocabulary can cross the blinding boundary."""
+    primary = hypothesis["primary_estimand"]
+    outcome, exposure = primary["outcome"], primary["exposure"]
+    if outcome not in columns or exposure not in columns:
+        raise ValueError("primary outcome and exposure must identify processed data columns")
+    if purpose not in {
+        "baseline",
+        "main",
+        "cleaning",
+        "model",
+        "subgroup",
+        "resampling",
+        "adversarial",
+    }:
+        raise ValueError("unknown experiment purpose")
+    contrast = primary["contrast"].casefold()
+    comparison = (
+        "ratio"
+        if re.search(r"\bratio\b", contrast)
+        else "difference"
+        if re.search(r"\b(difference|additional|to|minus)\b", contrast)
+        else "contrast"
+    )
+    requirements = [
+        f"Stage/specification: {purpose}.",
+        f"Compute the declared {comparison} using the designated exposure and outcome in original outcome units.",
+        "Use the declared restricted subgroup population."
+        if purpose == "subgroup"
+        else "Use the primary declared population.",
+    ]
+    if purpose == "baseline":
+        requirements.append("Use a simple transparent baseline and report an uncertainty interval.")
+    else:
+        text = hypothesis["planned_test"].casefold()
+        operations = [label for pattern, label in _METHOD_TERMS if re.search(pattern, text)]
+        requirements.append(
+            "Main planned method operations: "
+            + ", ".join(operations or ["no recognized method terms"])
+            + "."
+        )
+    alternatives = [
+        label for pattern, label in _METHOD_TERMS if re.search(pattern, choice.casefold())
+    ]
+    if alternatives:
+        requirements.append("Recorded alternative operations: " + ", ".join(alternatives) + ".")
+    if purpose == "adversarial":
+        requirements.append(
+            "Permute the exposure once; refit the same estimator and contrast, reporting a placebo interval."
+        )
+    identity = hashlib.sha256(
+        json.dumps(
+            {
+                "primary": primary,
+                "test": hypothesis["planned_test"],
+                "purpose": purpose,
+                "choice": choice,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    requirements.append(f"Opaque method/specification identity: {identity}.")
+    return JudgeReference({outcome: "outcome", exposure: "exposure"}, tuple(requirements))
 
 
 def check_estimate(
@@ -82,6 +169,11 @@ def run_experiment_stage(
             seed_node=seed.id if seed else None,
             blind_estimates=True,
             check=lambda path: check_estimate(path, estimand=estimand),
+            judge_reference=method_reference(
+                hypothesis,
+                pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
+                purpose=name,
+            ),
         ),
     )
 
@@ -98,8 +190,14 @@ def experiment(
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None)
     main = run_experiment_stage(h, "main", framing, hypothesis, baseline)
     plan = plan_robustness(h, hypothesis, main, data_node)
-    schedule = RobustnessPlan.model_validate(json.loads(plan.read_text("utf-8"))["schedule"])
-    attempts = tuple(_attempt(item) for item in schedule.attempts)
+    schedule = load_robustness_plan(plan, h.config, hypothesis)
+    columns = pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
+    attempts = tuple(
+        _attempt(
+            item, method_reference(hypothesis, columns, purpose=item.dimension, choice=item.choice)
+        )
+        for item in schedule.attempts
+    )
     selected = {"baseline": baseline, "main": main}
     try:
         selected["robustness"] = run_stage(
@@ -127,7 +225,7 @@ def experiment(
     return collect_evidence(h, hypothesis, selected, plan)
 
 
-def _attempt(item: Specification) -> AttemptSpec:
+def _attempt(item: Specification, reference: JudgeReference) -> AttemptSpec:
     goal = (
         f"Implement only this recorded {item.dimension} alternative: {item.choice}. "
         "Adapt the seeded main script; keep the declared exposure, outcome, contrast and units. "
@@ -156,4 +254,6 @@ def _attempt(item: Specification) -> AttemptSpec:
             return f"invalid specification metadata: {exc}"
         return None
 
-    return AttemptSpec(item.id, item.kind, goal, json.dumps(item.model_dump(mode="json")), check)
+    return AttemptSpec(
+        item.id, item.kind, goal, json.dumps(item.model_dump(mode="json")), check, reference
+    )

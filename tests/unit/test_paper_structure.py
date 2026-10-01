@@ -34,7 +34,7 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     )
     tex, missing = _render_report(
         w,
-        [{"step": "drop", "rows_affected": 1, "reason": "missing"}],
+        [{"step": "drop", "rows_affected": "rows_removed", "reason": "missing"}],
         [node],
         rows,
         {
@@ -60,6 +60,7 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
             "summary.supporting_count": 2,
             "summary.supporting_share": 0.5,
             "summary.adversarial_count": 1,
+            "data.rows_removed": 73,
         },
     )
     headings = [
@@ -81,6 +82,7 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     assert label in tex and ref in tex and 0 < tex.index(label) - tex.index(ref) < 400
     assert "All 4 variants" in tex and missing == [r"\R{main.nope}"]
     assert tex.index("Step & Rows") < tex.index(r"\section{Results}")
+    assert "drop & 73 & missing" in tex
 
 
 def test_figure_references_are_identity_based_bounded_and_known(tmp_path: Path) -> None:

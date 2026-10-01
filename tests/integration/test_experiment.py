@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from popper.discover.experiment import run_experiment_stage
@@ -15,14 +16,21 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 
 
 def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
+    invalid_reply_sent = False
+
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        nonlocal invalid_reply_sent
         if req.tag.startswith("judge:"):
+            if not invalid_reply_sent:
+                invalid_reply_sent = True
+                return "invalid JSON"
             return json.dumps(
                 {"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "valid"}
             )
         code = "\n".join(
             [
                 "import json, os, base64",
+                "signed_sentinel = -0.731",
                 "os.mkdir('figures')",
                 "open('figures/estimate.png','wb').write(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII='))",
                 "json.dump({'primary_estimate': {'value': 19.8765, 'ci': [18, 21], 'n': 50}} ,open('results.json','w'))",
@@ -33,6 +41,7 @@ def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
 
     cfg = load_config(env={})
     store = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg)
+    pd.DataFrame({"score": [1], "hours": [2]}).to_parquet(store.path("data", "processed.parquet"))
     fake = FakeLLM(respond)
     h = Harness(cfg, fake, store)
     baseline = run_experiment_stage(h, "baseline", {}, PROPOSAL, None)
@@ -42,3 +51,7 @@ def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
     assert baseline.code in request.prompt
     judges = [req for req in fake.calls if req.tag.startswith("judge:")]
     assert all("19.8765" not in req.prompt and req.messages[0].images for req in judges)
+    assert len(judges) == 3 and all(
+        "-'<withheld>'" not in req.prompt and "0.731" not in req.prompt for req in judges
+    )
+    assert "Validated method reference" in judges[0].prompt and "bootstrap" in judges[-1].prompt
