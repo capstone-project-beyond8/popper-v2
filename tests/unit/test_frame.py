@@ -199,3 +199,28 @@ def test_ask_researcher(tmp_path: Path) -> None:
         assert text in fake.calls[1].messages[-1].tool_results[0].text
         unit = frame.research.variables["sleep_hours"].unit
         assert (unit.status, unit.value) == (status, value)
+
+
+def test_answers_create_variables_and_unapplied_ones_warn(tmp_path: Path) -> None:
+    ctx, ida = _context()
+    answers = {
+        "variables.gender.meaning": "pupil gender",
+        "variables.ghost.unit": "x",
+        "concepts.effort.name": "x",
+        "": "x",
+        "variables.sleep_hours.range": "[5",
+    }
+    asks = tuple(
+        ToolCall(
+            f"q{i}", "ask_researcher", {"question": f"Q{i}", "proposed_answer": "p", "item": k}
+        )
+        for i, k in enumerate(answers)
+    )
+    replies = iter([asks, _submit("s", "c005_mean")])
+    h = _harness(tmp_path, _scripted(replies), lambda q, p: answers[list(answers)[int(q[1:])]])
+    h.config.understand.max_questions = 9
+    frame = understand(h, ctx, ida)
+    meaning = frame.research.variables["gender"].meaning
+    assert (meaning.status, meaning.value) == ("confirmed", "pupil gender")
+    assert len(frame.warnings) == 4
+    assert all("was not applied" in w for w in frame.warnings)

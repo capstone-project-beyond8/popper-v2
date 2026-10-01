@@ -222,32 +222,39 @@ def _schema(**props: str) -> dict[str, Any]:
 
 
 def _answered(
-    ctx: ResearchContext, asked: list[dict[str, Any]]
+    ctx: ResearchContext, asked: list[dict[str, Any]], columns: set[str]
 ) -> tuple[ResearchContext, list[str]]:
-    """Apply researcher answers to attributes as confirmed entries; also report failures."""
+    """Apply researcher answers to attributes as confirmed entries; report each one not applied."""
     variables = dict(ctx.variables)
     problems: list[str] = []
     for q in asked:
-        parts = str(q.get("item") or "").split(".")
-        answer = q["answer"]
-        if (
-            answer is None
-            or len(parts) != 3
-            or parts[0] != "variables"
-            or parts[1] not in variables
-        ):
+        answer, item = q["answer"], str(q.get("item") or "")
+        if answer is None or not answer.strip():
+            continue
+        why = f"researcher answer to {q['question']!r} was not applied: "
+        parts = item.split(".")
+        if len(parts) != 3 or parts[0] != "variables":
+            problems.append(f"{why}item {item!r} is not variables.<column>.<attribute>")
             continue
         _, column, attr = parts
-        current = getattr(variables[column], attr, None)
-        if not isinstance(current, Entry) or current.status == "confirmed":
+        if column not in columns:
+            problems.append(f"{why}column {column!r} is not in the data")
             continue
-        value = yaml.safe_load(answer) if attr in _LIST_ATTRIBUTES else answer
+        variable = variables.get(column, Variable())
+        current = getattr(variable, attr, None)
+        if not isinstance(current, Entry):
+            problems.append(f"{why}unknown attribute {attr!r}")
+            continue
+        if current.status == "confirmed":
+            problems.append(f"{why}{item} is already confirmed")
+            continue
         try:
-            merged = variables[column].model_dump()
+            value = yaml.safe_load(answer) if attr in _LIST_ATTRIBUTES else answer
+            merged = variable.model_dump()
             merged[attr] = {"value": value, "status": "confirmed"}
             variables[column] = Variable.model_validate(merged)
-        except ValidationError:
-            problems.append(f"researcher answer for {q['item']} was not a valid value: {answer!r}")
+        except (ValidationError, yaml.YAMLError):
+            problems.append(f"{why}{answer!r} is not a valid value for {item}")
     return ctx.model_copy(update={"variables": variables}), problems
 
 
@@ -384,7 +391,9 @@ def understand(
     )
     if submitted is None:
         raise StageFailed("understand")
-    context, problems = _answered(result["research"], asked)
+    context, problems = _answered(
+        result["research"], asked, {c["name"] for c in ida.layout["columns"]}
+    )
     framing: Framing = result["framing"]
     warnings = [*framing_warnings(context, framing), *problems]
     rel = attempt.relative_to(run.root).as_posix()
