@@ -94,16 +94,19 @@ _MIN_QUOTE_WORDS = 3
 
 
 def check_evidence(evidence: str, body: str, ida: DescriptiveReport) -> bool:
-    """Evidence is an exact quote of at least three words of the body or a descriptive result key."""
-    return (len(evidence.split()) >= _MIN_QUOTE_WORDS and evidence in body) or (
-        evidence in ida.results
+    """Evidence is an exact quote of at least three words of the body, a descriptive result key
+    or a column key of the description."""
+    return (
+        (len(evidence.split()) >= _MIN_QUOTE_WORDS and evidence in body)
+        or evidence in ida.results
+        or evidence in {c["key"] for c in ida.layout["columns"]}
     )
 
 
 def _cited(evidence: str, ida: DescriptiveReport) -> str:
-    """A result key quoted with its value, as in c000_mean=12.5, cites the key alone."""
-    key = evidence.split("=", 1)[0].strip()
-    return key if key in ida.results else evidence
+    """A key quoted with its value or description line, as in c000_mean=12.5, cites the key alone."""
+    key = evidence.split("=", 1)[0].split(maxsplit=1)[0] if evidence.strip() else evidence
+    return key if check_evidence(key, "", ida) else evidence
 
 
 def _merge[M: BaseModel](
@@ -116,7 +119,8 @@ def _merge[M: BaseModel](
         where = f"{label}.{attr}"
         current = getattr(model, attr, None)
         if not isinstance(current, Entry):
-            raise ValueError(f"{where}: unknown attribute")
+            allowed = ", ".join(a for a, v in type(model).model_fields.items() if a != "id")
+            raise ValueError(f"{where}: unknown attribute; allowed: {allowed}")
         if entry.status == "confirmed":
             raise ValueError(
                 f"{where}: an agent cannot set status confirmed (a bare value means confirmed); "
@@ -154,35 +158,49 @@ def apply_patch(
     ida: DescriptiveReport,
     rejected: Mapping[str, object] = {},
 ) -> ResearchContext:
-    """The context with the patch applied; ValueError names the first offending entry."""
+    """The context with the patch applied; ValueError names every offending entry, one per line."""
     columns = {c["name"] for c in ida.layout["columns"]}
+    errors: list[str] = []
+
+    def merge[M: BaseModel](
+        model: M, label: str, changes: Mapping[str, Entry[Any]], refused: str | None = None
+    ) -> M:
+        try:
+            if refused is not None:
+                raise ValueError(f"{label}: {refused}")
+            return _merge(model, label, changes, body, ida, rejected)
+        except ValueError as exc:
+            errors.append(str(exc))
+            return model
+
     variables = dict(ctx.variables)
     for column, changes in patch.variables.items():
-        if column not in columns:
-            raise ValueError(f"variables.{column}: column is not in the data")
-        variables[column] = _merge(
-            variables.get(column, Variable()), f"variables.{column}", changes, body, ida, rejected
+        variables[column] = merge(
+            variables.get(column, Variable()),
+            f"variables.{column}",
+            changes,
+            None if column in columns else "column is not in the data",
         )
     concepts = {c.id: c for c in ctx.concepts}
     for concept in patch.concepts:
-        if f"concepts.{concept.id}" in rejected:
-            raise ValueError(f"concepts.{concept.id}: this concept was rejected by the researcher")
-        concepts[concept.id] = _merge(
+        concepts[concept.id] = merge(
             concepts.get(concept.id, Concept(id=concept.id)),
             f"concepts.{concept.id}",
             _set(concept, "name", "definition"),
-            body, ida, rejected,
-        )  # fmt: skip
+            "this concept was rejected by the researcher"
+            if f"concepts.{concept.id}" in rejected
+            else None,
+        )
     assumptions = {a.id: a for a in ctx.assumptions}
     for assumption in patch.assumptions:
-        if f"assumptions.{assumption.id}" in rejected:
-            raise ValueError(f"assumptions.{assumption.id}: rejected by the researcher")
-        assumptions[assumption.id] = _merge(
+        assumptions[assumption.id] = merge(
             assumptions.get(assumption.id, Assumption(id=assumption.id)),
             f"assumptions.{assumption.id}",
             _set(assumption, "description", "confounder"),
-            body, ida, rejected,
-        )  # fmt: skip
+            "rejected by the researcher" if f"assumptions.{assumption.id}" in rejected else None,
+        )
+    if errors:
+        raise ValueError("\n".join(errors))
     return ctx.model_copy(
         update={
             "variables": variables,

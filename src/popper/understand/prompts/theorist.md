@@ -18,7 +18,7 @@ Work in any order and repeat as needed.
 
 Rules:
 - Every entry is an object {{"value", "status", "evidence"}}, never a bare value. Entries you propose have status "proposed" with evidence, or "unknown" with value null. You can never set "confirmed"; entries already confirmed by the researcher cannot change.
-- Evidence is an exact quote copied from the Research context text above, or a result key from the data description (for example c000_mean). Anything else is rejected.
+- Evidence is an exact quote copied from the Research context text above, a result key from the data description (for example c000_mean) or a column key (for example c000). Anything else is rejected.
 - Use ask_researcher only for what the text and data cannot settle. Pass `item` when the answer settles one attribute. If no researcher is available, leave the item proposed or unknown.
 - A concept names an idea, never a column.
 - Question and direction ids match ^[a-z][a-z0-9_]*$ and are unique across both lists. A question's outcome_candidate is a column name from the data or null. Keep the id of every item you retain in a revision.

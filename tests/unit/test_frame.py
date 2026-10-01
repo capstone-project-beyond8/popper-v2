@@ -93,6 +93,20 @@ def test_evidence_quoting_a_result_key_with_its_value_cites_the_key() -> None:
     assert out.variables["study_hours_week"].unit.evidence == ["c002_mean"]
 
 
+def test_column_key_cites_the_column_and_every_error_is_reported() -> None:
+    patch = FramePatch.model_validate(
+        {"variables": {"study_hours_week": {"unit": _proposed("hours", "c002 'study_hours_week'")}}}
+    )
+    assert apply_patch(CTX, patch, BODY, IDA).variables["study_hours_week"].unit.evidence == [
+        "c002"
+    ]
+    bad = FramePatch.model_validate(
+        {"variables": {"school": {"colour": _proposed("x", "c000_mean")}, "nope": {}}}
+    )
+    with pytest.raises(ValueError, match=r"(?s)colour.*allowed: meaning.*variables\.nope"):
+        apply_patch(CTX, bad, BODY, IDA)
+
+
 def _var(column: str, **attrs: Any) -> dict[str, Any]:
     return {"variables": {column: attrs}}
 
