@@ -141,3 +141,30 @@ def test_truncation_after_tool_results_keeps_results_first(tmp_path: Path) -> No
     assert _run(_harness(tmp_path, _LLM())) == {}
     last = _to_converse(calls[2].messages)[-1]["content"]
     assert [next(iter(b)) for b in last] == ["toolResult", "text"]
+
+
+def _validated(h: Harness, max_submits: int | None) -> dict[str, Any] | None:
+    def check(args: dict[str, Any]) -> str:
+        if "ok" not in args:
+            raise ValueError("missing ok")
+        return "accepted"
+
+    tools = [Tool("submit", "submit", {}, check, terminal=True)]
+    return agent_loop(
+        h, "steward", tag="t", system="s", task="go", tools=tools, max_turns=6,
+        max_submits=max_submits,
+    )  # fmt: skip
+
+
+def test_rejected_terminal_submit_returns_error_and_retry_succeeds(tmp_path: Path) -> None:
+    fake = _scripted((ToolCall("a1", "submit", {}),), (ToolCall("a2", "submit", {"ok": 1}),))
+    assert _validated(_harness(tmp_path, fake), 3) == {"ok": 1}
+    result = fake.calls[1].messages[-1].tool_results[0]
+    assert result.text == "error: missing ok"
+    assert result.status == "error"
+
+
+def test_rejected_submits_stop_at_max_submits(tmp_path: Path) -> None:
+    fake = FakeLLM(lambda req: (ToolCall("a", "submit", {}),))
+    assert _validated(_harness(tmp_path, fake), 3) is None
+    assert len(fake.calls) == 3

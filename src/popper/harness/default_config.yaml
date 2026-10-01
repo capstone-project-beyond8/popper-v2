@@ -27,6 +27,14 @@ data:
 robustness:
   stability_share: 0.8
   min_variants: 3
+understand:
+  max_turns: 30          # model turns for the theorist framing session
+  max_submits: 3         # rejected framing submits before the session fails
+  max_questions: 5       # questions the theorist may put to the researcher
+  max_reframes: 1        # re-framings after the data steward reports a problem
+ground:
+  max_turns: 40          # model turns for the data steward session
+  max_submits: 3         # rejected preparation submits before the session fails
 budget:
   max_usd: 5.0
   prices:                    # USD per million tokens; a key matches a model id containing it
