@@ -52,10 +52,14 @@ def _declared[T](entry: Entry[T]) -> T | None:
     return entry.value if entry.status == "confirmed" else None
 
 
-def _text(series: pd.Series) -> pd.Series:
-    """Trimmed strings with blanks as missing; a new series."""
-    text = series.where(series.notna()).astype("string").str.strip()
-    return text.mask(text == "")
+def _text(series: pd.Series, strip: bool = True) -> pd.Series:
+    """Strings with blanks as missing, trimmed unless `strip` is false; a new series."""
+    text = series.where(series.notna()).astype("string")
+    return (
+        text.mask(text.str.strip() == "").str.strip()
+        if strip
+        else text.mask(text.str.strip() == "")
+    )
 
 
 def _numbers(series: pd.Series) -> pd.Series:
@@ -92,7 +96,7 @@ def _column(
     present_n = int((~missing).sum())
     n_rows = len(series)
 
-    shown = values.dropna() if numeric else _text(series).dropna()
+    shown = values.dropna() if numeric else _text(series, strip=False).dropna()
     unique = int(shown.nunique())
     b.put(f"{key}_n_unique", unique)
     b.put(f"{key}_unique_share", unique / present_n if present_n else None, "no values")
@@ -165,7 +169,7 @@ def _categorical(
     b: _Builder, key: str, v: pd.Series, levels: list[str] | None, fragment: dict[str, Any]
 ) -> None:
     b.put(f"{key}_n", len(v))
-    variants = v.groupby(v.str.casefold().to_numpy()).nunique()
+    variants = v.groupby(v.str.strip().str.casefold().to_numpy()).nunique()
     b.put(f"{key}_inconsistent_codes", int((variants > 1).sum()))
     if levels is not None:
         b.put(f"{key}_out_of_levels", int((~v.isin(levels)).sum()))

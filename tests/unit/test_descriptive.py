@@ -83,6 +83,7 @@ def test_strings_failed_conversions_and_inconsistent_coding() -> None:
             "code": ["001", "002"],
             "n": ["1", "absent"],
             "g": ["A", "a "],
+            "w": ["yes", "yes "],
         }
     )
     report = describe_table(frame)
@@ -91,6 +92,7 @@ def test_strings_failed_conversions_and_inconsistent_coding() -> None:
     )
     assert value(report, "c002_failed_conversions") == 1
     assert value(report, "c003_inconsistent_codes") == 1
+    assert value(report, "c004_inconsistent_codes") == 1
 
 
 def test_read_table_keeps_identifiers_as_strings(tmp_path: Path) -> None:
