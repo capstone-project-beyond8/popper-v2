@@ -17,7 +17,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 | **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | ~2k | done |
 | **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | ~2.5k | done |
 | **M2** Grounded frame | The researcher steers an agent's understanding of the problem; an agent grounds it in the data and says what the data cannot support | `popper run examples/student_performance` stops for review of the Research Frame; after `popper resume` → paper with an operationalization table and generated limitations | M1 | ~1.5k | todo |
-| **M3** Discover agent | An agent decides what to explore, when to hypothesize and what to test, running the tree underneath | The demo explores at least two directions chosen by the agent and the journal shows why each experiment was run | M2 | ~1.5k | todo |
+| **M3** Discover agent | An agent decides what to explore, when to hypothesize and what to test over a research graph, and every tested hypothesis says how it was generated, what it predicted and whether the result matched | The demo explores at least two questions chosen by the agent; the paper shows the hypothesis origin, a pre-test sample table, the prediction verdict beside the stability label, and a research path from the graph | M2 | ~1.5k | todo |
 | **M4** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, estimand recovery, holdout gap and cost for two configurations | M3 | + `evals/` | todo |
 | **M5** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | ~3k | todo |
 | **M6** Research loop | The researcher steers; results change what the run does next | Several critiqued hypotheses, researcher picks, a second round builds on the first, a late data problem opens a new Ground attempt; eval compares it with the playbook | M4, M5 | ~3.5k | todo |
@@ -31,12 +31,12 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 |---|---|---|---|---|---|---|---|---|---|
 | **Understand** | Profile and framing with one reflection | — | Theorist session (explore, critique, synthesize); research context with provenance and concepts; `ask_researcher`; item-level review signals and one revision; computed framing warnings | — | — | Introduction from objectives and audience | Research Frame revision after results | Domain background in the research context; prior work shapes questions | — |
 | **Ground** | Agentic `data` stage, change log, row counts | Holdout set aside at ingest | Data Steward session with code-checked submits; operationalization, concerns, readiness; one descriptive-statistics module; bounded return to Understand | — | — | Before/after figures, derived-variable checks | New Ground attempt when a later phase finds a problem | — | — |
-| **Exploration & hypothesis** | Agentic `explore` stage, one hypothesis | Hypothesis contract (one primary estimand, refuting result) | Reads frame and foundation; computed hypothesis warnings | Agent chooses directions and when to hypothesize | — | — | 3–5 hypotheses with mechanism and auxiliary predictions, Critic rubric, researcher choice | Relation to prior work | — |
-| **Experiment** | One combined stage | `baseline` → `main` → `robustness`, multiverse, adversarial check, stability label | — | Agent chooses which hypotheses to test | — | — | One tree per chosen hypothesis; label intervals adjusted for several hypotheses | — | Locked re-run on holdout |
-| **Search engine** | Draft/debug/improve, typed Judge answers | Judge blind to estimates, reads figures | Discover stages only | Driven by the Discover agent | — | — | — | — | — |
-| **Publication** | Template paper, named-result numbers, fixed label | Standard paper structure, results table, robustness section, specification curve | Operationalization table; limitations from proposals, concerns, readiness and warnings; raw-access disclosure | Research path through the Discover agent's choices | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results | Related work, citations | Verified labels |
-| **Roles** | PI playbook, Theorist, Analyst, Judge, Writer | — | Theorist as a session; Data Steward | Discover agent | — | Critic reviews the paper | PI agent across phases, Critic | Literature for Theorist and Writer | — |
-| **Harness** | Agent loop, tools, context, sandbox, journal, run store, budget, failure classes, progress | Vision input, resume, import contract | Research-context ingest, descriptive module, code-checked terminal tools, researcher callback, `awaiting_review` stop | Stage and hypothesis tools for the Discover agent | — | — | Working memory, researcher input, per-phase budgets | Literature tool | Verify package |
+| **Exploration & hypothesis** | Agentic `explore` stage, one hypothesis | Hypothesis contract (one primary estimand, refuting result) | Reads frame and foundation; computed hypothesis warnings | Research graph seeded from the frame and foundation; agent chooses questions to explore and when to hypothesize; origins `frame` and `observation`; primary prediction; candidates kept | — | — | 3–5 hypotheses with mechanism and auxiliary predictions; origins `rival` and `followup` through `interpret`; Critic rubric, researcher choice | Relation to prior work | — |
+| **Experiment** | One combined stage | `baseline` → `main` → `robustness`, multiverse, adversarial check, stability label | — | `test` move: pre-test description, frozen test specification, computed verdict | — | — | One tree per chosen hypothesis; rival predictions as variants and adversarial checks; label intervals adjusted for several hypotheses | — | Locked re-run on holdout |
+| **Search engine** | Draft/debug/improve, typed Judge answers | Judge blind to estimates, reads figures | Discover stages only | Runs inside Discover moves | — | — | — | — | — |
+| **Publication** | Template paper, named-result numbers, fixed label | Standard paper structure, results table, robustness section, specification curve | Operationalization table; limitations from proposals, concerns, readiness and warnings; raw-access disclosure | Hypothesis origin, pre-test sample table, verdict beside the stability label, research path from the graph | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results | Related work, citations | Verified labels |
+| **Roles** | PI playbook, Theorist, Analyst, Judge, Writer | — | Theorist as a session; Data Steward | Discover agent | — | Critic reviews the paper | PI agent across phases; Critic assesses hypotheses and challenges results as graph moves | Literature for Theorist and Writer | — |
+| **Harness** | Agent loop, tools, context, sandbox, journal, run store, budget, failure classes, progress | Vision input, resume, import contract | Research-context ingest, descriptive module, code-checked terminal tools, researcher callback, `awaiting_review` stop | Discover moves as tools; Discover budget | — | — | Working memory, researcher input, per-phase budgets | Literature tool | Verify package |
 | **Evaluation** | — | — | — | — | Planted (leak, few clusters, bounded outcome) and null suites, headline metrics, first comparisons, adoption records | Traced-number share | PI agent vs playbook, Critic on vs off | — | — |
 
 ---
@@ -125,13 +125,25 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ## M3 — Discover agent
 
-**Outcome.** Discovery behaves like an investigation: an agent decides which direction to explore, when observations suffice for a hypothesis, and which hypothesis to test, while the tree still runs every stage underneath so attempts stay comparable and every `ok` node is reported.
+**Outcome.** Discovery behaves like an investigation: an agent decides which question to explore, when observations suffice for a hypothesis, and which hypothesis to test, while the tree still runs every stage underneath so attempts stay comparable and every `ok` node is reported. Every tested hypothesis says how it was generated, what it predicted before the test, whether the data allowed the test, and whether the result matched the prediction.
 
-**Scope.** A Discover agent session with tools to run `explore` with a focus, read artifacts, propose a hypothesis and run the experiment stages, and to finish; budgets bound it and every decision is journaled with a reason; the playbook stays available as the default for evaluation (§4, §6).
+**Scope** (§4.6).
+- Research graph under `discover/graph/`: append-only nodes `question`, `observation`, `hypothesis`, `result`, `assessment` with `derived_from`, `branch`, `artifact`, `by` and `reason`; seeded by code from frame questions, directions and unknowns and from foundation concerns, keeping their ids.
+- Discover agent session with the moves `explore(question)`, `hypothesize(question)`, `test(hypothesis)` and `finish`, plus `read_artifact` and a code-built graph view; one move at a time, each journaled with its target and reason; ends on `finish`, no open question, or its budget. The phase-3/4 playbook stays available for evaluation.
+- Hypotheses with `origin` `frame` or `observation` and `derived_from`; two or three candidates per `hypothesize`, the unchosen ones kept as nodes; a computed flag when a primary estimand repeats an existing hypothesis; computed `suggested_by_test_data`.
+- One `primary` prediction per hypothesis (estimand, direction) replaces the free-text refuting result.
+- Pre-test description per tested hypothesis from the descriptive module: population and complete cases, exposure levels or support, outcome distribution, co-missingness, clusters; method fit and the cluster warning read it; one Theorist revision of the planned test after reading it.
+- Frozen test specification whose hash every test node carries; computed verdict per prediction; `result` nodes with `predicted_before_result`.
+- Publication: hypothesis origin, pre-test sample table, verdict beside the stability label, candidate claims from `finish`, and a research-path section from the graph listing dead ends and null results.
 
-**Acceptance.** On the demo the agent explores at least two directions it chose, the journal states why each experiment ran, and the null demo still claims no effect or is `fragile`.
+**Acceptance.**
+- On the demo the agent explores at least two questions it chose, the journal states why each move ran, and the paper shows the origin, the pre-test table and the verdict of the tested hypothesis.
+- On the null demo the verdict is `inconclusive` or the result is `fragile`, and the paper claims no effect.
+- Tests cover graph append and seeding (a node citing a missing node is rejected), the verdict on fixture intervals for every row of its table, the pre-test description on a fixture (no outcome–exposure relation in its output), `suggested_by_test_data`, the repeated-estimand flag, and a scripted Discover agent run with `FakeLLM` that explores twice, tests once and finishes.
 
-**Out.** Several hypotheses tested per run, PI agent across phases, researcher choice of hypotheses.
+**Out.** `interpret` and the origins `rival` and `followup`; rival and auxiliary predictions; `threshold` and the `negligible` verdict (with SESOI); balance in the pre-test description; several hypotheses tested per run; Critic moves; parallel branches; PI agent across phases; researcher choice of hypotheses.
+
+**Risks.** The agent may explore without converging; the Discover budget and the open-question stop bound it. Candidates may collapse onto one estimand; the repeated-estimand flag makes it visible and M4 measures it.
 
 ---
 
@@ -181,13 +193,14 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - PI becomes an agent across phases, building on the Discover agent, with tools to run a phase, open a new Ground attempt, ask the researcher, update memory and finish; the playbook stays the default order and every return is journaled with a reason (§4, §6).
 - The PI may revise the Research Frame after results as a new attempt with a journaled reason; research context gains researcher `hypotheses` (§4.1).
 - Hypotheses may state a mechanism with auxiliary predictions, each tested as a secondary estimand (§4, §4.3).
-- 3–5 hypotheses with reflection, each in the hypothesis contract and through the gate, drawn from the research context, exploration and researcher hypotheses, each recording its origin; one experiment tree per chosen hypothesis.
-- Critic scores each hypothesis on the hypothesis-quality rubric before the choice and challenges each main result before publication; critiques are assessments and never change a result (§4.3, §6, §9).
+- 3–5 hypotheses with reflection, each in the hypothesis contract with computed warnings, drawn from the research context, exploration and researcher hypotheses, each recording its origin; one experiment tree per chosen hypothesis.
+- The `interpret` move: an assessment per result that closes or opens questions; origins `rival` and `followup`; rival predictions tested as robustness variants or adversarial checks, and a hypothesis stands only when its rivals' predictions are not supported (§4.6).
+- Critic scores each hypothesis on the hypothesis-quality rubric before the choice and challenges each main result before publication, as graph assessments that never change a result (§4.4, §4.6, §6, §9).
 - Label intervals at level 1 − α/k when k hypotheses are tested (§5.5).
 - Researcher input on the CLI (choose, edit, note); `--auto` lets the PI choose; choices are attributed.
 - Working memory citing node ids, read by the PI and Analysts (§7.3).
 - Per-phase and total budgets.
-- Publication: one results subsection per tested hypothesis and a research-path section generated from the journal.
+- Publication: one results subsection per tested hypothesis, each with its verdicts and rival outcomes.
 - Evaluation: PI agent vs playbook and Critic on vs off, recorded in `evals/decisions.md`.
 
 **Acceptance.**
@@ -236,7 +249,8 @@ Capabilities Popper keeps as goals but does not build yet. Each waits for its tr
 | Reference suites (BLADE, DiscoveryBench) and contamination checks | Planted and null suites come first | M4 suites stable across two milestones | §13 |
 | Working memory across runs | One run per question today | Researchers repeatedly rerun the same dataset with new questions | §7.3 |
 | Hypothesis code gate on roles, order, adjustment set and level sizes | Warnings first; a gate could block valid plans | M4 shows warnings missed failures that changed conclusions | §4.4 |
-| Typed rival checks and SESOI contract | Rivals stated in prose for now | M4 shows hypotheses facing no testable rival or no stated magnitude | §4, §4.4 |
+| Typed rival checks and SESOI contract, with prediction `threshold` and the `negligible` verdict | Rivals stated in prose for now | M4 shows hypotheses facing no testable rival or no stated magnitude | §4, §4.4, §4.6 |
+| Parallel branches in Discover (one session per branch) | Moves are sequential and cheaper to debug | Wall time of the Discover agent blocks the demo gates | §4.6, §6 |
 | Hard cluster rule and declared method plans (`analysis.json`) | Few-cluster advice is a warning | M4 shows few-cluster inference changing labels | §4.5 |
 | Confirm partition | Off by default and unbuilt | M4 shows a holdout gap that a partition would close | §11 |
 | Shuffled-outcome scratch for the Steward | Ground forbids using, not seeing, relations | M4 shows preparation choices that track the outcome–exposure relation | §4.3 |

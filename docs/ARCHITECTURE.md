@@ -20,7 +20,7 @@ Target design of Popper, an AI scientist for quantitative tabular data. Specs an
 1. **Output first.** Every increment ends in a run that produces a readable paper. Infrastructure is added only when a run needs it.
 2. **Reproduce, then improve.** A mechanism taken from a published system is first built as published. An addition is a hypothesis tested at equal model and budget (§13).
 3. **Agents work, the harness records.** Recording is a side effect of the harness, never a duty of an agent.
-4. **Agents drive a phase; trees serve where attempts must be compared.** Phase order is code. Inside Understand and Ground one agent session decides its own steps; Discover runs tree search, because comparing attempts is its method [31].
+4. **Agents drive a phase; trees serve where attempts must be compared.** Phase order is code. Inside Understand and Ground one agent session decides its own steps; in Discover an agent chooses moves over a research graph, and tree search runs inside the moves that compare attempts (§4.6) [31].
 5. **Ground truth from execution.** A result is what a script produced when the harness re-ran it from scratch [31].
 6. **Labels, not locks.** Everything outside Verify is `exploratory`. Labels are computed by code and no model can raise them.
 7. **Numbers come from artifacts.** Paper numbers are rendered from result files, never typed by a model [6].
@@ -42,7 +42,8 @@ Hold in every configuration; each is enforced by code and covered by a test.
 | Every model call, tool call, execution and decision is journaled      | Harness (§7.5)                                        |
 | Run files are write-once; a fix is a new node, attempt or assessment  | Run store (§9)                                        |
 | A result is what the harness produced by re-running the submitted script from scratch | Search engine and Ground submit (§4.3, §5.1) |
-| `exploratory`, `stable`/`fragile`, `confirmed` are computed           | Label functions; the template prints them (§5.5, §11) |
+| `exploratory`, `stable`/`fragile`, prediction verdicts, `confirmed` are computed | Label functions; the template prints them (§4.6, §5.5, §11) |
+| Research-graph nodes are append-only and cite their source nodes and artifacts | Discover graph store (§4.6) |
 | Paper numbers resolve to named results; unknown names are flagged     | Renderer and audit (§10)                              |
 | Research context, researcher answers, dataset strings, outputs and retrieved text are untrusted data | Context assembly (§7.3) |
 | No credentials in the run folder or script environments               | Sandbox and run store (§7.4, §7.5)                    |
@@ -88,12 +89,12 @@ Dependency rules:
 | --- | ------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
 | 1   | Understand               | `understand/`  | Theorist session: research context + initial data analysis → Research Frame (cleaned research context with concepts, framing) steered by researcher signals (§4.1) | Research Frame |
 | 2   | Ground                   | `ground/`      | Data Steward session: understand, repair, interrogate and assess the data against the frame; frame concerns return to 1 (§4.3) | prepared data, change log, operationalization, concerns, readiness |
-| 3   | Exploration & hypothesis | `discover/`    | Search stage `explore` (explore rows when the confirm partition is on); observations, Research Frame and foundation → hypotheses in the contract below; computed warnings (§4.4); Critic challenge; selection by researcher or PI. Target: an agent orchestrates this phase over the tree (§6) | hypotheses                                       |
-| 4   | Experiment               | `discover/`    | Per chosen hypothesis (confirm rows when the partition is on): stages `baseline` → `main` → `robustness`                                 | best nodes, estimates, figures, stability labels |
+| 3   | Exploration & hypothesis | `discover/`    | Search stage `explore` (explore rows when the confirm partition is on); observations, Research Frame and foundation → hypotheses in the contract below; computed warnings (§4.4); Critic challenge; selection by researcher or PI. Target: the Discover agent runs 3 and 4 as moves over the research graph (§4.6) | hypotheses                                       |
+| 4   | Experiment               | `discover/`    | Per chosen hypothesis (confirm rows when the partition is on): pre-test description, then stages `baseline` → `main` → `robustness`, then a computed verdict per prediction (§4.6) | best nodes, estimates, figures, stability labels, verdicts |
 | 5   | Publication              | `communicate/` | Pipeline of §10                                                                                                                          | paper, claims file, review                       |
 | —   | Verify (optional)        | `verify/`      | Contract of §11                                                                                                                          | verification records                             |
 
-- **Hypothesis contract** [7, 41]: one primary estimand (outcome, exposure, contrast, population, unit), expected direction, the result that would refute it, rival explanations, planned test, source nodes and `supplied_by`. Measured additions (§14 D17): a smallest effect size of interest (`sesoi`, in outcome units [42], recorded `post_exploration` when first stated after exploration), typed rival checks (§4.4), an `adjustment_set`, a planned test in the layered vocabulary (§4.5) and the computed `tested_on` (§11). A `mechanism` with `auxiliary_predictions` is optional; each auxiliary prediction is tested as a secondary estimand, never as a robustness variant. Interactions and moderators are secondary estimands of a hypothesis, never its primary one.
+- **Hypothesis contract** [7, 41]: one primary estimand (outcome, exposure, contrast, population, unit), expected direction, the result that would refute it, rival explanations, planned test, source nodes and `supplied_by`. Target (§4.6): an `origin` with the graph nodes it derives from, and the expected direction and refuting result stated as structured predictions whose verdict code computes. Measured additions (§14 D17): a smallest effect size of interest (`sesoi`, in outcome units [42], recorded `post_exploration` when first stated after exploration), typed rival checks (§4.4), an `adjustment_set`, a planned test in the layered vocabulary (§4.5) and the computed `tested_on` (§11). A `mechanism` with `auxiliary_predictions` is optional; each auxiliary prediction is tested as a secondary estimand, never as a robustness variant. Interactions and moderators are secondary estimands of a hypothesis, never its primary one.
 - Phases exchange data only as files in the run folder. A phase never edits another phase's output.
 - The PI runs the phases. Form 1 is a fixed playbook; it already goes back once from Ground to Understand when the data cannot represent the frame (2 → 1, bounded by `max_reframes`). Form 2 (agent) keeps the same default order and may also go back with a journaled reason: experiment → hypothesis (4 → 3), or a late data problem opens a new Ground attempt (3/4 → 2).
 - Run status: `running`, `awaiting_review`, `completed`, `budget_exceeded`, `failed:<stage>`.
@@ -145,7 +146,7 @@ Descriptive statistics are computed by code, never by a model [39, 40]. One harn
 | Balance and overlap     | Exposure    | Binary or categorical exposure: standardized mean difference of covariates across levels [43]; continuous exposure: correlation of each covariate with it; exposure support within strata |
 | Precision               | Exposure, outcome | Rows per exposure level or cell, events per variable for binary outcomes, minimum detectable effect        |
 
-None of these groups relates the outcome to an exposure: initial data analysis does not touch the research question [40]. Relations involving the outcome are exploration, and so are associations among predictors until a rule reads them; the Analyst computes them in `explore`. The outcome ICC is not computed: with few clusters it is unstable, and the cluster rule reads cluster counts (§4.5). An outcome whose floor or ceiling share exceeds `bound_share` is **bounded**: the paper states the bound as a limitation (§10) and method fit reads it (§4.5). Sample tables and balance checks carry no significance tests [43]; assumption checks use descriptive measures with fixed thresholds, not normality or variance tests. The 0.1 default for `smd_threshold` is a convention, not a consensus [43].
+The groups that need roles also run per hypothesis, restricted to its estimand and population, as the pre-test description (§4.6). None of these groups relates the outcome to an exposure: initial data analysis does not touch the research question [40]. Relations involving the outcome are exploration, and so are associations among predictors until a rule reads them; the Analyst computes them in `explore`. The outcome ICC is not computed: with few clusters it is unstable, and the cluster rule reads cluster counts (§4.5). An outcome whose floor or ceiling share exceeds `bound_share` is **bounded**: the paper states the bound as a limitation (§10) and method fit reads it (§4.5). Sample tables and balance checks carry no significance tests [43]; assumption checks use descriptive measures with fixed thresholds, not normality or variance tests. The 0.1 default for `smd_threshold` is a convention, not a consensus [43].
 
 ### 4.3 Ground
 
@@ -163,11 +164,12 @@ None of these groups relates the outcome to an exposure: initial data analysis d
 
 | Criterion                          | Enforced by                                                                                                         |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Refutable                          | Schema: `refuting_result`; stated against `sesoi` once that addition is measured (D17)                               |
+| Refutable                          | Schema: `refuting_result`; target: structured predictions with a computed verdict (§4.6); stated against `sesoi` once that addition is measured (D17) |
 | One specific primary estimand      | Schema (§4)                                                                                                         |
 | Explains, not only associates      | Schema: optional `mechanism`, `auxiliary_predictions` tested as secondary estimands; Critic rubric                  |
 | Faces its rivals [41]              | Schema: rival explanations; target: each with a typed check, `adjustment` (a robustness variant of the same estimand), `negative_control` (an adversarial check) or `sensitivity` (a reported bound) (§5.5); Critic rubric |
-| Testable with these data           | Computed warnings; `underpowered` label (§4.2 precision)                                                                        |
+| Testable with these data           | Computed warnings; pre-test description (§4.6); `underpowered` label (§4.2 precision)                                           |
+| Origin stated                      | Target: `origin` and `derived_from` (§4.6); `suggested_by_test_data` computed                                       |
 | Independent of the confirming rows | Confirm partition when on (§11); `tested_on` printed either way                                                     |
 | Relevant and informative           | Critic rubric against `objectives`; prior-work coverage (§12)                                                       |
 
@@ -206,9 +208,84 @@ Primary estimators by outcome and exposure type; correlation coefficients serve 
 - **Diagnostics** from §4.2 add required robustness variants and never change the primary method: skewness above `skew_threshold` in an unbounded outcome adds a log or rank variant; a count variance-to-mean ratio above `overdispersion_ratio` adds negative binomial; a level below `rare_level_share` adds a merged-level variant; a standardized mean difference above `smd_threshold` adds an adjusted variant.
 - Thresholds live in config under `analysis`, including `bound_share` (default 0.1).
 
+### 4.6 Discover
+
+**Discover** turns the open questions of the Research Frame and the foundation into evidence, and lets evidence open the next questions. A **Discover agent** chooses one move at a time over a shared, append-only **research graph**; each move adds nodes that resolve to executed artifacts. The graph is the global scientific state; a tree (§5) is the local mechanism inside a move that compares attempts. The agent coordinates and never writes scientific content itself: roles write nodes, code computes verdicts. The phase-3/4 playbook of §4 is the fixed form of the same moves.
+
+```text
+Research Frame + foundation ──seed──► RESEARCH GRAPH ◄── every move appends nodes
+                                            │ view built by code (open questions, latest results, budget)
+                                            ▼
+                                     Discover agent ── one move + reason (journaled)
+         ┌─────────────┬───────────────┬─────┴──────────┬──────────────┐
+      explore      hypothesize        test           interpret       finish
+     (tree)        (Theorist)   (pre-test → tree      (Theorist;     (candidate
+                                 → verdict)            Critic later)   claims)
+```
+
+**Graph.** Files under `discover/graph/`, written once (§9). Every node has `id`, `kind`, `derived_from` (node ids), `branch` (a lineage label), `artifact` (the tree node, `results.json` or attempt it rests on), `by` (role) and `reason`.
+
+| Node kind     | Written by           | Holds                                                                                         |
+| ------------- | -------------------- | --------------------------------------------------------------------------------------------- |
+| `question`    | Code, at seeding     | Frame questions, directions and unknowns, and foundation concerns and weak operationalizations, keeping their stable ids |
+| `observation` | `explore`            | Named results and figures of the best `explore` node for one focus question                    |
+| `hypothesis`  | `hypothesize`        | A hypothesis in the contract of §4 with `origin` and predictions; candidates not pursued stay as nodes |
+| `result`      | `test`               | Pre-test description, test specification, evidence manifest, stability label and verdicts     |
+| `assessment`  | `interpret`, Critic  | What a result changes: questions closed, questions opened, rivals raised; an attributed opinion, never a label |
+
+A question is closed by an `assessment` that cites it, never by editing it. Dead ends and null results stay in the graph and in the paper.
+
+**Moves.** The agent's tools; each returns the new node ids, and each choice is journaled with its target node and reason.
+
+| Move                    | Does                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `explore(question)`     | Runs stage `explore` with the question as focus                                                                           |
+| `hypothesize(question)` | Theorist session: two or three candidates with origins and predictions, one chosen with a reason; code computes the hypothesis warnings (§4.4) and flags a primary estimand that repeats an existing hypothesis |
+| `test(hypothesis)`      | Pre-test description, test specification, stages `baseline` → `main` → `robustness`, verdicts                            |
+| `interpret(result)`     | Reads verdicts, stability and warnings; writes an `assessment` that closes or opens questions                            |
+| `finish`                | Names the `result` nodes offered to Communicate as candidate claims                                                       |
+
+Discover ends on `finish`, when no question is open, or at its budget. Later moves (`challenge` by the Critic, a new Ground attempt, merging branches) add a row here and change no node kind.
+
+**Hypothesis origin.** Every hypothesis states how it was generated and derives from the nodes that produced it.
+
+| `origin`      | Method                                                                                          | `derived_from`                       |
+| ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `frame`       | Deduction from a question, direction or researcher hypothesis                                   | `question`                           |
+| `observation` | Induction or abduction from what exploration showed                                             | `observation`                        |
+| `rival`       | Strong inference [41]: an alternative explanation of an existing result (confounding, reverse direction, selection, measurement) | `result` and the challenged hypothesis |
+| `followup`    | A moderator, mechanism or anomaly an assessment opened                                          | `assessment`                         |
+
+Code computes `suggested_by_test_data`: true when the hypothesis derives from an observation on the rows its test reads. It is printed beside the result; with the confirm partition on it is false by construction (§11).
+
+**Predictions.** A hypothesis states what must happen if it holds, written before its test:
+
+- `id`; `role`: `primary` (the primary estimand), `rival` (what a rival explanation predicts instead) or `auxiliary` (a secondary estimand);
+- the estimand it reads, `direction` (`positive`, `negative`, or `none` for a placebo or negative control), and an optional `threshold` in outcome units (the `sesoi` once measured, D17).
+
+A rival prediction is tested where its type puts it (§4.4): an adjustment as a robustness variant, a negative control as an adversarial check.
+
+**Pre-test description.** Computed by code at the start of `test` from the estimand, from the primitives of §4.2, before any estimate exists, and written in the `results.json` schema: rows in the population and complete cases over the estimand's columns; exposure levels with rows per level, or exposure spread and support; outcome distribution in the population (skewness, zero, floor and ceiling share); co-missingness of the estimand's columns and missing share by exposure level; cluster count and sizes in the population; and, once that group is built, covariate balance across exposure levels. It never relates the outcome to the exposure: that relation is the test. Code reads it to compute method fit and the cluster warning (§4.5); the Theorist may revise the planned test once after reading it; the Analyst receives it as stage input; the paper renders the sample table from it.
+
+**Test specification.** Frozen after the pre-test description and before `baseline`: estimand, estimator, inference, adjustment set, population. Its hash is the specification identity the Judge reference already carries (§5.3); every node of the test carries it.
+
+**Verdict.** Computed per prediction from the 95% interval of the selected `main` estimate (or the adversarial estimate for a `none` prediction); never written by a model.
+
+| Interval                                                               | Verdict        |
+| ---------------------------------------------------------------------- | -------------- |
+| Excludes zero on the predicted side, and clears `threshold` when set   | `supported`    |
+| Excludes zero on the other side                                        | `contradicted` |
+| Within ±`threshold` (only when set)                                    | `negligible`   |
+| Otherwise                                                              | `inconclusive` |
+| `direction: none`: contains zero / excludes zero                       | `passed` / `failed` |
+
+The verdict answers whether the result matches what the hypothesis predicted; the stability label (§5.5) answers whether it survives other analyses. Both are printed; neither sets the other. A hypothesis stands when its primary prediction is `supported` and its rival predictions are not. In observational designs `supported` is worded as an association consistent with the hypothesis (§10).
+
+**Evidence.** The `result` node is the unit Communicate cites: hypothesis and prediction ids, `origin`, specification hash, the evidence manifest of every attempt (§5.5), verdicts, stability and reasons, and two computed facts, `predicted_before_result` (the prediction precedes every execution of its test in the journal) and `suggested_by_test_data`.
+
 ## 5. Search engine
 
-One engine runs every Discover stage; a stage supplies only its goal, inputs and required outputs. Understand and Ground are agent sessions, not search stages (§4.1, §4.3).
+One engine runs every Discover stage; a stage supplies only its goal, inputs and required outputs. Understand and Ground are agent sessions, not search stages (§4.1, §4.3). In Discover the stages run inside the `explore` and `test` moves (§4.6); the engine knows no graph.
 
 ### 5.1 Node
 
@@ -251,7 +328,7 @@ Experiment stages are separate; default step budgets are baseline 3, main 6, rob
 - **Variants** [21, 22], each re-estimating the main effect: data choices (exclusions, outlier rules, missing-value handling, codings); model choices (covariates, functional form, estimator); resampling (bootstrap, subgroups). Diagnostic-triggered variants (§4.5) and rival checks of type `adjustment` (§4.4) are required variants. Every variant re-estimates the same estimand; anything else stays out of the stability denominator.
 - **Adversarial checks**, at least one [7, 17]: placebo outcome, negative-control exposure or outcome, or permutation of the key variable; rival checks of type `negative_control` are added here. Confounding sensitivity bounds such as the E-value [27], including rival checks of type `sensitivity`, are reported beside the label and do not set it.
 - **Specification curve** of sorted estimates with intervals across variants and across every `ok` node of the experiment stages [23].
-- **Stability label**, computed: `stable` iff the estimate keeps its sign with an interval excluding zero in ≥ `stability_share` (default 0.8) of variants and no adversarial check fails; else `fragile`. When a run tests k hypotheses, the intervals the label reads are at level 1 − α/k.
+- **Stability label**, computed: `stable` iff the estimate keeps its sign with an interval excluding zero in ≥ `stability_share` (default 0.8) of variants and no adversarial check fails; else `fragile`. When a run tests k hypotheses, the intervals the label reads are at level 1 − α/k. The label is independent of the prediction verdict (§4.6).
 
 The current executable adversary is one seeded exposure permutation using the same contrast/estimator; its `placebo_estimate` interval must contain zero (endpoints included). This is a diagnostic, not a calibrated permutation test. Require at least `min_variants=3` successful ordinary specifications. Failed/missing planned variants stay in the denominator; failed/missing adversaries force `fragile`. Ordinary intervals touching zero do not support stability. Main sign, not expected hypothesis direction, is the reference; no extra main-significance gate is imposed. All successful baseline/main/robustness attempts, including repairs and placebo estimates, remain in the table/curve. A repaired specification's representative is its highest-scoring successful node, earliest on ties.
 
@@ -272,8 +349,9 @@ A role is a prompt, a tool set and a model route. A role gets its own session on
 
 | Role         | Responsibility                                                                                      | Tools                                                         | Session reason                 |
 | ------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------ |
-| **PI**       | Runs phases; in agent form, chooses next work, goes back, asks the researcher. The next target is a Discover agent that orchestrates the tree: which direction to explore, when observations suffice for a hypothesis, which hypotheses to test | playbook; later stage, hypothesis, memory, ask-researcher     | Only writer of run-level files |
-| **Theorist** | Understand: explores, critiques and synthesizes the Research Frame, asks the researcher, revises from review signals and Ground concerns; hypotheses with mechanism, rivals and planned tests from the frame, foundation and exploration | read artifact, ask researcher, submit frame; later literature search | No code tools                  |
+| **PI**       | Runs phases; in agent form, chooses next work, goes back, asks the researcher | playbook; later stage, hypothesis, memory, ask-researcher     | Only writer of run-level files |
+| **Discover agent** | The PI's form inside Discover: chooses one move at a time over the research graph and names candidate claims; never writes hypotheses, results or assessments (§4.6) | read artifact; moves `explore`, `hypothesize`, `test`, `interpret`, `finish` | Reads the graph, not role sessions |
+| **Theorist** | Understand: explores, critiques and synthesizes the Research Frame, asks the researcher, revises from review signals and Ground concerns; Discover: hypotheses with origin, predictions, rivals and planned tests, and interpretation of results (§4.6) | read artifact, ask researcher, submit frame; later literature search | No code tools                  |
 | **Data Steward** | Ground: understands, repairs, interrogates and assesses the data; proposes the operationalization and concerns | inspect data, run snippet, view figure, read artifact, submit ground | Runs code; never edits the research context |
 | **Analyst**  | Builds one node                                                                                     | inspect data, run snippet, view figure, read artifact, submit | Only role that runs code       |
 | **Judge**    | Scores one node with typed answers                                                                  | none                                                          | Independent of the author      |
@@ -282,7 +360,7 @@ A role is a prompt, a tool set and a model route. A role gets its own session on
 
 Topology constraints:
 
-- one PI per run; role sessions run one at a time and communicate only through artifacts;
+- one PI per run, and the Discover agent is its form inside Discover; role sessions and moves run one at a time and communicate only through artifacts and graph nodes;
 - at most two hand-offs per node (Analyst → Judge) [37]; Understand and Ground are single sessions with code-checked submits;
 - no role writes another role's outputs;
 - parallel Analysts, hypothesis tournaments and hierarchical planners are evaluation challengers, not defaults (§14).
@@ -311,6 +389,7 @@ Makes agent work recorded, bounded and recoverable. Holds no research logic.
 | `submit`            | Terminal; the script run as the node                              | Once per Analyst session                  |
 | `submit_frame`      | Terminal; research-context patch and framing, checked by code; a failure returns to the Theorist | `understand.max_submits`     |
 | `submit_ground`     | Terminal; script re-run from scratch plus operationalization and concerns, checked by code; a failure returns to the Steward | `ground.max_submits` |
+| Discover moves      | `explore`, `hypothesize`, `test`, `interpret`, `finish` (terminal); each runs its stage or role session and returns new graph node ids (§4.6) | Discover agent only; Discover budget |
 | `search_literature` | Metadata and abstracts of prior work                              | Concepts only, never data values          |
 | `ask_researcher`    | One question with a proposed answer and an "unknown" option; the answer is journaled | Theorist in Understand (`understand.max_questions`), PI agent; never under `--auto` |
 
@@ -394,6 +473,8 @@ runs/<run_id>/
                            operationalization.json, concerns.json, readiness.json
   hypotheses/attempt-*/   one primary estimand, rival explanations, refuting result, warnings, method fit,
                            tested_on, sources/attribution
+  discover/graph/          append-only research-graph nodes (question, observation, hypothesis, result, assessment)
+  discover/pretest/        pre-test description and frozen test specification per tested hypothesis
   discover/robustness/     versioned validated schedule before executions
   discover/evidence/      versioned evidence manifest and numerical summary results.json
   tree/<stage>/<node_id>/  execution/, scratch/, judge_figures/, meta.json, analysis.md
@@ -418,8 +499,8 @@ Every assessment and memory entry cites the artifacts it rests on.
 3. **Write** a fixed LaTeX template: Abstract; Introduction; Data and Methods with the change table, the operationalization table (proposed by the data agent), the hypothesis with its rival explanations (and mechanism when stated); target additions are sample flow, a sample characteristics table without significance tests, method fit and the `tested_on` sentence; Results with Exploratory, Main, Robustness subsections; Discussion with generated limitations: `proposed` and `unknown` entries relied on, unresolved frame concerns, data concerns, readiness and hypothesis warnings, a bounded outcome, and the fixed sentence that data preparation had raw-data access; Conclusion [28]. Numbers appear only as named-result references. Code renders all successful experiment attempts and computed stability/reasons, plus a status list of failed/missing attempts. Every number is resolved from `results.json` with canonical node keys and selected-stage aliases. Reserve one of at most four figures for the specification curve, place every figure next to a generated textual reference, and render caption macros too.
 4. **Render** named results from result files [6]; an unknown name renders `??` and warns.
 5. **Check:** build errors fed back to the Writer for up to `latex_rounds` rounds [1]; vision check of each figure against its caption [1]; number audit of literals not from named results; consistency checks on reported relations (means with n, tests with statistics) [29, 30]; Critic rubric review [2] and one Writer revision.
-6. **Claims file** beside the PDF: each claim with its named results, nodes and label [20].
-7. **Claim language:** negative and inconclusive results reported with equal standing; observational designs described as association; `fragile` results described as fragile; `underpowered` hypotheses described as unable to detect the stated smallest effect.
+6. **Claims file** beside the PDF: each claim with its named results, nodes and label [20]. With the Discover agent, claims come from the `result` nodes named at `finish`, each with its origin, verdicts, stability and computed facts (§4.6); a research-path section generated from the graph lists every move, including dead ends and null results.
+7. **Claim language:** negative and inconclusive results, and `contradicted`, `negligible` and `inconclusive` verdicts, reported with equal standing; observational designs described as association; `fragile` results described as fragile; `underpowered` hypotheses described as unable to detect the stated smallest effect.
 8. **Appendix** generated by code: experiment scripts only, attributed by stage/node; data code and the change table are not duplicated. Broader publication audits, reviews, claims files and figure aggregation remain target extensions, not part of the current local writer.
 9. **Disclosure** that the paper was generated by an AI system.
 
@@ -452,7 +533,7 @@ LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; build in scratch
 
 - **Headline metrics:** false-finding rate on the null suite and share of paper numbers traced to named results.
 - **Per-run metrics:** node failure rate, audit and consistency warnings, holdout gap (evaluation re-runs the reported script on the unsealed holdout after the run; the run never sees it), Critic rubric score, draft diversity, cost, wall time.
-- **Comparisons:** research-context body only vs with front matter; agent-cleaned research context with vs without researcher review; confirm partition on vs off; agentic vs single-shot nodes (`max_turns = 1`); one vs three drafts; diverse vs free drafts; vision feedback on vs off; Ground agent vs `data` tree stage; shuffled-outcome scratch for the Steward on vs off; warnings vs gates on roles and clusters; PI agent vs playbook; Critic on vs off; multiverse vs single robustness check; decision model vs Judge per question.
+- **Comparisons:** research-context body only vs with front matter; agent-cleaned research context with vs without researcher review; confirm partition on vs off; agentic vs single-shot nodes (`max_turns = 1`); one vs three drafts; diverse vs free drafts; vision feedback on vs off; Ground agent vs `data` tree stage; shuffled-outcome scratch for the Steward on vs off; warnings vs gates on roles and clusters; Discover agent vs the phase-3/4 playbook; PI agent vs playbook; Critic on vs off; multiverse vs single robustness check; decision model vs Judge per question.
 - A mechanism whose default is _measured_ (§14) is compared once the suite exists and before the next mechanism is added.
 - **Adoption record:** each comparison ends in an entry in `evals/decisions.md` (change, result, default kept).
 - **Contamination:** public-data suites also run on perturbed copies; a gap is reported as memorization.
@@ -487,6 +568,7 @@ Each decision names its sources and the alternative it rejects. Decisions marked
 | D21 | Optional explore and confirm partitions within discovery rows, off by default until measured; `tested_on` always printed | [24, 25] | Testing on the suggesting rows without saying so; a partition that `data` still fits on | measured |
 | D22 | Layered method vocabulary that classifies plans; computed method fit and few-cluster advice as warnings (gates only if measured); diagnostic-triggered variants | [40, 43, 44] | Flat method list; normality tests choosing the method; cluster-robust SE with few clusters unflagged | measured |
 | D23 | Understand and Ground as agent sessions; tree search kept where attempts are compared (Discover); a bounded return from Ground to Understand | [3, 4, 31, 37] | Tree search in every phase; Ground silently changing research intent | measured |
+| D24 | Discover as one agent choosing moves over an append-only research graph; trees inside moves; hypotheses with a stated origin and structured predictions; a pre-test description per estimand; verdicts computed from predictions | [4, 5, 7, 40, 41] | A linear explore → hypothesis → experiment pipeline; parallel branch agents by default; model-asserted support or contradiction; free-text refuting results | measured |
 
 ## 15. References
 
