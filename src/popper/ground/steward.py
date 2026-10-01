@@ -102,7 +102,10 @@ def _check_mapping(
     concepts = {c.id for c in research.concepts}
     unknown = sorted({o.concept_id for o in operationalization} - concepts)
     if unknown:
-        raise ValueError(f"operationalization names unknown concepts: {', '.join(unknown)}")
+        raise ValueError(
+            f"operationalization names unknown concepts: {', '.join(unknown)}; "
+            f"the frame's concept ids are: {', '.join(sorted(concepts))}"
+        )
     uncovered = sorted(concepts - {o.concept_id for o in operationalization})
     if uncovered:
         raise ValueError(

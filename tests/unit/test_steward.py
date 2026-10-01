@@ -111,7 +111,9 @@ def test_every_concept_needs_an_operationalization(tmp_path: Path) -> None:
     unknown = [
         Operationalization(concept_id="other", columns=[], proxy_strength="none", rationale="r")
     ]
-    assert "unknown concepts: other" in str(_run(tmp_path, mapping=[*MAPPING, *unknown]))
+    message = str(_run(tmp_path, mapping=[*MAPPING, *unknown]))
+    assert "unknown concepts: other" in message
+    assert "concept ids are: effort" in message
 
 
 def test_operationalization_columns_must_exist(tmp_path: Path) -> None:
