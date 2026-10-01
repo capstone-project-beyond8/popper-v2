@@ -1,7 +1,6 @@
 """Ground: one Data Steward session prepares the data; the harness re-runs and checks its script."""
 
 import json
-import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -299,9 +298,6 @@ def load_foundation(h: Harness) -> Foundation | None:
 
 
 def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Foundation:
-    existing = load_foundation(h)
-    if existing:
-        return existing
     run = h.run
     attempt = run.new_attempt("ground")
     ida_raw = DescriptiveReport(**json.loads(run.path("data", "ida-raw.json").read_text("utf-8")))
@@ -333,12 +329,10 @@ def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Fo
     if submitted is None:
         raise StageFailed("ground")
     preparation: Path = accepted["preparation"]
-    target = run.copy_once(preparation / "processed.parquet", "data/processed.parquet")
-    target.chmod(stat.S_IREAD)
-    processed = pd.read_parquet(target)
+    processed = pd.read_parquet(preparation / "processed.parquet")
     report = describe_table(processed, research)
-    ida = run.write_json("data/ida.json", {"results": report.results, "layout": report.layout})
-    ida.chmod(stat.S_IREAD)
+    ida = json.dumps({"results": report.results, "layout": report.layout}, indent=2, default=str)
+    run.write_text(f"{preparation.relative_to(run.root).as_posix()}/ida.json", ida)
     foundation = Foundation(
         preparation,
         accepted["operationalization"],

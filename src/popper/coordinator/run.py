@@ -1,6 +1,7 @@
 """Run the five phases in order and record the outcome."""
 
 import json
+import stat
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,16 +10,16 @@ from typing import Literal
 from popper.communicate.paper import write_paper
 from popper.discover.experiment import experiment
 from popper.discover.explore import explore, propose_hypothesis
-from popper.ground.steward import ground
+from popper.ground.steward import Concern, Foundation, ground, load_foundation
 from popper.harness.config import Config
-from popper.harness.descriptive import describe_table, read_table
+from popper.harness.descriptive import DescriptiveReport, describe_table, read_table
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
-from popper.harness.research import parse_research
+from popper.harness.research import ResearchContext, parse_research
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
-from popper.understand.frame import load_frame, understand
+from popper.understand.frame import Frame, load_frame, understand
 from popper.understand.review import (
     ReviewOutcome,
     apply_review,
@@ -97,10 +98,21 @@ def resume(
         return _resume_locked(store, llm, review, progress)
 
 
+def _commits(store: RunStore) -> list[str]:
+    """Artifact names in commit order; a later commit of a name supersedes the earlier one."""
+    return [e["name"] for e in read_events(store.root) if e["event"] == "artifact_commit"]
+
+
+def _pending_frame(store: RunStore) -> Path | None:
+    """The committed frame the researcher has not reviewed yet."""
+    frames = [n for n in _commits(store) if n in ("frame", "frame_reviewed")]
+    return store.committed("frame") if frames and frames[-1] == "frame" else None
+
+
 def _answer(store: RunStore, review: Path | None) -> ReviewOutcome | None:
-    """The researcher's signals applied to the committed frame; no model call, errors raise."""
-    committed = store.committed("frame")
-    if committed is None or store.committed("frame_reviewed"):
+    """The researcher's signals applied to the pending frame; no model call, errors raise."""
+    committed = _pending_frame(store)
+    if committed is None:
         return None
     columns = list(read_table(store.path("data", "raw.csv")).columns)
     frame = load_frame(committed)
@@ -129,6 +141,59 @@ def _resume_locked(
     return _continue(h, outcome)
 
 
+def _reviewed_frame(
+    h: Harness, research: ResearchContext, report: DescriptiveReport, answered: ReviewOutcome | None
+) -> Frame:
+    """The latest frame once reviewed: asks the Theorist when none exists, else stops for review."""
+    store = h.run
+    if not any(n in ("frame", "frame_reviewed") for n in _commits(store)):
+        understand(h, research, report)
+    pending = _pending_frame(store)
+    if pending is not None:
+        if json.loads(store.path("run.json").read_text("utf-8")).get("auto"):
+            store.commit_artifact("frame_reviewed", pending)
+        elif answered is None:
+            raise _AwaitingReview(write_review(load_frame(pending), store))
+        else:
+            return commit_review(h, answered, report)
+    reviewed = store.committed("frame_reviewed")
+    assert reviewed is not None
+    return load_frame(reviewed)
+
+
+def _foundation(h: Harness, frame: Frame) -> Foundation:
+    """The foundation of the reviewed frame; Ground runs again whenever the frame is newer."""
+    names = _commits(h.run)
+    if "foundation" in names and (
+        names[::-1].index("foundation") < names[::-1].index("frame_reviewed")
+    ):
+        existing = load_foundation(h)
+        assert existing is not None
+        return existing
+    return ground(h, frame.research, frame.framing.model_dump())
+
+
+def _reframes(store: RunStore) -> int:
+    return max(_commits(store).count("frame") - 1, 0)
+
+
+def _guidance(concerns: list[Concern], frame: Frame) -> str:
+    lines = ["The data steward found that the data cannot represent the current frame:"]
+    lines += [f"- {c.type}: {c.description} (evidence: {', '.join(c.evidence)})" for c in concerns]
+    lines.append(
+        "Revise the frame so the study stays answerable with this data: narrow the scope, "
+        "reword questions or concepts, or state what is unmeasured."
+    )
+    lines.append(f"Current framing:\n{json.dumps(frame.framing.model_dump(), indent=2)}")
+    return "\n".join(lines)
+
+
+def _promote(store: RunStore, foundation: Foundation) -> None:
+    """Publish the final foundation's table and description as the run's data files."""
+    for name in ("processed.parquet", "ida.json"):
+        store.copy_once(foundation.preparation / name, f"data/{name}").chmod(stat.S_IREAD)
+
+
 def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     store = h.run
     failed_stage: str | None = None
@@ -147,22 +212,18 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             store.write_json(
                 "data/ida-raw.json", {"results": report.results, "layout": report.layout}
             )
-        reviewed = store.committed("frame_reviewed")
-        if reviewed:
-            frame = load_frame(reviewed)
-        else:
-            frame = understand(h, research, report)
-            if json.loads(store.path("run.json").read_text("utf-8")).get("auto"):
-                store.commit_artifact(
-                    "frame_reviewed", store.path("understand", frame.attempt, "framing.json")
-                )
-            elif answered is None:
-                raise _AwaitingReview(write_review(frame, store))
-            else:
-                frame = commit_review(h, answered, report)
+        frame = _reviewed_frame(h, research, report, answered)
+        while True:
+            _phase(h, "ground")
+            foundation = _foundation(h, frame)
+            concerns = [c for c in foundation.concerns if c.kind == "frame"]
+            if not concerns or _reframes(store) >= h.config.understand.max_reframes:
+                break
+            h.journal.write("reframe", concerns=[c.type for c in concerns])
+            understand(h, frame.research, report, guidance=_guidance(concerns, frame))
+            frame = _reviewed_frame(h, research, report, None)
+        _promote(store, foundation)
         framing = frame.framing.model_dump()
-        _phase(h, "ground")
-        foundation = ground(h, frame.research, framing)
         _phase(h, "explore")
         explore_node = explore(h, framing)
         hypothesis = propose_hypothesis(h, framing, explore_node)

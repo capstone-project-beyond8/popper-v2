@@ -387,9 +387,6 @@ def understand(
     review: Mapping[str, object] | None = None,
 ) -> Frame:
     run: RunStore = h.run
-    committed = run.committed("frame" if review is None else "frame_reviewed")
-    if committed:
-        return load_frame(committed)
     attempt = run.new_attempt("understand")
     declared = render_research(research.model_copy(update={"body": ""})).replace("---\n", "", 0)
     task = load_prompt(

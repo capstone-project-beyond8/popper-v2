@@ -175,7 +175,6 @@ def test_session_retries_fabricated_evidence(tmp_path: Path) -> None:
     assert result.status == "error" and "evidence" in result.text
     assert frame.research.variables["sleep_hours"].unit.value == "hours"
     assert h.run.committed("frame") is not None
-    assert understand(h, ctx, ida).framing == frame.framing  # resume reads the commit
 
 
 def test_session_fails_after_rejected_submits(tmp_path: Path) -> None:
