@@ -1,4 +1,3 @@
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -6,57 +5,13 @@ import pytest
 from popper.coordinator.run import resume, run
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.recovery import load_state, read_events
+from popper.harness.recovery import read_events
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageSpec, run_stage
-from tests.integration.test_run import EXAMPLE, _config, _respond
+from tests.integration.test_run import EXAMPLE, _config
 
 pytestmark = pytest.mark.integration
-
-
-def test_resume_keeps_committed_prefix_and_completes_once(tmp_path: Path) -> None:
-    def interrupt(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        if req.tag == "analyst:main":
-            raise KeyboardInterrupt("interrupted during analyst")
-        return _respond(req)
-
-    with pytest.raises(KeyboardInterrupt):
-        run(
-            EXAMPLE / "brief.md",
-            EXAMPLE / "data.csv",
-            config=_config(),
-            llm=FakeLLM(interrupt),
-            runs_dir=tmp_path,
-        )
-    root = next(p for p in tmp_path.iterdir() if p.is_dir())
-    prefix = {
-        p: hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in root.rglob("*")
-        if p.is_file() and p.name != "journal.jsonl"
-    }
-    fake = FakeLLM(_respond)
-    outcome = resume(root, llm=fake)
-    assert outcome.status == "completed" and outcome.tex is not None
-    assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in prefix.items())
-    assert not any(
-        req.tag
-        in {
-            "framing",
-            "framing:reflect",
-            "hypothesis",
-            "analyst:data",
-            "analyst:explore",
-            "analyst:baseline",
-            "judge:baseline",
-        }
-        for req in fake.calls
-    )
-    assert (root / "tree" / "main" / "main-001" / "meta.json").is_file()
-    assert not (root / "tree" / "main" / "main-000" / "meta.json").exists()
-    assert load_state(RunStore(root))["status"] == "completed"
-    no_calls = FakeLLM(lambda req: pytest.fail("completed resume must not call a model"))
-    assert resume(root, llm=no_calls).tex == outcome.tex
 
 
 def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(

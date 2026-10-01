@@ -25,6 +25,7 @@ popper = "popper.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-xdist",
     "ruff",
     "mypy",
     "pandas-stubs",
@@ -67,4 +68,5 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
     "integration: runs real subprocesses or files; no provider calls",
+    "slow: runs the full pipeline or imports the scientific stack in child scripts",
 ]
