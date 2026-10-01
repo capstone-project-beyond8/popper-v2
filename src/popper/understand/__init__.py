@@ -1,1 +1,1 @@
-"""Ideation & framing: profile the data, read the research context, frame the research questions."""
+"""Ideation & framing: a theorist session builds the research frame."""

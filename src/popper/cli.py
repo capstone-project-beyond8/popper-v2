@@ -37,6 +37,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _ask_on_terminal(question: str, proposed: str) -> str | None:
+    print(f"\n{question}\n  proposed: {proposed}", file=sys.stderr)
+    reply = input("answer (enter accepts the proposal, ? for unknown): ").strip()
+    if reply == "?":
+        return None
+    return reply or proposed
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -91,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             research,
             data,
             auto=args.auto,
+            researcher=_ask_on_terminal if sys.stdin.isatty() and not args.auto else None,
             config=load_config(args.config, base=base if base and base.is_file() else None),
             llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
             runs_dir=args.runs_dir,

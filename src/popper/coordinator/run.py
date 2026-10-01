@@ -11,14 +11,14 @@ from popper.discover.experiment import experiment
 from popper.discover.explore import explore, propose_hypothesis
 from popper.ground.data import prepare
 from popper.harness.config import Config
-from popper.harness.descriptive import describe_table, format_description, read_table
+from popper.harness.descriptive import describe_table, read_table
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.research import parse_research
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
-from popper.understand.framing import frame
+from popper.understand.frame import understand
 
 
 @dataclass(frozen=True)
@@ -43,11 +43,12 @@ def run(
     config: Config,
     auto: bool = False,
     llm: LLM,
+    researcher: Callable[[str, str], str | None] | None = None,
     runs_dir: Path,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
     store = RunStore.create(runs_dir, research, data, config=config, auto=auto)
-    h = Harness(config, llm, store)
+    h = Harness(config, llm, store, researcher=researcher)
     if progress is not None:
         h.progress = progress
     with store.lock():
@@ -112,7 +113,7 @@ def _continue(h: Harness) -> RunOutcome:
             store.write_json(
                 "data/ida-raw.json", {"results": report.results, "layout": report.layout}
             )
-        framing = frame(h, research.body, format_description(report))
+        framing = understand(h, research, report).framing.model_dump()
         _phase(h, "data")
         data_node = prepare(h, framing)
         _phase(h, "explore")

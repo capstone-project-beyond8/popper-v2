@@ -21,10 +21,24 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 FRAMING = {
     "title": "Study hours and exam scores",
     "problem": "Does study time relate to exam performance?",
-    "questions": ["How do study hours relate to exam_score?"],
-    "key_variables": ["study_hours_week", "exam_score"],
-    "directions": ["Fit a log-linear trend"],
-    "data_concerns": ["duplicates", "impossible values"],
+    "questions": [
+        {
+            "id": "hours_score",
+            "text": "How do study hours relate to exam_score?",
+            "objective": "What drives exam performance among secondary students?",
+            "outcome_candidate": "exam_score",
+        }
+    ],
+    "scope": {"inside": ["secondary students"], "outside": []},
+    "unknowns": [],
+    "directions": [
+        {
+            "id": "log_trend",
+            "text": "Fit a log-linear trend",
+            "origin": "diminishing returns",
+            "competing_explanations": ["ability"],
+        }
+    ],
 }
 HYPOTHESIS = {
     "statement": "Scores rise with the log of weekly study hours.",
@@ -139,8 +153,8 @@ def _submit(code: str) -> tuple[ToolCall, ...]:
 
 def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     tag = req.tag
-    if tag.startswith("framing"):
-        return json.dumps(FRAMING)
+    if tag == "theorist":
+        return (ToolCall("frame-1", "submit_frame", {"framing": FRAMING}),)
     if tag.startswith("analyst:"):
         if tag == "analyst:robustness":
             choice = next(
@@ -201,16 +215,15 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     slope = json.loads(results.read_text(encoding="utf-8"))["primary_estimate"]["value"]
     assert f"{slope:.3g}" in tex and r"\textbf{??}" in tex
     assert "exploratory --- autonomously generated" in tex and "\\usepackage{amsmath}" in tex
-    framing_path = RunStore(out.run_dir).committed("framing")
+    framing_path = RunStore(out.run_dir).committed("frame")
     assert framing_path is not None
-    framing = json.loads(framing_path.read_text(encoding="utf-8"))
-    assert framing["supplied_by"] == "agent"
+    assert json.loads(framing_path.read_text(encoding="utf-8"))["title"] == FRAMING["title"]
     hypotheses_path = RunStore(out.run_dir).committed("hypothesis")
     assert hypotheses_path is not None
     hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))
     assert hypotheses and all(x["supplied_by"] == "agent" for x in hypotheses)
     body = parse_research((EXAMPLE / "research.md").read_text(encoding="utf-8")).body
-    request = next(r for r in llm.calls if r.tag == "framing")
+    request = next(r for r in llm.calls if r.tag == "theorist")
     assert f"<untrusted>\n{body}\n</untrusted>" in request.prompt
     assert (out.run_dir / "data" / "processed.parquet").exists()
     record = load_state(RunStore(out.run_dir))

@@ -42,8 +42,7 @@ def test_resume_keeps_committed_prefix_and_completes_once(tmp_path: Path) -> Non
     assert not any(
         req.tag
         in {
-            "framing",
-            "framing:reflect",
+            "theorist",
             "hypothesis",
             "analyst:data",
             "analyst:explore",
