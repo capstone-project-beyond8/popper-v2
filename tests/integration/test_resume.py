@@ -96,7 +96,7 @@ def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(
 def test_resume_rejects_legacy_format_and_retains_budget_stop(tmp_path: Path) -> None:
     legacy = tmp_path / "legacy"
     legacy.mkdir()
-    (legacy / "run.json").write_text('{"status":"completed"}')
+    (legacy / "run.json").write_text('{"status":"completed","format_version":2}')
     fake = FakeLLM(lambda req: pytest.fail("no model calls expected"))
     with pytest.raises(ValueError, match="format"):
         resume(legacy, llm=fake)
@@ -147,3 +147,14 @@ def test_resume_after_node_commit_reconstructs_stage_end(
     node = run_stage(Harness(cfg, no_calls, store), spec)
     assert node.id == "stage-000"
     assert len([e for e in read_events(store.root) if e["event"] == "node_start"]) == 1
+
+
+def test_locked_run_cannot_be_resumed_and_journal_is_untouched(tmp_path: Path) -> None:
+    cfg = _config()
+    store = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg)
+    with store.lock():
+        before = read_events(store.root)
+        with pytest.raises(RuntimeError, match="in use"):
+            resume(store.root, llm=FakeLLM(lambda req: pytest.fail("no model calls expected")))
+        assert read_events(store.root) == before
+    assert not store.path("run.lock").exists()

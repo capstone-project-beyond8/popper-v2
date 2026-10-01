@@ -16,6 +16,7 @@ def test_validated_method_roles_and_requirements_reach_blinded_judge(tmp_path: P
     hypothesis = {
         **PROPOSAL,
         "planned_test": "linear regression bootstrap SECRET_EFFECT -0.731",
+        "methods": ["linear_regression", "bootstrap"],
         "primary_estimand": {**ESTIMAND, "unit": "SECRET_EFFECT"},
     }
     reference = method_reference(hypothesis, ["hours", "score"], purpose="main")
@@ -48,20 +49,56 @@ def test_validated_method_roles_and_requirements_reach_blinded_judge(tmp_path: P
         judge_reference=reference,
     )
     prompt, _ = judge_input(spec, node, ExecResult(0, False, "-0.731", "SECRET_EFFECT", 0.1))
-    assert "regression" in prompt and "bootstrap" in prompt
+    assert "linear regression" in prompt and "bootstrap" in prompt
     assert "<outcome_column>" in prompt and "<exposure_column>" in prompt
     assert "original outcome units" in prompt and "declared difference" in prompt
     assert "SECRET_EFFECT" not in prompt and "0.731" not in prompt and "-'<withheld>'" not in prompt
     adversarial = method_reference(
-        hypothesis, ["hours", "score"], purpose="adversarial", choice="permutation SECRET_EFFECT"
+        hypothesis,
+        ["hours", "score"],
+        purpose="adversarial",
+        choice="permutation SECRET_EFFECT",
+        methods=["permutation_test"],
     )
     other, _ = judge_input(
         replace(spec, judge_reference=adversarial), node, ExecResult(0, False, "", "", 0.1)
     )
-    assert "permutation" in other and prompt != other and "SECRET_EFFECT" not in other
+    assert "permutation test" in other and prompt != other and "SECRET_EFFECT" not in other
     assert "expected_direction" not in json.dumps(reference.requirements)
 
 
 def test_method_reference_rejects_unknown_column_roles() -> None:
     with pytest.raises(ValueError, match="column"):
         method_reference(PROPOSAL, ["hours"], purpose="main")
+
+
+def test_transformed_outcome_requirement_only_when_log_transform_declared() -> None:
+    def text(hypothesis_methods: list[str], purpose: str, methods: list[str]) -> str:
+        reference = method_reference(
+            {**PROPOSAL, "methods": hypothesis_methods},
+            ["hours", "score"],
+            purpose=purpose,
+            methods=methods,
+        )
+        return " ".join(reference.requirements)
+
+    assert "Transformed outcome" not in text(["bootstrap"], "main", [])
+    assert "Transformed outcome" in text(["log_transform"], "main", [])
+    assert "Transformed outcome" not in text(["log_transform"], "baseline", [])
+    assert "Transformed outcome" in text(["bootstrap"], "model", ["log_transform"])
+
+
+def test_method_reference_lists_only_declared_methods() -> None:
+    hypothesis = {
+        **PROPOSAL,
+        "planned_test": "compare log-odds with robust standard errors",
+        "methods": ["logistic_regression"],
+    }
+    reference = method_reference(
+        hypothesis, ["hours", "score"], purpose="model", choice="log-odds robust", methods=[]
+    )
+    text = " ".join(reference.requirements)
+    assert "logistic regression" in text
+    assert "log transform" not in text and "robust" not in text
+    assert "Recorded alternative" not in text
+    assert "declared difference" in text

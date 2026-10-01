@@ -21,9 +21,10 @@ are secondary, never a second primary estimand. A null result is valid.
 Reply with JSON only, exactly these keys:
 - statement: testable claim
 - rationale: which exploration observations motivated it
-- primary_estimand: {{"outcome": "column", "exposure": "column", "contrast": "precise comparison", "population": "eligible population", "unit": "outcome unit"}}
+- primary_estimand: {{"outcome": "column", "exposure": "column, different from outcome", "contrast": "precise comparison", "comparison": "difference or ratio", "population": "eligible population", "unit": "outcome unit"}}
 - expected_direction: positive or negative
 - refuting_result: the executed result that would refute this claim
 - planned_test: model/test, covariates, contrast calculation and interval method
+- methods: list of the operations the planned test uses, chosen only from the allowed values in the schema
 
 Do not supply IDs, source nodes, attribution or a confidence/stability label.

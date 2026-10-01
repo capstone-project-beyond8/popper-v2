@@ -3,6 +3,8 @@
 import json
 from typing import Any
 
+import pandas as pd
+
 from popper.discover.hypothesis import Hypothesis, HypothesisProposal
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
@@ -55,6 +57,9 @@ def propose_hypothesis(h: Harness, framing: dict[str, Any], best: Node) -> dict[
             ),
             figures="\n".join(f"- {f}" for f in best.figures),
         ),
+        validation_context={
+            "columns": pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
+        },
     )
     result = Hypothesis(
         **hypothesis.model_dump(), id="hypothesis-001", source_nodes=[best.id], supplied_by="agent"

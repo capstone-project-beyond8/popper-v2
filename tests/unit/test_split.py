@@ -1,8 +1,11 @@
+import csv
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
 from popper.harness.config import DataConfig
-from popper.harness.store import split_rows
+from popper.harness.store import RunStore, split_rows
 
 
 def test_split_is_seeded_and_preserves_rows() -> None:
@@ -23,7 +26,7 @@ def test_group_split_keeps_duplicates_together() -> None:
     assert len(discovery) + len(holdout) == 6
 
 
-@pytest.mark.parametrize("ids", [["a"], ["a", None]])
+@pytest.mark.parametrize("ids", [["a"], ["a", None], ["a", ""], ["a", " "]])
 def test_invalid_groups_fail_before_analysis(ids: list[str | None]) -> None:
     with pytest.raises(ValueError):
         split_rows(pd.DataFrame({"id": ids}), DataConfig(group_column="id"))
@@ -47,3 +50,19 @@ def test_zero_fraction_keeps_all_rows() -> None:
 def test_invalid_fraction_is_rejected(fraction: float) -> None:
     with pytest.raises(ValueError):
         DataConfig(holdout_fraction=fraction)
+
+
+def test_discovery_files_keep_source_cells_exactly(tmp_path: Path) -> None:
+    header = ["zip", "flag", "n", "note"]
+    rows = [["02134", "NA", "7", "x"], ["00501", "1.50", "8", ""]] * 5
+    source = tmp_path / "data.csv"
+    source.write_bytes(("\r\n".join(",".join(r) for r in [header, *rows]) + "\r\n").encode())
+    brief = tmp_path / "brief.md"
+    brief.write_text("brief")
+    store = RunStore.create(tmp_path / "runs", brief, source)
+    cells = []
+    for name in ("raw.csv", "holdout.csv"):
+        raw = store.path("data", name).read_bytes()
+        assert b"\r" not in raw
+        cells += list(csv.reader(raw.decode().splitlines()))[1:]
+    assert sorted(cells) == sorted(rows)

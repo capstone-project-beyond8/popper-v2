@@ -123,10 +123,15 @@ def select_best(nodes: Sequence[Node]) -> Node | None:
     return best
 
 
+def _draft_limit(search: Search, steps: int) -> int:
+    """Drafts allowed in a stage, keeping at least one step for debug/improve."""
+    return max(1, min(search.num_drafts, steps - 1))
+
+
 def choose_action(
-    nodes: Sequence[Node], search: Search, rng: random.Random
+    nodes: Sequence[Node], search: Search, rng: random.Random, steps: int
 ) -> tuple[NodeKind, Node | None]:
-    if sum(n.parent is None for n in nodes) < search.num_drafts:
+    if sum(n.parent is None for n in nodes) < _draft_limit(search, steps):
         return "draft", None
     parents = {n.parent for n in nodes}
     debuggable = [
@@ -154,10 +159,12 @@ def _task(spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
     return f"Fix this script.\n{code}\n{analysis}"
 
 
-def _reason(kind: NodeKind, parent: Node | None, nodes: Sequence[Node], search: Search) -> str:
+def _reason(
+    kind: NodeKind, parent: Node | None, nodes: Sequence[Node], search: Search, steps: int
+) -> str:
     if parent is None:
         drafts = sum(n.parent is None for n in nodes) + 1
-        return f"draft {drafts} of {search.num_drafts}"
+        return f"draft {drafts} of {_draft_limit(search, steps)}"
     if kind == "debug":
         first = (parent.analysis.splitlines() or [""])[0]
         return f"debug {parent.id}: {first}"[:120]
@@ -360,6 +367,9 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     except ValueError as exc:
         node.analysis = f"Invalid judge reply: {exc}"
         return
+    except LLMError as exc:
+        node.analysis = f"judge call failed: {exc}"
+        return
     node.analysis = "\n".join([verdict.analysis, *verdict.figure_issues])
     if not verdict.node_buggy:
         node.status, node.score, node.goal_met = "ok", verdict.node_score, verdict.goal_met
@@ -436,8 +446,8 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
             )
             reason = f"{kind} specification {attempt.id}"
         else:
-            kind, parent = choose_action(nodes, h.config.search, rng)
-            reason = _reason(kind, parent, nodes, h.config.search)
+            kind, parent = choose_action(nodes, h.config.search, rng, steps)
+            reason = _reason(kind, parent, nodes, h.config.search, steps)
         node = _step(h, effective, i, kind, parent, reason, attempt, rng.getstate())
         nodes.append(node)
         score = f" score {node.score:g}" if node.status == "ok" else ""

@@ -54,6 +54,10 @@ def test_run_python_uses_numbered_scratch_folders(tmp_path: Path) -> None:
     events = [json.loads(line) for line in h.run.path("journal.jsonl").read_text().splitlines()]
     assert sum(e["event"] == "exec_start" for e in events) == 2
     assert sum(e["event"] == "exec" for e in events) == 2
+    for e in (e for e in events if e["event"] == "exec"):
+        journaled = Path(e["path"])
+        assert journaled.parent == (node_dir / "scratch").resolve()
+        assert (journaled / "code.py").exists() and (journaled / "stdout.txt").exists()
 
 
 def test_run_python_hides_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -38,6 +38,11 @@ def _check_changes(workdir: Path) -> str | None:
         changes = TypeAdapter(list[Change]).validate_json((workdir / "changes.json").read_bytes())
         results = json.loads((workdir / "results.json").read_text("utf-8"))
         for change in changes:
+            if change.rows_affected not in results:
+                return (
+                    f"rows_affected {change.rows_affected!r} has no entry in results.json; "
+                    "report that count there under the same key"
+                )
             value = results[change.rows_affected]["value"]
             if type(value) is not int or value < 0:
                 return f"{change.rows_affected} must be a nonnegative integer count in results.json"

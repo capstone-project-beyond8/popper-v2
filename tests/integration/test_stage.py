@@ -26,7 +26,7 @@ def _submit(code: str) -> tuple[ToolCall, ...]:
     return _tool("submit", code=code)
 
 
-def _harness(tmp_path: Path, analyst: list[Reply], judge: list[str] | None = None) -> Harness:
+def _harness(tmp_path: Path, analyst: list[Reply], judge: list[Reply] | None = None) -> Harness:
     replies = {"analyst:": iter(analyst), "judge:": iter(judge or [FEEDBACK])}
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
@@ -70,6 +70,20 @@ def test_recovers_through_debug(tmp_path: Path) -> None:
     assert (stage / "stage-001" / "scratch" / "00" / "code.py").exists()
     meta = json.loads((stage / "stage-001" / "meta.json").read_text(encoding="utf-8"))
     assert meta["reason"].startswith("debug stage-000")
+
+
+def test_judge_llm_error_marks_node_buggy_and_stage_continues(tmp_path: Path) -> None:
+    good = (
+        "import json\n"
+        "json.dump({'m': {'value': 1.5}}, open('results.json','w'))\n"
+        "open('out.txt','w').write('x')"
+    )
+    h = _harness(tmp_path, [_submit(good), _submit(good)], [LLMError("judge down"), FEEDBACK])
+    best = run_stage(h, SPEC, random.Random(0))
+    assert best.id == "stage-001" and best.status == "ok"
+    first = h.run.path("tree", SPEC.name) / "stage-000"
+    assert (first / "analysis.md").read_text(encoding="utf-8") == "judge call failed: judge down"
+    assert json.loads((first / "meta.json").read_text(encoding="utf-8"))["status"] == "buggy"
 
 
 def test_submit_without_code_is_buggy(tmp_path: Path) -> None:

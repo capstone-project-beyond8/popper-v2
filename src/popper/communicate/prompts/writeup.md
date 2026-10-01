@@ -5,7 +5,7 @@ Write the sections of a short research report as LaTeX body text (no preamble, n
 
 Cite quantitative values only as \R{{key}}, copying a key exactly. `.ci` is the reported interval;
 `.n` is sample size. Put units outside macros. Never invent numbers, labels or figure paths.
-Do not write the words stable, fragile or confirmed; code supplies the evidence label.
+Do not write the words stable, fragile or confirmed; code inserts the evidence label and places the figures.
 Interpret direction relative to the selected hypothesis, including equally legitimate negative results.
 
 {framing}
@@ -20,7 +20,7 @@ Interpret direction relative to the selected hypothesis, including equally legit
 
 Choose existing figures through the figures list only. Do not write includegraphics or label commands.
 Code reserves one slot for its specification curve and places at most three other figures.
-Captions also use \R{{key}}. Discuss adaptive exploration, unavailable reserved holdout, restricted
+Captions also use \R{{key}}. Discuss adaptive exploration, reserved ingest rows (not evidence of verification), restricted
 subgroup populations and failed attempts. Do not claim independent verification.
 
 Reply with one JSON object with exactly these keys:

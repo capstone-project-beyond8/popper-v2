@@ -3,7 +3,6 @@
 import hashlib
 import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -27,23 +26,23 @@ from popper.treesearch.engine import (
 )
 from popper.treesearch.judge import JudgeReference
 
-_METHOD_TERMS = (
-    (r"\b(regress\w*|ols)\b", "regression"),
-    (r"\b(linear|ols)\b", "linear model"),
-    (r"\b(logistic|logit|binomial)\b", "logistic model"),
-    (r"\blog(?:1p)?\b", "log transform"),
-    (r"\b(bootstrap|bootstrapping)\b", "bootstrap"),
-    (r"\b(permutation|permute)\b", "permutation"),
-    (r"\b(median|mean)[ -]imput\w*|\bimputation\b", "imputation"),
-    (r"\b(robust|huber)\b", "robust estimator"),
-    (r"\brandom forest\b", "random forest"),
-    (r"\b(gam|spline\w*)\b", "nonlinear smooth model"),
-    (r"\b(cluster\w*)\b", "cluster-aware uncertainty"),
+_TRANSFORM_NOTE = (
+    "If the model uses a transformed outcome, back-transform predictions and get the interval "
+    "of the original-scale contrast by bootstrap; do not hand-derive delta-method derivatives."
 )
 
 
+def _names(methods: Sequence[str]) -> str:
+    return ", ".join(m.replace("_", " ") for m in methods)
+
+
 def method_reference(
-    hypothesis: Mapping[str, Any], columns: Sequence[str], *, purpose: str, choice: str = ""
+    hypothesis: Mapping[str, Any],
+    columns: Sequence[str],
+    *,
+    purpose: str,
+    choice: str = "",
+    methods: Sequence[str] = (),
 ) -> JudgeReference:
     """Only checked column roles and closed method vocabulary can cross the blinding boundary."""
     primary = hypothesis["primary_estimand"]
@@ -60,17 +59,9 @@ def method_reference(
         "adversarial",
     }:
         raise ValueError("unknown experiment purpose")
-    contrast = primary["contrast"].casefold()
-    comparison = (
-        "ratio"
-        if re.search(r"\bratio\b", contrast)
-        else "difference"
-        if re.search(r"\b(difference|additional|to|minus)\b", contrast)
-        else "contrast"
-    )
     requirements = [
         f"Stage/specification: {purpose}.",
-        f"Compute the declared {comparison} using the designated exposure and outcome in original outcome units.",
+        f"Compute the declared {primary['comparison']} using the designated exposure and outcome in original outcome units.",
         "Use the declared restricted subgroup population."
         if purpose == "subgroup"
         else "Use the primary declared population.",
@@ -78,18 +69,17 @@ def method_reference(
     if purpose == "baseline":
         requirements.append("Use a simple transparent baseline and report an uncertainty interval.")
     else:
-        text = hypothesis["planned_test"].casefold()
-        operations = [label for pattern, label in _METHOD_TERMS if re.search(pattern, text)]
+        requirements.append(f"Main planned method operations: {_names(hypothesis['methods'])}.")
+    if methods:
+        requirements.append(f"Recorded alternative operations: {_names(methods)}.")
+    if "log_transform" in methods or (
+        purpose != "baseline" and "log_transform" in hypothesis["methods"]
+    ):
         requirements.append(
-            "Main planned method operations: "
-            + ", ".join(operations or ["no recognized method terms"])
-            + "."
+            "Transformed outcome: the contrast and its interval must be on the original outcome "
+            "scale, with the interval from bootstrap or from transformed prediction endpoints, "
+            "not a hand-derived delta method."
         )
-    alternatives = [
-        label for pattern, label in _METHOD_TERMS if re.search(pattern, choice.casefold())
-    ]
-    if alternatives:
-        requirements.append("Recorded alternative operations: " + ", ".join(alternatives) + ".")
     if purpose == "adversarial":
         requirements.append(
             "Permute the exposure once; refit the same estimator and contrast, reporting a placebo interval."
@@ -101,6 +91,7 @@ def method_reference(
                 "test": hypothesis["planned_test"],
                 "purpose": purpose,
                 "choice": choice,
+                "methods": [hypothesis["methods"], list(methods)],
             },
             sort_keys=True,
         ).encode()
@@ -116,6 +107,13 @@ def check_estimate(
 ) -> str | None:
     try:
         raw = json.loads((workdir / "results.json").read_text("utf-8"))
+        if not isinstance(raw, dict):
+            return "results.json must be a JSON object"
+        if key not in raw:
+            return (
+                f"results.json has no {key!r} entry; "
+                "write it with value, a 95% ci [low, high] and integer n"
+            )
         entry = ResultEntry.model_validate_json(json.dumps(raw[key]))
         if type(entry.value) not in (int, float) or not math.isfinite(float(entry.value)):
             return f"{key} needs a finite numerical estimate"
@@ -129,8 +127,11 @@ def check_estimate(
             return f"{key} needs a positive integer sample size"
         if estimand is not None:
             declared = json.loads((workdir / "estimand.json").read_text("utf-8"))
-            if declared != estimand:
-                return "declared estimand differs from the required contrast, units or population"
+            if not isinstance(declared, dict):
+                return "estimand.json must be a JSON object"
+            for name, required in estimand.items():
+                if declared.get(name) != required:
+                    return f"estimand.json {name!r} must be exactly {required!r}"
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return f"invalid {key}: {exc}"
     return None
@@ -152,9 +153,10 @@ def run_experiment_stage(
     goal += (
         " Re-estimate the declared primary contrast in its original outcome units. "
         "Write primary_estimate in results.json with value, a 95% ci and integer n. "
-        "Write exactly the declared primary_estimand object to estimand.json. "
+        f"Write exactly this JSON object to estimand.json: {json.dumps(estimand)}. "
         "Save a result figure in figures/. Secondary estimands need different result keys. "
-        "Do not choose preprocessing or a model to obtain a desired sign or significance."
+        "Do not choose preprocessing or a model to obtain a desired sign or significance. "
+        f"{_TRANSFORM_NOTE}"
     )
     return run_stage(
         h,
@@ -190,11 +192,19 @@ def experiment(
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None)
     main = run_experiment_stage(h, "main", framing, hypothesis, baseline)
     plan = plan_robustness(h, hypothesis, main, data_node)
-    schedule = load_robustness_plan(plan, h.config, hypothesis)
+    schedule = load_robustness_plan(plan, h.config)
     columns = pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
     attempts = tuple(
         _attempt(
-            item, method_reference(hypothesis, columns, purpose=item.dimension, choice=item.choice)
+            item,
+            item.estimand(hypothesis["primary_estimand"]),
+            method_reference(
+                hypothesis,
+                columns,
+                purpose=item.dimension,
+                choice=item.choice,
+                methods=item.methods,
+            ),
         )
         for item in schedule.attempts
     )
@@ -212,7 +222,7 @@ def experiment(
                     "prepare": data_node.execution_dir / "code.py",
                     "changes": data_node.execution_dir / "changes.json",
                 },
-                required_outputs=("results.json", "estimand.json", "specification.json"),
+                required_outputs=("results.json", "estimand.json"),
                 seed_code=main.code,
                 seed_node=main.id,
                 blind_estimates=True,
@@ -225,15 +235,17 @@ def experiment(
     return collect_evidence(h, hypothesis, selected, plan)
 
 
-def _attempt(item: Specification, reference: JudgeReference) -> AttemptSpec:
+def _attempt(
+    item: Specification, estimand: dict[str, Any], reference: JudgeReference
+) -> AttemptSpec:
     goal = (
         f"Implement only this recorded {item.dimension} alternative: {item.choice}. "
         "Adapt the seeded main script; keep the declared exposure, outcome, contrast and units. "
         "For cleaning alternatives, rerun recorded preparation on the raw discovery input with "
         "the declared change; the preparation script and change log are mounted as prepare and changes. "
         f"Write {item.result_key} in results.json with value, 95% ci and positive integer n. "
-        "Write the declared estimand to estimand.json and this specification exactly to specification.json. "
-        "Do not write a pass/fail flag or a stability label."
+        f"Write exactly this JSON object to estimand.json: {json.dumps(estimand)}. "
+        f"Do not write a pass/fail flag or a stability label. {_TRANSFORM_NOTE}"
     )
     if item.kind == "adversarial":
         goal += (
@@ -243,16 +255,7 @@ def _attempt(item: Specification, reference: JudgeReference) -> AttemptSpec:
         )
 
     def check(path: Path) -> str | None:
-        failure = check_estimate(path, item.result_key, item.estimand.model_dump())
-        if failure:
-            return failure
-        try:
-            saved = Specification.model_validate_json((path / "specification.json").read_bytes())
-            if saved != item:
-                return "executed specification metadata differs from the recorded choice"
-        except (OSError, ValueError) as exc:
-            return f"invalid specification metadata: {exc}"
-        return None
+        return check_estimate(path, item.result_key, estimand)
 
     return AttemptSpec(
         item.id, item.kind, goal, json.dumps(item.model_dump(mode="json")), check, reference
