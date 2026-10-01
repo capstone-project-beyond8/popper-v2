@@ -1,12 +1,14 @@
 """Write-once run directory."""
 
 import hashlib
+import io
 import json
 import math
 import os
 import secrets
 import shutil
 import stat
+import zlib
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -56,6 +58,16 @@ def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def key_path(run_id: str) -> Path:
+    base = os.environ.get("POPPER_KEY_DIR")
+    return (Path(base) if base else Path.home() / ".popper" / "keys") / f"{run_id}.key"
+
+
+def _xor_stream(data: bytes, key: bytes) -> bytes:
+    stream = hashlib.shake_256(key + b"popper-holdout").digest(len(data))
+    return bytes(a ^ b for a, b in zip(data, stream, strict=True))
+
+
 class RunStore:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
@@ -84,9 +96,18 @@ class RunStore:
         store.root.mkdir(parents=True)
         shutil.copyfile(research, store.root / "research.md")
         (store.root / "data").mkdir()
-        for name, rows in (("raw.csv", discovery), ("holdout.csv", held)):
-            path = store.path("data", name)
-            rows.to_csv(path, index=False, lineterminator="\n")
+        raw_path = store.path("data", "raw.csv")
+        discovery.to_csv(raw_path, index=False, lineterminator="\n")
+        plain = held.to_csv(index=False, lineterminator="\n").encode("utf-8")
+        key = secrets.token_bytes(32)
+        key_file = key_path(run_id)
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        with key_file.open("xb") as f:
+            f.write(key)
+        key_file.chmod(stat.S_IREAD | stat.S_IWRITE)
+        sealed_path = store.path("data", "holdout.sealed")
+        sealed_path.write_bytes(_xor_stream(zlib.compress(plain), key))
+        for path in (raw_path, sealed_path):
             path.chmod(stat.S_IREAD)
         store.write_json(
             "data/split.json",
@@ -96,7 +117,7 @@ class RunStore:
                 "holdout_rows": len(held),
                 "verification_eligible": not held.empty,
                 "discovery_hash": file_hash(store.path("data", "raw.csv")),
-                "holdout_hash": file_hash(store.path("data", "holdout.csv")),
+                "holdout_hash": hashlib.sha256(plain).hexdigest(),
             },
         )
         config_data = snapshot.model_dump(mode="json")
@@ -114,6 +135,18 @@ class RunStore:
             },
         )
         return store
+
+    def read_holdout(self) -> pd.DataFrame:
+        """Unseal the held-back rows with the run key kept outside the run directory."""
+        key_file = key_path(self.root.name)
+        if not key_file.is_file():
+            raise FileNotFoundError(f"holdout key not found at {key_file}")
+        sealed = self.path("data", "holdout.sealed").read_bytes()
+        plain = zlib.decompress(_xor_stream(sealed, key_file.read_bytes()))
+        expected = json.loads(self.path("data", "split.json").read_text("utf-8"))["holdout_hash"]
+        if hashlib.sha256(plain).hexdigest() != expected:
+            raise ValueError("holdout rows do not match the recorded hash")
+        return pd.read_csv(io.BytesIO(plain), dtype=str, keep_default_na=False)
 
     def path(self, *parts: str) -> Path:
         return self.root.joinpath(*parts)

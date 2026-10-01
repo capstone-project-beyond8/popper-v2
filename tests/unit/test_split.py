@@ -61,8 +61,33 @@ def test_discovery_files_keep_source_cells_exactly(tmp_path: Path) -> None:
     research.write_text("study")
     store = RunStore.create(tmp_path / "runs", research, source)
     cells = []
-    for name in ("raw.csv", "holdout.csv"):
-        raw = store.path("data", name).read_bytes()
-        assert b"\r" not in raw
-        cells += list(csv.reader(raw.decode().splitlines()))[1:]
+    raw = store.path("data", "raw.csv").read_bytes()
+    assert b"\r" not in raw
+    cells += list(csv.reader(raw.decode().splitlines()))[1:]
+    cells += store.read_holdout().values.tolist()
     assert sorted(cells) == sorted(rows)
+
+
+def _sealed_store(tmp_path: Path) -> RunStore:
+    source = tmp_path / "data.csv"
+    source.write_text("id,v\n" + "".join(f"{i},val-{i}-unique\n" for i in range(10)))
+    research = tmp_path / "research.md"
+    research.write_text("study")
+    return RunStore.create(tmp_path / "runs", research, source)
+
+
+def test_holdout_is_sealed_and_round_trips(tmp_path: Path) -> None:
+    store = _sealed_store(tmp_path)
+    held = store.read_holdout()
+    assert len(held) == 2
+    sealed = store.path("data", "holdout.sealed").read_bytes()
+    assert not store.path("data", "holdout.csv").exists()
+    assert all(v.encode() not in sealed for v in held["v"])
+    assert not list(store.root.rglob("*.key"))
+
+
+def test_missing_key_is_a_clear_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _sealed_store(tmp_path)
+    monkeypatch.setenv("POPPER_KEY_DIR", str(tmp_path / "elsewhere"))
+    with pytest.raises(FileNotFoundError, match="holdout key not found at .*elsewhere"):
+        store.read_holdout()

@@ -386,7 +386,7 @@ runs/<run_id>/
   journal*.jsonl           append-only event segments and authoritative commits
   state/<sequence>.json    committed status/cost snapshots with artifact references
   research.md              research context as given (validated)
-  data/                    discovery raw.csv, holdout.csv, split.json (holdout rows; confirm rows when on),
+  data/                    discovery raw.csv, holdout.sealed, split.json (holdout rows; confirm rows when on),
                            processed.parquet, ida-raw.json, ida.json (one per accepted Ground attempt)
   understand/attempt-*/    research.json/.md (cleaned research context), framing.json, questions.json, warnings.json,
                            review.yaml; then the researcher-reviewed attempt
@@ -427,7 +427,7 @@ LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; build in scratch
 
 ## 11. Verify
 
-- **Holdout:** at ingest, before profiling, `holdout_fraction` (default 0.2; 0 disables) of rows is set aside, grouped by an id column when given. These rows never reach a node or tool. The split ships before Verify because exposure cannot be undone: a run without a holdout can never be verified.
+- **Holdout:** at ingest, before profiling, `holdout_fraction` (default 0.2; 0 disables) of rows is set aside, grouped by an id column when given. These rows never reach a node or tool. The split ships before Verify because exposure cannot be undone: a run without a holdout can never be verified. Holdout rows are sealed with a per-run key kept outside the run directory; scripts never receive it.
 - **Confirm partition:** after the holdout, `confirm_fraction` (default 0, off; the comparison of §13 decides the default) of discovery rows is marked confirm, grouped the same way, and recorded in `split.json`. When on, the Ground script fits its rules on explore rows and is replayed unchanged on confirm rows; `explore` reads only explore rows; experiment stages read only confirm rows. Initial data analysis (§4.2) uses all discovery rows. Each hypothesis records the computed `tested_on` (`all_discovery` or `confirm`), printed in Data and Methods; no new label is added, since every result outside Verify is already `exploratory`. Off, a weak effect keeps its power; on, about half the rows test it.
 - **Verify a result:** lock the data and analysis scripts that produced it and a margin chosen before looking (the hypothesis `sesoi` when it was set before exploration); run once on the holdout; compute `confirmed`, `not_confirmed` or `inconclusive`. A failed run is `inconclusive` and is not repeated.
 - One look per result [25]; assumptions are stated [7]. Exposure and error budgets exist only in `verify/`.
@@ -451,7 +451,7 @@ LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; build in scratch
 | Reference | Public datasets with known findings; BLADE and DiscoveryBench tasks [15, 16] | Agreement with expert analyses                        |
 
 - **Headline metrics:** false-finding rate on the null suite and share of paper numbers traced to named results.
-- **Per-run metrics:** node failure rate, audit and consistency warnings, holdout gap (evaluation re-runs the reported script on `data/holdout.csv` after the run; the run never sees it), Critic rubric score, draft diversity, cost, wall time.
+- **Per-run metrics:** node failure rate, audit and consistency warnings, holdout gap (evaluation re-runs the reported script on the unsealed holdout after the run; the run never sees it), Critic rubric score, draft diversity, cost, wall time.
 - **Comparisons:** research-context body only vs with front matter; agent-cleaned research context with vs without researcher review; confirm partition on vs off; agentic vs single-shot nodes (`max_turns = 1`); one vs three drafts; diverse vs free drafts; vision feedback on vs off; Ground agent vs `data` tree stage; shuffled-outcome scratch for the Steward on vs off; warnings vs gates on roles and clusters; PI agent vs playbook; Critic on vs off; multiverse vs single robustness check; decision model vs Judge per question.
 - A mechanism whose default is _measured_ (§14) is compared once the suite exists and before the next mechanism is added.
 - **Adoption record:** each comparison ends in an entry in `evals/decisions.md` (change, result, default kept).

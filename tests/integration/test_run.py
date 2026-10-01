@@ -301,7 +301,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert events.count("phase") == 14 and "exec" in events
     data = out.run_dir / "data"
     raw_ids = set(pd.read_csv(data / "raw.csv").student_id)
-    held_only = set(pd.read_csv(data / "holdout.csv").student_id) - raw_ids
+    held_only = set(RunStore(out.run_dir).read_holdout().student_id) - raw_ids
     assert held_only  # duplicated source rows may share ids across the split; the rest may not
     assert set(pd.read_parquet(data / "processed.parquet").student_id) <= raw_ids
     assert not any("holdout" in req.prompt for req in (*llm.calls, *fake.calls))
@@ -331,7 +331,7 @@ def test_reviewed_frame_run_never_exposes_holdout_rows(tmp_path: Path) -> None:
     assert tags.index("steward") < tags.index("hypothesis")
     data = out.run_dir / "data"
     raw = pd.read_csv(data / "raw.csv")
-    held = pd.read_csv(data / "holdout.csv")
+    held = RunStore(out.run_dir).read_holdout()
     only = sorted({f"{v}" for v in held.student_id} - {f"{v}" for v in raw.student_id})
     assert only, "no holdout-only value to look for; the check would pass vacuously"
     seen = "\n".join(r.prompt for r in llm.calls)
