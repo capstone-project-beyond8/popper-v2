@@ -7,7 +7,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from popper.discover.hypothesis import PrimaryEstimand, Text
+from popper.discover.hypothesis import Method, Text
 from popper.harness.config import Config
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, ResultEntry, load_nodes, select_best
@@ -21,7 +21,8 @@ class Specification(BaseModel):
     kind: Literal["variant", "adversarial"]
     dimension: Dimension
     choice: Text
-    estimand: PrimaryEstimand
+    methods: list[Method] = Field(default_factory=list)
+    population: Text | None = None
     result_key: Literal["primary_estimate", "placebo_estimate"]
     seed: int = Field(default=7, ge=0)
 
@@ -34,7 +35,12 @@ class Specification(BaseModel):
             raise ValueError("result key does not match specification kind")
         if adversarial and self.choice != "permutation":
             raise ValueError("adversarial choice must be permutation")
+        if (self.dimension == "subgroup") != (self.population is not None):
+            raise ValueError("only subgroup variants set, and must set, a restricted population")
         return self
+
+    def estimand(self, primary: Mapping[str, Any]) -> dict[str, Any]:
+        return {**primary, **({"population": self.population} if self.population else {})}
 
 
 class RobustnessPlan(BaseModel):
@@ -66,38 +72,21 @@ class RobustnessPlan(BaseModel):
                 raise ValueError(f"missing {dimension} variation needs an applicability reason")
             if dimension in dimensions and dimension in self.inapplicable:
                 raise ValueError(f"{dimension} cannot be both varied and inapplicable")
-        primary = context.get("estimand")
-        if primary:
-            for attempt in self.attempts:
-                actual = attempt.estimand.model_dump()
-                keys = ("outcome", "exposure", "contrast", "unit")
-                if any(actual[key] != primary[key] for key in keys):
-                    raise ValueError("all specifications must preserve contrast and units")
-                if (
-                    attempt.dimension != "subgroup"
-                    and actual["population"] != primary["population"]
-                ):
-                    raise ValueError("only subgroup variants may restrict the population")
         return self
 
 
-def schedule_context(config: Config, hypothesis: Mapping[str, Any]) -> dict[str, Any]:
+def schedule_context(config: Config) -> dict[str, Any]:
     return {
-        "estimand": hypothesis["primary_estimand"],
         "steps": config.search.steps_for("robustness"),
         "min_variants": config.robustness.min_variants,
     }
 
 
-def load_robustness_plan(
-    path: Path, config: Config, hypothesis: Mapping[str, Any]
-) -> RobustnessPlan:
+def load_robustness_plan(path: Path, config: Config) -> RobustnessPlan:
     record = json.loads(path.read_text("utf-8"))
-    if record.get("format_version") != 1:
+    if record.get("format_version") != 2:
         raise ValueError("unsupported robustness schedule version")
-    return RobustnessPlan.model_validate(
-        record["schedule"], context=schedule_context(config, hypothesis)
-    )
+    return RobustnessPlan.model_validate(record["schedule"], context=schedule_context(config))
 
 
 def supports(main: ResultEntry, variant: ResultEntry | None) -> bool:
@@ -150,20 +139,22 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_nod
             f"Use at most {steps} attempts, at least {h.config.robustness.min_variants} ordinary variants "
             "and one adversarial permutation of the exposure. Prefer four ordinary variants plus one "
             "adversarial attempt, leaving repair budget. Cover cleaning, model, subgroup and resampling, "
-            "or record an inapplicable reason. Preserve outcome/exposure/contrast/units; only subgroup "
-            "may restrict population. Do not select choices to obtain significance. "
+            "or record an inapplicable reason. Code keeps the declared outcome, exposure, "
+            "contrast and units; subgroup variants give population (the restricted population), other variants omit it. "
+            "Do not select choices to obtain significance. "
             "Return {attempts: [{id, kind: variant|adversarial, dimension: cleaning|model|subgroup|resampling|adversarial, "
-            "choice, estimand: {outcome, exposure, contrast, population, unit}, "
+            "choice, methods: [operations this variant uses, from the allowed method values; empty if none], "
+            "population (subgroup variants only), "
             "result_key: primary_estimate|placebo_estimate, seed: 7}], inapplicable: {dimension: reason}}. "
             "Adversarial choice must be exactly permutation. Do not include estimates or a label."
         ),
-        validation_context=schedule_context(h.config, hypothesis),
+        validation_context=schedule_context(h.config),
     )
     destination = h.run.new_attempt("discover/robustness").relative_to(h.run.root).as_posix()
     path = h.run.write_json(
         f"{destination}/robustness_plan.json",
         {
-            "format_version": 1,
+            "format_version": 2,
             "main_node": main.id,
             "schedule": proposal.model_dump(mode="json"),
         },
@@ -178,7 +169,7 @@ def collect_evidence(
     selected: Mapping[str, Node],
     plan: Path,
 ) -> Path:
-    schedule = load_robustness_plan(plan, h.config, hypothesis)
+    schedule = load_robustness_plan(plan, h.config)
     nodes = [
         node
         for stage in ("baseline", "main", "robustness")

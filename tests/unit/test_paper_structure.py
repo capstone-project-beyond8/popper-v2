@@ -1,11 +1,13 @@
-from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-import pytest
-from pydantic import ValidationError
-
-from popper.communicate.paper import FigureRef, Writeup, _render_report, _select_figures
+from popper.communicate.paper import (
+    FigureRef,
+    Writeup,
+    _problems,
+    _render_report,
+    _select_figures,
+)
 from popper.treesearch.engine import Node
 from tests.integration.test_run import WRITEUP
 
@@ -76,7 +78,8 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     ]
     assert [tex.index(h) for h in headings] == sorted(tex.index(h) for h in headings)
     assert "fragile" in tex and "failed variant" in tex and "robustness-001" in tex
-    assert "EXPERIMENT_CODE" in tex and "Data preparation" not in tex
+    assert r"\lstinputlisting{code/main-000.py}" in tex
+    assert "EXPERIMENT_CODE" not in tex and r"\begin{lstlisting}" not in tex
     label = r"\label{fig:specification-curve}"
     ref = r"\ref{fig:specification-curve}"
     assert label in tex and ref in tex and 0 < tex.index(label) - tex.index(ref) < 400
@@ -85,20 +88,20 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     assert "drop & 73 & missing" in tex
 
 
-def test_figure_references_are_identity_based_bounded_and_known(tmp_path: Path) -> None:
+def test_figure_references_are_identity_based_bounded_known_and_data_first() -> None:
     nodes = [
         cast(Node, SimpleNamespace(id=f"main-{i:03d}", stage="main", figures=["fit.png"]))
         for i in range(4)
     ]
+    data = cast(Node, SimpleNamespace(id="data-000", stage="data", figures=["raw.png"]))
     refs = [FigureRef(node_id=n.id, file="fit.png", caption="fit", section="main") for n in nodes]
     assert len(_select_figures(refs + refs, nodes)) == 3
-    with pytest.raises(ValueError, match="unknown figure"):
-        _select_figures(
-            [FigureRef(node_id="main-000", file="../secret.png", caption="x", section="main")],
-            nodes,
-        )
+    raw = FigureRef(node_id="data-000", file="raw.png", caption="raw", section="data_methods")
+    assert _select_figures([*refs, raw], [*nodes, data])[0][0] is data
+    escape = FigureRef(node_id="main-000", file="../secret.png", caption="x", section="main")
+    assert _select_figures([escape], nodes) == []
 
 
 def test_writer_cannot_set_evidence_labels() -> None:
-    with pytest.raises(ValidationError, match="computed"):
-        Writeup.model_validate({**WRITEUP, "conclusion": "The evidence is confirmed."})
+    w = Writeup.model_validate({**WRITEUP, "conclusion": "The evidence is confirmed."})
+    assert "evidence label inserted by code" in _problems(w, {}, [])

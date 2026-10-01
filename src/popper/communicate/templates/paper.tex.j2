@@ -63,8 +63,8 @@ with intervals excluding zero (share \R{summary.supporting_share}); \R{summary.a
 \BLOCK{endif}
 \section{Discussion}
 \VAR{w.discussion}
-\noindent This analysis followed adaptive exploration on discovery data. Any reserved holdout remained
-unavailable to analysis and is not evidence of verification. Subgroup analyses concern their declared
+\noindent This analysis followed adaptive exploration on discovery data. Rows reserved at ingest were
+never passed to analysis code as inputs, and they are not evidence of verification. Subgroup analyses concern their declared
 restricted populations. Failed and missing specification attempts remain non-supporting; a single
 exposure permutation is a diagnostic, not a calibrated permutation significance test.
 \section{Conclusion}
@@ -74,8 +74,6 @@ exposure permutation is a diagnostic, not a calibrated permutation significance 
 \section{Experiment code}
 \BLOCK{for node in experiment_nodes}
 \subsection{\VAR{node.stage}: \VAR{node.id}}
-\begin{lstlisting}
-\VAR{node.code}
-\end{lstlisting}
+\lstinputlisting{code/\VAR{node.id}.py}
 \BLOCK{endfor}
 \end{document}

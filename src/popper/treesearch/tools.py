@@ -1,7 +1,5 @@
 """Analyst node tools: inspect data, run scratch snippets, view figures, read artifacts."""
 
-import shutil
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -61,18 +59,14 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         nonlocal scratch
         evidence = node_dir / "scratch" / f"{scratch:02d}"
         scratch += 1
-        with tempfile.TemporaryDirectory(prefix="popper-scratch-") as temp:
-            workdir = Path(temp)
-            try:
-                r = h.execute(
-                    str(args["code"]),
-                    workdir,
-                    inputs=inputs,
-                    node=node_dir.name,
-                    purpose="scratch",
-                )
-            finally:
-                shutil.copytree(workdir, evidence)
+        evidence.mkdir(parents=True)
+        r = h.execute(
+            str(args["code"]),
+            evidence,
+            inputs=inputs,
+            node=node_dir.name,
+            purpose="scratch",
+        )
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         if r.exit_code != 0 or r.timed_out:

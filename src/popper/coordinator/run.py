@@ -48,7 +48,8 @@ def run(
     h = Harness(config, llm, store)
     if progress is not None:
         h.progress = progress
-    return _continue(h)
+    with store.lock():
+        return _continue(h)
 
 
 def _outcome(store: RunStore) -> RunOutcome:
@@ -71,8 +72,13 @@ def resume(
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
     store = RunStore(run_dir)
+    with store.lock():
+        return _resume_locked(store, llm, progress)
+
+
+def _resume_locked(store: RunStore, llm: LLM, progress: Callable[[str], None] | None) -> RunOutcome:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
-    if metadata.get("format_version") != 2:
+    if metadata.get("format_version") != 3:
         raise ValueError("unsupported run format; older runs cannot reserve unseen data or resume")
     state = load_state(store)
     if state["status"] == "completed":

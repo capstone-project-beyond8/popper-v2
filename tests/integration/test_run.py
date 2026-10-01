@@ -1,7 +1,9 @@
 import json
 import re
 from pathlib import Path
+from typing import Any, cast
 
+import pandas as pd
 import pytest
 
 from popper.communicate.paper import compile_pdf
@@ -32,7 +34,9 @@ HYPOTHESIS = {
         "contrast": "study hours 10 to 11",
         "population": "eligible students",
         "unit": "exam score points",
+        "comparison": "difference",
     },
+    "methods": ["linear_regression", "log_transform", "bootstrap"],
     "expected_direction": "positive",
     "refuting_result": "a nonpositive contrast",
     "planned_test": "Regress score on log1p(study hours); bootstrap the 10 to 11 contrast",
@@ -66,9 +70,9 @@ ROBUSTNESS = {
             "kind": "adversarial" if dim == "adversarial" else "variant",
             "dimension": dim,
             "choice": "permutation" if dim == "adversarial" else f"alternative {i}",
-            "estimand": HYPOTHESIS["primary_estimand"],
             "result_key": "placebo_estimate" if dim == "adversarial" else "primary_estimate",
             "seed": 7,
+            **({"population": "students with high attendance"} if dim == "subgroup" else {}),
         }
         for i, dim in enumerate(("cleaning", "model", "subgroup", "resampling", "adversarial"))
     ],
@@ -138,15 +142,19 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         return json.dumps(FRAMING)
     if tag.startswith("analyst:"):
         if tag == "analyst:robustness":
-            choice = next(item for item in ROBUSTNESS["attempts"] if json.dumps(item) in req.prompt)
-            code = EXPERIMENT
+            choice = next(
+                item for item in ROBUSTNESS["attempts"] if f": {item['choice']}. " in req.prompt
+            )
+            estimand: dict[str, Any] = dict(cast(dict[str, Any], HYPOTHESIS["primary_estimand"]))
+            estimand.update({k: choice[k] for k in ("population",) if k in choice})
+            code = EXPERIMENT.replace(repr(HYPOTHESIS["primary_estimand"]), repr(estimand))
             if choice["kind"] == "adversarial":
                 code = code.replace('"primary_estimate"', '"placebo_estimate"')
                 code = code.replace(
                     "x, y =",
                     'df["study_hours_week"] = np.random.default_rng(7).permutation(df["study_hours_week"])\nx, y =',
                 )
-            return _submit(code + f"\njson.dump({choice!r}, open('specification.json','w'))\n")
+            return _submit(code)
         return _submit({"analyst:data": DATA, "analyst:explore": EXPLORE}.get(tag, EXPERIMENT))
     if tag.startswith("judge:"):
         return json.dumps(FEEDBACK)
@@ -211,6 +219,13 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     journal_lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
     events = [json.loads(line)["event"] for line in journal_lines]
     assert events.count("phase") == 10 and "exec" in events
+    data = out.run_dir / "data"
+    raw_ids = set(pd.read_csv(data / "raw.csv").student_id)
+    held_only = set(pd.read_csv(data / "holdout.csv").student_id) - raw_ids
+    assert held_only  # duplicated source rows may share ids across the split; the rest may not
+    assert set(pd.read_parquet(data / "processed.parquet").student_id) <= raw_ids
+    assert not any("holdout" in req.prompt for req in llm.calls)
+    assert not any("holdout" in p.read_text("utf-8") for p in out.run_dir.glob("tree/*/*/code.py"))
     assert lines[0] == "[framing] start · $0.00"
     assert any(re.match(r"^\[data\] data-000 draft → ok score 7 · \$\d+\.\d\d$", x) for x in lines)
 

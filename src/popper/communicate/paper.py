@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from jinja2 import Environment, PackageLoader
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from popper.communicate.evidence import artifact_path, evidence_rows, load_evidence, render_curve
 from popper.communicate.numbers import (
@@ -21,10 +21,12 @@ from popper.communicate.numbers import (
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.session import Harness
+from popper.harness.store import next_sequence
 from popper.treesearch.engine import Node, load_nodes
 from popper.treesearch.judge import validate_image
 
 _SYSTEM = "You are a careful scientific writer."
+_CODE_STAGES = ("baseline", "main", "robustness")
 _WRITER_RETRIES = 2  # re-asks when the prose cites numbers that have no value
 _ENV = Environment(
     loader=PackageLoader("popper.communicate", "templates"),
@@ -48,13 +50,6 @@ class FigureRef(BaseModel):
     caption: str
     section: Literal["data_methods", "exploratory", "main", "robustness"]
 
-    @field_validator("caption")
-    @classmethod
-    def no_labels(cls, caption: str) -> str:
-        if re.search(r"\b(stable|fragile|confirmed)\b", caption, re.IGNORECASE):
-            raise ValueError("evidence labels are computed, not supplied in captions")
-        return caption
-
 
 class Writeup(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -72,27 +67,13 @@ class Writeup(BaseModel):
     conclusion: str
     figures: list[FigureRef]
 
-    @field_validator(
-        "title",
-        "abstract",
-        "introduction",
-        "data",
-        "exploration",
-        "hypothesis",
-        "methods",
-        "results",
-        "robustness",
-        "discussion",
-        "conclusion",
-    )
-    @classmethod
-    def prose_only(cls, text: str) -> str:
-        if re.search(r"\b(stable|fragile|confirmed)\b", text, re.IGNORECASE):
-            raise ValueError("evidence labels are computed, not supplied by Writer")
-        if re.search(r"\\(?:section|subsection|includegraphics|label)\b", text):
-            raise ValueError("structure and figures are supplied by code")
-        return text
 
+_LABELS = re.compile(r"\b(stable|fragile|confirmed)\b", re.IGNORECASE)
+_STRUCTURE = re.compile(r"\\(?:section|subsection|includegraphics|label)(?![A-Za-z])")
+_PRIMITIVES = re.compile(
+    r"\\(?:input|include|InputIfFileExists|openin|openout|read|write|immediate|verbatiminput"
+    r"|lstinputlisting|catcode|csname|def|let|newcommand|renewcommand)(?![A-Za-z])"
+)
 
 _NONSTOP = ("-interaction=nonstopmode", "-halt-on-error")
 # (engine, arguments before the file name, runs); pdflatex runs twice to resolve references
@@ -111,20 +92,14 @@ def compile_pdf(tex: Path) -> Path | None:
     )
     if found is None:
         return None
-    sequence = (
-        max(
-            (int(p.name[6:]) for p in tex.parent.glob("build-*") if p.name[6:].isdigit()),
-            default=-1,
-        )
-        + 1
-    )
+    sequence = next_sequence(tex.parent, prefix="build-")
     build = tex.parent / f"build-{sequence:06d}"
     with tempfile.TemporaryDirectory(prefix="popper-latex-") as directory:
         scratch = Path(directory)
         shutil.copyfile(tex, scratch / tex.name)
-        figures = tex.parent / "figures"
-        if figures.exists():
-            shutil.copytree(figures, scratch / "figures")
+        for folder in ("figures", "code"):
+            if (tex.parent / folder).exists():
+                shutil.copytree(tex.parent / folder, scratch / folder)
         ok, output = _compile(scratch / tex.name, found)
         (scratch / "compile.log").write_text(
             output.decode("utf-8", errors="replace"), encoding="utf-8"
@@ -157,18 +132,22 @@ def _compile(tex: Path, found: tuple[str, tuple[str, ...], int]) -> tuple[bool, 
     return ok, output
 
 
+def _known_figure(ref: FigureRef, nodes: list[Node]) -> Node | None:
+    if Path(ref.file).name != ref.file:
+        return None
+    return next((n for n in nodes if n.id == ref.node_id and ref.file in n.figures), None)
+
+
 def _select_figures(refs: list[FigureRef], nodes: list[Node]) -> list[tuple[Node, FigureRef]]:
+    """Known figures only, deduplicated, ordered by stage and capped at three."""
     selected: list[tuple[Node, FigureRef]] = []
     seen = set()
     for ref in refs:
-        node = next((n for n in nodes if n.id == ref.node_id and ref.file in n.figures), None)
-        if node is None or Path(ref.file).name != ref.file:
-            raise ValueError(f"unknown figure: {ref.node_id}/{ref.file}")
-        identity = (node.id, ref.file)
-        if identity not in seen:
+        node = _known_figure(ref, nodes)
+        if node is not None and (node.id, ref.file) not in seen:
             selected.append((node, ref))
-            seen.add(identity)
-    order = {"explore": 0, "baseline": 1, "main": 2, "robustness": 3}
+            seen.add((node.id, ref.file))
+    order = {"data": 0, "explore": 1, "baseline": 2, "main": 3, "robustness": 4}
     return sorted(selected, key=lambda item: order[item[0].stage])[:3]
 
 
@@ -196,18 +175,57 @@ def _copy_figures(
     return placed
 
 
-def _problems(writeup: Writeup, values: dict[str, Any]) -> str:
-    """Numbers without a value and unbalanced inline math, one line per problem."""
-    sections = {k: str(v) for k, v in writeup.model_dump().items() if k != "figures"}
-    sections.update({f"caption-{i}": f.caption for i, f in enumerate(writeup.figures)})
-    _, unresolved = fill_numbers("\n".join(sections.values()), values)
+def _texts(writeup: Writeup) -> dict[str, str]:
+    texts = {k: str(v) for k, v in writeup.model_dump().items() if k != "figures"}
+    texts.update({f"caption-{i}": f.caption for i, f in enumerate(writeup.figures)})
+    return texts
+
+
+def _violations(writeup: Writeup) -> list[str]:
+    """Evidence labels, structure commands and file primitives, which code alone may supply."""
+    lines = []
+    for name, text in _texts(writeup).items():
+        if found := _LABELS.search(text):
+            lines.append(
+                f"{name}: the word '{found.group(0)}' is an evidence label inserted by code; "
+                "rephrase without stable, fragile or confirmed"
+            )
+        if found := _STRUCTURE.search(text):
+            lines.append(f"{name}: {found.group(0)} is supplied by code; remove it")
+        if found := _PRIMITIVES.search(text):
+            lines.append(f"{name}: {found.group(0)} is not allowed in prose; remove it")
+    return lines
+
+
+def _unknown_figures(writeup: Writeup, nodes: list[Node]) -> list[FigureRef]:
+    return [ref for ref in writeup.figures if _known_figure(ref, nodes) is None]
+
+
+def _problems(writeup: Writeup, values: dict[str, Any], nodes: list[Node]) -> str:
+    """Numbers without a value, unbalanced math, forbidden commands and unknown figures."""
+    texts = _texts(writeup)
+    _, unresolved = fill_numbers("\n".join(texts.values()), values)
     lines = [explain_missing(ref, values) for ref in unresolved]
     lines += [
         f"{name}: odd number of $ signs; close every inline formula"
-        for name, text in sections.items()
+        for name, text in texts.items()
         if len(re.findall(r"(?<!\\)\$", text)) % 2
     ]
+    lines += _violations(writeup)
+    lines += [
+        f"figure {ref.node_id}/{ref.file} does not exist; choose only listed files"
+        for ref in _unknown_figures(writeup, nodes)
+    ]
     return "\n".join(f"- {line}" for line in lines)
+
+
+def _best_attempt(
+    candidates: list[tuple[int, int, Writeup, Path]], violations: list[str]
+) -> tuple[int, int, Writeup, Path]:
+    """The violation-free attempt with the fewest problem lines; the later one on a tie."""
+    if not candidates:
+        raise ValueError("writer kept forbidden content:\n" + "\n".join(violations))
+    return min(candidates, key=lambda c: (c[0], -c[1]))
 
 
 def _section_content(text: str, figures: list[dict[str, str]]) -> str:
@@ -277,9 +295,7 @@ def _render_report(
             }
             for c in changes
         ],
-        experiment_nodes=[
-            n for n in nodes if n.stage in ("baseline", "main", "robustness") and n.status == "ok"
-        ],
+        experiment_nodes=[n for n in nodes if n.stage in _CODE_STAGES and n.status == "ok"],
     )
     return fill_numbers(tex, values)
 
@@ -339,14 +355,22 @@ def write_paper(
         writeup = h.ask_model(
             "writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=prompt
         )
+        candidates: list[tuple[int, int, Writeup, Path]] = []
         for i in range(_WRITER_RETRIES + 1):
             prefix = report_dir.relative_to(h.run.root).as_posix()
             saved_writeup = h.run.write_json(
                 f"{prefix}/writeup-{i:03d}.json", writeup.model_dump(mode="json")
             )
-            problems = _problems(writeup, values)
+            problems = _problems(writeup, values, nodes)
+            violations = _violations(writeup)
+            if not violations:
+                candidates.append((len(problems.splitlines()), i, writeup, saved_writeup))
             if not problems or i == _WRITER_RETRIES:
-                _select_figures(writeup.figures, nodes)
+                _, _, writeup, saved_writeup = _best_attempt(candidates, violations)
+                if unknown := _unknown_figures(writeup, nodes):
+                    h.journal.write(
+                        "figures_dropped", refs=[f"{r.node_id}/{r.file}" for r in unknown]
+                    )
                 h.run.commit_artifact("writeup", saved_writeup)
                 break
             retry = (
@@ -368,10 +392,13 @@ def write_paper(
             "section": "robustness",
         }
     )
+    prefix = report_dir.relative_to(h.run.root).as_posix()
+    for node in experiments:
+        if node.status == "ok" and node.stage in _CODE_STAGES:
+            h.run.write_text(f"{prefix}/code/{node.id}.py", node.code)
     tex, missing = _render_report(writeup, changes, experiments, rows, manifest, placed, values)
     if missing:
         h.journal.write("numbers_missing", keys=missing)
-    prefix = report_dir.relative_to(h.run.root).as_posix()
     path = h.run.write_text(f"{prefix}/paper.tex", tex)
     pdf = compile_pdf(path)
     record_path = h.run.write_json(

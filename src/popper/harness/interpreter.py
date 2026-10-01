@@ -66,7 +66,16 @@ def run_script(
     }
     env["MPLBACKEND"] = "Agg"
     env["PYTHONUTF8"] = "1"
-    for key in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TMP", "TEMP", "MPLCONFIGDIR"):
+    for key in (
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TMP",
+        "TEMP",
+        "TMPDIR",
+        "MPLCONFIGDIR",
+    ):
         env[key] = str(workdir)
     env["AWS_SHARED_CREDENTIALS_FILE"] = os.devnull
     env["AWS_CONFIG_FILE"] = os.devnull

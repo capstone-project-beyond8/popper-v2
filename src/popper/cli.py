@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.is_file():
             parser.error(f"file not found: {path}")
     sys.stderr.reconfigure(errors="replace")  # type: ignore[union-attr]
-    base = args.dir / 'config.yaml' if args.dir is not None else None
+    base = args.dir / "config.yaml" if args.dir is not None else None
     outcome = run(
         brief,
         data,

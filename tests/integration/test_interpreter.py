@@ -1,3 +1,4 @@
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -80,6 +81,36 @@ def test_script_cannot_access_sibling_evidence(tmp_path: Path, operation: str) -
     assert result.exit_code != 0
     assert "secret-row" not in result.stdout
     assert secret.read_text() == "secret-row"
+
+
+@pytest.mark.parametrize("launch", ["os.spawnv", "os.startfile", "os.forkpty"])
+def test_script_cannot_launch_processes_through_os_helpers(tmp_path: Path, launch: str) -> None:
+    if not hasattr(os, launch.split(".")[1]):
+        pytest.skip(f"{launch} is unavailable on this platform")
+    marker = tmp_path / "launched.txt"
+    child = f"open({str(marker)!r}, 'w').close()"
+    code = {
+        "os.spawnv": f"import os, sys; os.spawnv(os.P_WAIT, sys.executable, [sys.executable, '-c', {child!r}])",
+        "os.startfile": f"import os; os.startfile({str(marker)!r})",
+        "os.forkpty": "import os; os.forkpty()",
+    }[launch]
+    result = _run(code, tmp_path / "execution")
+    assert result.exit_code != 0 and "denied" in result.stderr
+    assert not marker.exists()
+
+
+def test_sqlite_cannot_touch_files_outside_work_but_memory_works(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.db"
+    blocked = _run(
+        f"import sqlite3; sqlite3.connect({str(outside)!r}).execute('create table t(x)')",
+        tmp_path / "blocked",
+    )
+    assert blocked.exit_code != 0 and not outside.exists()
+    memory = _run(
+        "import sqlite3; print(sqlite3.connect(':memory:').execute('select 1').fetchone())",
+        tmp_path / "memory",
+    )
+    assert memory.exit_code == 0 and "(1,)" in memory.stdout
 
 
 def test_readonly_input_and_relative_escape(tmp_path: Path) -> None:

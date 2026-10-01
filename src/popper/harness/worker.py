@@ -53,7 +53,20 @@ def main() -> None:
             check(args[1], True)
         elif event == "os.chdir":
             check(args[0])
-        elif event in {"subprocess.Popen", "os.system", "os.posix_spawn", "os.exec", "os.fork"}:
+        elif event == "sqlite3.connect":
+            if args[0] not in (None, "", ":memory:"):
+                check(args[0], True)
+        elif event in {
+            "subprocess.Popen",
+            "os.system",
+            "os.posix_spawn",
+            "os.spawn",
+            "os.startfile",
+            "os.exec",
+            "os.fork",
+            "os.forkpty",
+            "_winapi.CreateProcess",
+        }:
             raise PermissionError("subprocess launch denied; submit a self-contained Python script")
 
     # Read source before installing the guard; the source is immutable harness input.

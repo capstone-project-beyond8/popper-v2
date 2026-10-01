@@ -22,16 +22,17 @@ def schedule() -> dict[str, Any]:
                 "kind": "adversarial" if adversarial else "variant",
                 "dimension": dimension,
                 "choice": "permutation" if adversarial else f"alternative {index}",
-                "estimand": ESTIMAND,
                 "result_key": "placebo_estimate" if adversarial else "primary_estimate",
                 "seed": 7,
             }
         )
+        if dimension == "subgroup":
+            attempts[-1]["population"] = "students with high attendance"
     return {"attempts": attempts, "inapplicable": {}}
 
 
-def test_schedule_rejects_duplicates_mismatched_units_and_excess_budget() -> None:
-    context = {"estimand": ESTIMAND, "steps": 6, "min_variants": 3}
+def test_schedule_rejects_duplicates_and_excess_budget() -> None:
+    context = {"steps": 6, "min_variants": 3}
     good = schedule()
     assert len(RobustnessPlan.model_validate(good, context=context).attempts) == 5
     for field, value in [("id", "choice-0"), ("choice", "alternative 0")]:
@@ -42,16 +43,32 @@ def test_schedule_rejects_duplicates_mismatched_units_and_excess_budget() -> Non
             bad["inapplicable"]["model"] = "not applicable"
         with pytest.raises(ValueError):
             RobustnessPlan.model_validate(bad, context=context)
-    bad = deepcopy(good)
-    bad["attempts"][0]["estimand"] = {**ESTIMAND, "unit": "log score"}
-    with pytest.raises(ValueError):
-        RobustnessPlan.model_validate(bad, context=context)
     with pytest.raises(ValueError):
         RobustnessPlan.model_validate(good, context={**context, "steps": 4})
 
 
+def test_population_belongs_to_subgroup_variants_only() -> None:
+    context = {"steps": 6, "min_variants": 3}
+    missing = schedule()
+    del missing["attempts"][2]["population"]
+    extra = schedule()
+    extra["attempts"][1]["population"] = "students with high attendance"
+    for bad in (missing, extra):
+        with pytest.raises(ValueError, match="population"):
+            RobustnessPlan.model_validate(bad, context=context)
+
+
+def test_specification_estimand_replaces_only_population() -> None:
+    attempts = RobustnessPlan.model_validate(schedule(), context={}).attempts
+    assert attempts[0].estimand(ESTIMAND) == ESTIMAND
+    assert attempts[2].estimand(ESTIMAND) == {
+        **ESTIMAND,
+        "population": "students with high attendance",
+    }
+
+
 def test_schedule_requires_minimum_variants_adversary_and_dimension_reasons() -> None:
-    context = {"estimand": ESTIMAND, "steps": 6, "min_variants": 3}
+    context = {"steps": 6, "min_variants": 3}
     for indexes in ([0, 1, 4], [0, 1, 2, 3], [0, 1, 2, 4]):
         bad = schedule()
         bad["attempts"] = [bad["attempts"][i] for i in indexes]
@@ -65,7 +82,7 @@ def test_schedule_requires_minimum_variants_adversary_and_dimension_reasons() ->
     assert len(RobustnessPlan.model_validate(good, context=context).attempts) == 4
 
 
-def test_saved_schedule_uses_configured_budget_and_estimand(tmp_path: Path) -> None:
+def test_saved_schedule_uses_configured_budget(tmp_path: Path) -> None:
     cfg = load_config(env={})
     cfg.search.stage_steps["robustness"] = 8
     cfg.robustness.min_variants = 6
@@ -75,8 +92,8 @@ def test_saved_schedule_uses_configured_budget_and_estimand(tmp_path: Path) -> N
             0, {**proposal["attempts"][0], "id": f"extra-{i}", "choice": f"extra model {i}"}
         )
     path = tmp_path / "robustness_plan.json"
-    path.write_text(json.dumps({"format_version": 1, "schedule": proposal}))
-    assert len(load_robustness_plan(path, cfg, {"primary_estimand": ESTIMAND}).attempts) == 7
+    path.write_text(json.dumps({"format_version": 2, "schedule": proposal}))
+    assert len(load_robustness_plan(path, cfg).attempts) == 7
     cfg.search.stage_steps["robustness"] = 6
     with pytest.raises(ValueError, match="budget"):
-        load_robustness_plan(path, cfg, {"primary_estimand": ESTIMAND})
+        load_robustness_plan(path, cfg)

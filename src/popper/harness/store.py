@@ -7,7 +7,8 @@ import os
 import secrets
 import shutil
 import stat
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,7 @@ def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd
         column = config.group_column
         if column not in data:
             raise ValueError(f"group column {column!r} does not exist")
-        if data[column].isna().any():
+        if (data[column].isna() | (data[column].astype(str).str.strip() == "")).any():
             raise ValueError("group IDs cannot be missing")
         groups = data[column].drop_duplicates().to_numpy()
         selected = rng.permutation(groups)[: math.ceil(len(groups) * config.holdout_fraction)]
@@ -40,6 +41,14 @@ def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd
     if discovery.empty or held.empty:
         raise ValueError("holdout split must leave nonempty discovery and holdout partitions")
     return discovery, held
+
+
+def next_sequence(folder: Path, prefix: str = "", suffix: str = "") -> int:
+    """One past the highest number in names `<prefix><digits><suffix>` under folder; 0 if none."""
+    numbers = (
+        p.name.removeprefix(prefix).removesuffix(suffix) for p in folder.glob(f"{prefix}*{suffix}")
+    )
+    return max((int(n) for n in numbers if n.isdigit()), default=-1) + 1
 
 
 def file_hash(path: Path) -> str:
@@ -62,7 +71,9 @@ class RunStore:
     ) -> "RunStore":
         snapshot = config or load_config(env={})
         split_config = data_config or snapshot.data
-        discovery, held = split_rows(pd.read_csv(data), split_config)
+        discovery, held = split_rows(
+            pd.read_csv(data, dtype=str, keep_default_na=False), split_config
+        )
         run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         store = cls(runs_dir / run_id)
         store.root.mkdir(parents=True)
@@ -70,7 +81,7 @@ class RunStore:
         (store.root / "data").mkdir()
         for name, rows in (("raw.csv", discovery), ("holdout.csv", held)):
             path = store.path("data", name)
-            rows.to_csv(path, index=False)
+            rows.to_csv(path, index=False, lineterminator="\n")
             path.chmod(stat.S_IREAD)
         store.write_json(
             "data/split.json",
@@ -88,7 +99,7 @@ class RunStore:
         store.write_json(
             "run.json",
             {
-                "format_version": 2,
+                "format_version": 3,
                 "status": "running",
                 "config": config_data,
                 "inputs": {"brief": str(brief.resolve()), "data": str(data.resolve())},
@@ -101,6 +112,22 @@ class RunStore:
     def path(self, *parts: str) -> Path:
         return self.root.joinpath(*parts)
 
+    @contextmanager
+    def lock(self) -> Iterator[None]:
+        path = self.path("run.lock")
+        try:
+            with path.open("x", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except FileExistsError:
+            pid = path.read_text("utf-8").strip()
+            raise RuntimeError(
+                f"run is in use by process {pid}; delete {path} if no process is running"
+            ) from None
+        try:
+            yield
+        finally:
+            path.unlink(missing_ok=True)
+
     def write_text(self, rel: str, text: str) -> Path:
         target = self.path(rel)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -112,8 +139,7 @@ class RunStore:
         return self.write_text(rel, json.dumps(obj, indent=2, default=str))
 
     def checkpoint(self, state: Mapping[str, Any]) -> Path:
-        files = list(self.path("state").glob("*.json"))
-        sequence = max((int(p.stem) for p in files), default=-1) + 1
+        sequence = next_sequence(self.path("state"), suffix=".json")
         commits = [e for e in read_events(self.root) if e["event"] == "state_commit"]
         rel = f"state/{sequence:06d}.json"
         path = self.write_json(
@@ -128,17 +154,7 @@ class RunStore:
 
     def new_attempt(self, folder: str) -> Path:
         base = self.path(folder)
-        sequence = (
-            max(
-                (
-                    int(p.name.removeprefix("attempt-"))
-                    for p in base.glob("attempt-*")
-                    if p.name.removeprefix("attempt-").isdigit()
-                ),
-                default=-1,
-            )
-            + 1
-        )
+        sequence = next_sequence(base, prefix="attempt-")
         target = base / f"attempt-{sequence:06d}"
         target.mkdir(parents=True)
         return target
