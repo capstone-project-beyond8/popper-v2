@@ -262,6 +262,33 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert (out.run_dir / "data" / "ida.json").exists()
 
 
+def test_reviewed_frame_run_never_exposes_holdout_rows(tmp_path: Path) -> None:
+    llm = FakeLLM(_respond)
+    stopped = run(
+        EXAMPLE / "research.md",
+        EXAMPLE / "data.csv",
+        config=_config(),
+        llm=llm,
+        runs_dir=tmp_path,
+    )
+    assert stopped.status == "awaiting_review" and stopped.review is not None
+    assert [r.tag for r in llm.calls] == ["theorist"]
+    out = resume(stopped.run_dir, llm=llm)
+    assert out.status == "completed"
+    tags = [r.tag for r in llm.calls]
+    assert tags.count("theorist") == 1 and "steward" in tags
+    assert tags.index("steward") < tags.index("hypothesis")
+    data = out.run_dir / "data"
+    raw = pd.read_csv(data / "raw.csv")
+    held = pd.read_csv(data / "holdout.csv")
+    only = sorted({f"{v}" for v in held.student_id} - {f"{v}" for v in raw.student_id})
+    assert only, "no holdout-only value to look for; the check would pass vacuously"
+    seen = "\n".join(r.prompt for r in llm.calls)
+    seen += (out.run_dir / "journal.jsonl").read_text(encoding="utf-8")
+    seen += "".join(p.read_text("utf-8") for p in out.run_dir.glob("tree/*/*/code.py"))
+    assert not [v for v in only if re.search(rf"(?<![\w-]){re.escape(v)}(?![\w-])", seen)]
+
+
 def test_failed_stage_recorded(tmp_path: Path) -> None:
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         return (
