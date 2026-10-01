@@ -15,6 +15,8 @@ def main() -> None:
         libraries.add(Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts")
     else:
         libraries.update(Path(p) for p in ("/usr/share/fonts", "/etc/fonts", "/usr/lib", "/lib"))
+    if mpl_cache := os.environ.get("MPLCONFIGDIR"):
+        libraries.add(Path(mpl_cache).resolve())
     null = Path(os.devnull).resolve()
     records = {work / name for name in ("code.py", "stdout.txt", "stderr.txt")}
 

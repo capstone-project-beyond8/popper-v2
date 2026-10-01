@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from popper.harness import interpreter
 from popper.harness.interpreter import ExecResult, run_script
 
 pytestmark = pytest.mark.integration
@@ -161,3 +162,16 @@ def test_script_cannot_rewrite_execution_record(tmp_path: Path, name: str) -> No
     result = _run(code, tmp_path)
     assert result.exit_code != 0
     assert (tmp_path / "code.py").read_text("utf-8") == code
+
+
+def test_script_cannot_write_into_shared_matplotlib_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "mpl-cache"
+    cache.mkdir()
+    monkeypatch.setattr(interpreter, "_matplotlib_cache", lambda: cache)
+    monkeypatch.setattr(interpreter, "_ensured_caches", {cache})
+    target = cache / "planted.json"
+    result = _run(f"open({str(target)!r}, 'w').write('x')", tmp_path / "execution")
+    assert result.exit_code != 0
+    assert not target.exists()
