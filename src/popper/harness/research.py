@@ -66,7 +66,7 @@ class Variable(_Strict):
     role: Entry[Role] = Field(default_factory=Entry[Role])
     range: Entry[list[float]] = Field(default_factory=Entry[list[float]])
     levels: Entry[list[str]] = Field(default_factory=Entry[list[str]])
-    order: Entry[list[str]] = Field(default_factory=Entry[list[str]])
+    order: Entry[int] = Field(default_factory=Entry[int])
 
     @field_validator("range")
     @classmethod

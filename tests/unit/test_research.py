@@ -79,7 +79,7 @@ def test_render_round_trips() -> None:
         _doc(
             "domain: schools\n"
             "variables:\n  score: {range: [0, 100], role: outcome}\n"
-            "  grade: {levels: [a, b], order: [a, b]}\n"
+            "  grade: {levels: [a, b], order: 2}\n"
             "design: {kind: observational, cluster_column: school}\n"
             "assumptions: [{id: a1, description: ages differ, confounder: true}]\n"
             "concepts: [{id: c1, name: effort, definition: {value: time, status: proposed, evidence: [q]}}]\n"

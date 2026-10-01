@@ -29,7 +29,7 @@ from popper.treesearch.tools import node_tools
 
 _ID = re.compile(r"^[a-z][a-z0-9_]*$")
 _UNUSABLE_OUTCOME_ROLES = {"id", "cluster", "post_outcome", "protected", "ignore"}
-_LIST_ATTRIBUTES = {"range", "levels", "order"}
+_YAML_ATTRIBUTES = {"range", "levels", "order"}
 _NO_RESEARCHER = "No researcher is available; leave the item proposed or unknown."
 
 
@@ -249,7 +249,7 @@ def _answered(
             problems.append(f"{why}{item} is already confirmed")
             continue
         try:
-            value = yaml.safe_load(answer) if attr in _LIST_ATTRIBUTES else answer
+            value = yaml.safe_load(answer) if attr in _YAML_ATTRIBUTES else answer
             merged = variable.model_dump()
             merged[attr] = {"value": value, "status": "confirmed"}
             variables[column] = Variable.model_validate(merged)

@@ -17,7 +17,7 @@ body
 """
 HYPOTHESIS = {
     "statement": "Hours raise score",
-    "rationale": "see a1",
+    "assumptions": [],
     "planned_test": "regression",
     "primary_estimand": {"outcome": "score", "exposure": "hours"},
 }
@@ -28,9 +28,16 @@ def _data(clusters: int) -> pd.DataFrame:
     return pd.DataFrame({"school": range(clusters), "score": 1.0, "hours": 2.0})
 
 
-def _warn(front: str, mapping: list[dict[str, Any]] = MAPPING, clusters: int = 40) -> list[str]:
+def _warn(
+    front: str,
+    mapping: list[dict[str, Any]] = MAPPING,
+    clusters: int = 40,
+    assumptions: tuple[str, ...] = (),
+) -> list[str]:
     research: ResearchContext = parse_research(front)
-    return hypothesis_warnings(HYPOTHESIS, research, mapping, _data(clusters))
+    return hypothesis_warnings(
+        {**HYPOTHESIS, "assumptions": list(assumptions)}, research, mapping, _data(clusters)
+    )
 
 
 def test_good_frame_is_silent() -> None:
@@ -41,8 +48,8 @@ def test_each_rule_fires_on_a_bad_frame() -> None:
     bad = GOOD.replace("role: exposure, type: continuous", "role: post_outcome, type: id")
     bad = bad.replace(
         "design:", "constraints: {excluded: [hours], protected: [score]}\ndesign:"
-    ).replace("exam score, unit: points}", "exam score, unit: points, order: ['1']}")
-    bad = bad.replace("study time, unit: hours}", "study time, unit: hours, order: ['2']}")
+    ).replace("exam score, unit: points}", "exam score, unit: points, order: 1}")
+    bad = bad.replace("study time, unit: hours}", "study time, unit: hours, order: 2}")
     joined = "\n".join(_warn(bad, [{**MAPPING[0], "proxy_strength": "weak"}], clusters=5))
     for expected in (
         "exposure hours is declared as id",
@@ -66,7 +73,14 @@ def test_proposed_unknown_and_assumption_entries_are_reported() -> None:
     joined = "\n".join(_warn(front))
     assert "unit of score is proposed" in joined
     assert "meaning of hours is unknown" in joined
-    assert "assumption a1, which is proposed" in joined
+    assert "assumption a1, whose description is proposed" in joined
+    assert "assumption a9, which is not declared" in joined
+
+
+def test_exposure_measured_before_outcome_is_silent() -> None:
+    front = GOOD.replace("unit: points}", "unit: points, order: 2}")
+    front = front.replace("unit: hours}", "unit: hours, order: 1}")
+    assert not any("measured after" in w for w in _warn(front))
 
 
 def test_limitations_list_concerns_readiness_and_fixed_sentence() -> None:

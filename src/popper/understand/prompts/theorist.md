@@ -12,7 +12,7 @@ You are framing a study before any analysis. You see the researcher's context an
 
 Work in any order and repeat as needed.
 
-1. Explore. Restate the problem in your own words. Widen and sharpen the questions. Name ambiguities, implicit assumptions and competing explanations. For each undeclared attribute you can justify (meaning, unit, type, role, order, range, levels), propose it as an entry with evidence.
+1. Explore. Restate the problem in your own words. Widen and sharpen the questions. Name ambiguities, implicit assumptions and competing explanations. For each undeclared attribute you can justify (meaning, unit, type, role, order (relative measurement position as an integer, smaller means measured earlier), range, levels), propose it as an entry with evidence.
 2. Critique. What does the framing miss? Which alternative framing is plausible? Which assumption is weakest? Revise.
 3. Synthesize. Call submit_frame once.
 

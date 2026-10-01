@@ -1,6 +1,5 @@
 """Computed, never blocking warnings about the hypothesis against the reviewed frame."""
 
-import re
 from typing import Any
 
 import pandas as pd
@@ -11,14 +10,6 @@ MIN_CLUSTERS = 30
 _UNUSABLE_ROLES = {"id", "cluster", "post_outcome", "protected", "ignore"}
 _CORE = ("meaning", "unit", "type", "role")
 _OTHER = ("range", "levels", "order")
-
-
-def _position(order: list[str] | None) -> float | None:
-    """The measurement position when a variable's order is a single number."""
-    try:
-        return float(order[0]) if order and len(order) == 1 else None
-    except ValueError:
-        return None
 
 
 def hypothesis_warnings(
@@ -57,16 +48,27 @@ def hypothesis_warnings(
     outcome = research.variables.get(named["outcome"])
     exposure = research.variables.get(named["exposure"])
     if outcome is not None and exposure is not None:
-        later, earlier = _position(exposure.order.value), _position(outcome.order.value)
-        if later is not None and earlier is not None and later > earlier:
+        if (
+            exposure.order.value is not None
+            and outcome.order.value is not None
+            and exposure.order.value > outcome.order.value
+        ):
             warnings.append("The exposure is measured after the outcome.")
-    text = " ".join(str(v) for v in hypothesis.values() if not isinstance(v, (dict, list)))
-    for assumption in research.assumptions:
-        status = assumption.description.status
-        if status != "confirmed" and re.search(rf"\b{re.escape(assumption.id)}\b", text):
+    known = {a.id: a for a in research.assumptions}
+    for assumption_id in hypothesis.get("assumptions", []):
+        assumption = known.get(assumption_id)
+        if assumption is None:
             warnings.append(
-                f"The hypothesis relies on assumption {assumption.id}, which is {status}."
+                f"The hypothesis relies on assumption {assumption_id}, which is not declared."
             )
+            continue
+        for attr in ("description", "confounder"):
+            status = getattr(assumption, attr).status
+            if status != "confirmed":
+                warnings.append(
+                    f"The hypothesis relies on assumption {assumption_id}, "
+                    f"whose {attr} is {status}, not confirmed."
+                )
     cluster = research.design.cluster_column.value
     if cluster is not None and cluster in processed.columns:
         count = int(processed[cluster].nunique())
