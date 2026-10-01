@@ -1,0 +1,358 @@
+"""Ground: one Data Steward session prepares the data; the harness re-runs and checks its script."""
+
+import json
+import stat
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, model_validator
+
+from popper.harness.agent import Tool, agent_loop
+from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
+from popper.harness.descriptive import DescriptiveReport, describe_table, format_description
+from popper.harness.prompts import load_prompt
+from popper.harness.research import ResearchContext, render_research
+from popper.harness.results import validate_results
+from popper.harness.session import Harness
+from popper.harness.store import next_sequence
+from popper.treesearch.engine import StageFailed
+from popper.treesearch.tools import node_tools
+
+_FRAME_CONCERNS = {
+    "unmeasured_concept",
+    "weak_proxy",
+    "unit_mismatch",
+    "missing_variable",
+    "scope_conflict",
+}
+_OUTPUTS = ("processed.parquet", "changes.json", "results.json")
+
+
+class _Model(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class Operationalization(_Model):
+    concept_id: str
+    columns: list[str]
+    proxy_strength: Literal["direct", "proxy", "weak", "none"]
+    rationale: str
+
+
+class Concern(_Model):
+    type: Literal[
+        "unmeasured_concept",
+        "weak_proxy",
+        "unit_mismatch",
+        "missing_variable",
+        "scope_conflict",
+        "quality",
+        "sample",
+        "structure",
+        "other",
+    ]
+    kind: Literal["frame", "data"]
+    description: str
+    evidence: list[str]
+
+    @model_validator(mode="after")
+    def _kind_matches_type(self) -> "Concern":
+        expected = "frame" if self.type in _FRAME_CONCERNS else "data"
+        if self.kind != expected:
+            raise ValueError(f"concern type {self.type} has kind {expected}, not {self.kind}")
+        return self
+
+
+class Change(_Model):
+    step: str
+    rows_affected: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]*$")
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+@dataclass
+class Foundation:
+    """The accepted preparation and what the data agent concluded about it."""
+
+    preparation: Path
+    operationalization: list[Operationalization]
+    concerns: list[Concern]
+    readiness: dict[str, Any]
+    attempt: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "operationalization": [o.model_dump() for o in self.operationalization],
+            "concerns": [c.model_dump() for c in self.concerns],
+            "readiness": self.readiness,
+            "attempt": self.attempt,
+        }
+
+
+def _check_changes(workdir: Path, results: dict[str, dict[str, Any]]) -> list[Change]:
+    try:
+        changes = TypeAdapter(list[Change]).validate_json((workdir / "changes.json").read_bytes())
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"invalid changes.json: {exc}") from exc
+    for change in changes:
+        if change.rows_affected not in results:
+            raise ValueError(
+                f"rows_affected {change.rows_affected!r} has no entry in results.json; "
+                "report that count there under the same key"
+            )
+        value = results[change.rows_affected]["value"]
+        if type(value) is not int or value < 0:
+            raise ValueError(
+                f"{change.rows_affected} must be a nonnegative integer count in results.json"
+            )
+    return changes
+
+
+def _check_mapping(
+    processed: pd.DataFrame, research: ResearchContext, operationalization: list[Operationalization]
+) -> None:
+    concepts = {c.id for c in research.concepts}
+    unknown = sorted({o.concept_id for o in operationalization} - concepts)
+    if unknown:
+        raise ValueError(f"operationalization names unknown concepts: {', '.join(unknown)}")
+    uncovered = sorted(concepts - {o.concept_id for o in operationalization})
+    if uncovered:
+        raise ValueError(
+            f"operationalization misses concepts: {', '.join(uncovered)} (use proxy_strength none)"
+        )
+    for item in operationalization:
+        missing = [c for c in item.columns if c not in processed.columns]
+        if missing:
+            raise ValueError(
+                f"operationalization of {item.concept_id} uses columns not in "
+                f"processed.parquet: {', '.join(missing)}"
+            )
+
+
+def check_submission(
+    workdir: Path,
+    research: ResearchContext,
+    operationalization: list[Operationalization],
+    concerns: list[Concern],
+    ida_raw: DescriptiveReport,
+) -> str | None:
+    """The first problem in a submitted preparation run, or None when it is acceptable."""
+    try:
+        try:
+            results = validate_results(json.loads((workdir / "results.json").read_bytes()))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"invalid results.json: {exc}") from exc
+        if not {"rows_before", "rows_after"} <= results.keys():
+            raise ValueError("results.json must report rows_before and rows_after")
+        try:
+            processed = pd.read_parquet(workdir / "processed.parquet")
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"processed.parquet is unreadable: {exc}") from exc
+        if processed.empty:
+            raise ValueError("processed.parquet has no rows")
+        reported = results["rows_after"]["value"]
+        if reported != len(processed):
+            raise ValueError(
+                f"rows_after {reported} does not match processed.parquet ({len(processed)} rows)"
+            )
+        changes = _check_changes(workdir, results)
+        lost = [
+            name
+            for name, v in research.variables.items()
+            if v.role.status == "confirmed"
+            and v.role.value == "outcome"
+            and name not in processed.columns
+        ]
+        if lost:
+            raise ValueError(
+                "outcome column(s) the researcher confirmed are missing from "
+                f"processed.parquet: {', '.join(lost)}"
+            )
+        _check_mapping(processed, research, operationalization)
+        known = {*results, *(c.step for c in changes), *ida_raw.results}
+        for concern in concerns:
+            stray = [e for e in concern.evidence if e not in known]
+            if stray:
+                raise ValueError(
+                    f"concern evidence {', '.join(map(repr, stray))} is not a result key, "
+                    "change step or descriptive result key"
+                )
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def readiness(processed: pd.DataFrame, research: ResearchContext) -> dict[str, Any]:
+    """Facts about each declared or proposed outcome and exposure; they never block."""
+    report = describe_table(processed, research)
+    keys = {c["name"]: c["key"] for c in report.layout["columns"]}
+    facts: dict[str, Any] = {"rows": len(processed), "columns": {}}
+    if "cluster_count" in report.results:
+        facts["cluster_count"] = report.results["cluster_count"]["value"]
+    for name, variable in research.variables.items():
+        role = variable.role.value
+        if role not in ("outcome", "exposure"):
+            continue
+        fact: dict[str, Any] = {"role": role, "present": name in keys}
+        if name in keys:
+            for field in ("constant", "missing_share", "floor_share", "ceiling_share"):
+                entry = report.results.get(f"{keys[name]}_{field}")
+                if entry is not None:
+                    fact[field] = bool(entry["value"]) if field == "constant" else entry["value"]
+        facts["columns"][name] = fact
+    return facts
+
+
+def _tools(
+    h: Harness,
+    attempt: Path,
+    research: ResearchContext,
+    inputs: dict[str, Path],
+    ida_raw: DescriptiveReport,
+    accepted: dict[str, Any],
+) -> list[Tool]:
+    def submit_ground(args: dict[str, Any]) -> str:
+        code = args.get("code")
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError("submit_ground needs the complete preparation script as code")
+        operationalization = TypeAdapter(list[Operationalization]).validate_python(
+            args.get("operationalization", [])
+        )
+        concerns = TypeAdapter(list[Concern]).validate_python(args.get("concerns", []))
+        folder = attempt / f"submit-{next_sequence(attempt, prefix='submit-'):02d}"
+        workdir = folder / "execution"
+        res = h.execute(
+            code,
+            workdir,
+            inputs=inputs,
+            node=f"{attempt.name}/{folder.name}",
+            purpose="submitted",
+        )
+        failed = ""
+        if res.timed_out:
+            failed = "timed out"
+        elif res.exit_code != 0:
+            failed = f"exit code {res.exit_code}"
+        else:
+            absent = [o for o in _OUTPUTS if not (workdir / o).exists()]
+            if absent:
+                failed = f"missing required output {', '.join(absent)}"
+        if failed:
+            raise ValueError(f"Check failed: {failed}.\n{res.stderr}")
+        problem = check_submission(workdir, research, operationalization, concerns, ida_raw)
+        if problem:
+            raise ValueError(f"Check failed: {problem}.")
+        accepted.update(
+            preparation=workdir, operationalization=operationalization, concerns=concerns
+        )
+        return "Preparation accepted."
+
+    return [
+        *(t for t in node_tools(h, inputs, attempt) if not t.terminal),
+        Tool(
+            "submit_ground",
+            "Submit the complete preparation script with the operationalization and concerns. "
+            "The harness re-runs the script from scratch; only that run counts. A rejected "
+            "submit returns the reason. Call it once the preparation is complete.",
+            {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Complete Python script."},
+                    "operationalization": {
+                        "type": "array",
+                        "description": "[{concept_id, columns, proxy_strength: "
+                        "direct|proxy|weak|none, rationale}], one per concept of the frame.",
+                        "items": {"type": "object"},
+                    },
+                    "concerns": {
+                        "type": "array",
+                        "description": "[{type, kind: frame|data, description, evidence: "
+                        "[result keys or change steps]}]",
+                        "items": {"type": "object"},
+                    },
+                },
+                "required": ["code", "operationalization", "concerns"],
+            },
+            submit_ground,
+            terminal=True,
+        ),
+    ]
+
+
+def load_foundation(h: Harness) -> Foundation | None:
+    """The committed foundation, rebuilt from its attempt folder; None before acceptance."""
+    committed = h.run.committed("foundation")
+    if committed is None:
+        return None
+    folder = committed.parent
+    record = json.loads(committed.read_text("utf-8"))
+    return Foundation(
+        h.run.path(record["preparation"]),
+        TypeAdapter(list[Operationalization]).validate_json(
+            (folder / "operationalization.json").read_bytes()
+        ),
+        TypeAdapter(list[Concern]).validate_json((folder / "concerns.json").read_bytes()),
+        json.loads((folder / "readiness.json").read_text("utf-8")),
+        folder.name,
+    )
+
+
+def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Foundation:
+    existing = load_foundation(h)
+    if existing:
+        return existing
+    run = h.run
+    attempt = run.new_attempt("ground")
+    ida_raw = DescriptiveReport(**json.loads(run.path("data", "ida-raw.json").read_text("utf-8")))
+    inputs = {"raw": run.path("data", "raw.csv")}
+    task = load_prompt(
+        "popper.ground",
+        "steward.md",
+        research=part("Research context", render_research(research), RESEARCH_CHARS, untrusted=True),
+        framing=part("Framing", json.dumps(framing, indent=2), RESEARCH_CHARS, untrusted=True),
+        description=part(
+            "Raw data description", format_description(ida_raw), ARTIFACT_CHARS, untrusted=True
+        ),
+        notes=part(
+            "Researcher notes", research.notes.get("ground", "(none)"), RESEARCH_CHARS, untrusted=True
+        ),
+    )  # fmt: skip
+    accepted: dict[str, Any] = {}
+    config = h.config.ground
+    submitted = agent_loop(
+        h,
+        "steward",
+        tag="steward",
+        system="You are a careful data steward who prepares data before any analysis.",
+        task=task,
+        tools=_tools(h, attempt, research, inputs, ida_raw, accepted),
+        max_turns=config.max_turns,
+        max_submits=config.max_submits,
+    )
+    if submitted is None:
+        raise StageFailed("ground")
+    preparation: Path = accepted["preparation"]
+    target = run.copy_once(preparation / "processed.parquet", "data/processed.parquet")
+    target.chmod(stat.S_IREAD)
+    processed = pd.read_parquet(target)
+    report = describe_table(processed, research)
+    ida = run.write_json("data/ida.json", {"results": report.results, "layout": report.layout})
+    ida.chmod(stat.S_IREAD)
+    foundation = Foundation(
+        preparation,
+        accepted["operationalization"],
+        accepted["concerns"],
+        readiness(processed, research),
+        attempt.name,
+    )
+    rel = attempt.relative_to(run.root).as_posix()
+    body = foundation.as_dict()
+    run.write_json(f"{rel}/operationalization.json", body["operationalization"])
+    run.write_json(f"{rel}/concerns.json", body["concerns"])
+    run.write_json(f"{rel}/readiness.json", body["readiness"])
+    path = run.write_json(
+        f"{rel}/foundation.json", {"preparation": preparation.relative_to(run.root).as_posix()}
+    )
+    run.commit_artifact("foundation", path)
+    return foundation

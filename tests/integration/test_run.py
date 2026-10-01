@@ -147,6 +147,19 @@ json.dump({"primary_estimate": {"value": float(slope) * scale, "ci": [c * scale 
 EXPERIMENT += f"\njson.dump({HYPOTHESIS['primary_estimand']!r}, open('estimand.json','w'))\n"
 
 
+def _submit_ground(code: str) -> tuple[ToolCall, ...]:
+    mapping = [
+        {
+            "concept_id": "study_effort",
+            "columns": ["study_hours_week"],
+            "proxy_strength": "direct",
+            "rationale": "Weekly study hours measure the time invested.",
+        }
+    ]
+    args = {"code": code, "operationalization": mapping, "concerns": []}
+    return (ToolCall("ground-1", "submit_ground", args),)
+
+
 def _submit(code: str) -> tuple[ToolCall, ...]:
     return (ToolCall("submit-1", "submit", {"code": code}),)
 
@@ -155,6 +168,8 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     tag = req.tag
     if tag == "theorist":
         return (ToolCall("frame-1", "submit_frame", {"framing": FRAMING}),)
+    if tag == "steward":
+        return _submit_ground(DATA)
     if tag.startswith("analyst:"):
         if tag == "analyst:robustness":
             choice = next(
@@ -170,7 +185,7 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
                     'df["study_hours_week"] = np.random.default_rng(7).permutation(df["study_hours_week"])\nx, y =',
                 )
             return _submit(code)
-        return _submit({"analyst:data": DATA, "analyst:explore": EXPLORE}.get(tag, EXPERIMENT))
+        return _submit(EXPLORE if tag == "analyst:explore" else EXPERIMENT)
     if tag.startswith("judge:"):
         return json.dumps(FEEDBACK)
     return json.dumps(
@@ -242,15 +257,18 @@ def test_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert not any("holdout" in req.prompt for req in llm.calls)
     assert not any("holdout" in p.read_text("utf-8") for p in out.run_dir.glob("tree/*/*/code.py"))
     assert lines[0] == "[framing] start · $0.00"
-    assert any(re.match(r"^\[data\] data-000 draft → ok score 7 · \$\d+\.\d\d$", x) for x in lines)
+    assert any(re.match(r"^\[ground\] start · \$\d+\.\d\d$", x) for x in lines)
+    assert not (out.run_dir / "tree" / "data").exists()
+    assert (out.run_dir / "data" / "ida.json").exists()
 
 
 def test_failed_stage_recorded(tmp_path: Path) -> None:
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        return _submit("raise RuntimeError('boom')") if req.tag == "analyst:data" else _respond(req)
+        return (
+            _submit_ground("raise RuntimeError('boom')") if req.tag == "steward" else _respond(req)
+        )
 
     cfg = _config()
-    cfg.search.steps_per_stage = 2
     out = run(
         EXAMPLE / "research.md",
         EXAMPLE / "data.csv",
@@ -259,9 +277,9 @@ def test_failed_stage_recorded(tmp_path: Path) -> None:
         llm=FakeLLM(respond),
         runs_dir=tmp_path,
     )
-    assert out.status == "failed" and "data" in out.message
+    assert out.status == "failed" and "ground" in out.message
     record = load_state(RunStore(out.run_dir))
-    assert record["status"] == "failed" and record["failed_stage"] == "data"
+    assert record["status"] == "failed" and record["failed_stage"] == "ground"
 
 
 def test_budget_exceeded_recorded(tmp_path: Path) -> None:

@@ -124,7 +124,7 @@ def compute_stability(
     return ("fragile" if reasons else "stable"), reasons
 
 
-def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_node: Node) -> Path:
+def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, preparation: Path) -> Path:
     committed = h.run.committed("robustness_plan")
     if committed:
         return committed
@@ -136,7 +136,7 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, data_nod
         system="You are a careful research scientist. Reply with JSON only.",
         prompt=(
             f"Plan a bounded multiverse for this hypothesis:\n{json.dumps(hypothesis)}\n"
-            f"Recorded data changes:\n{(data_node.execution_dir / 'changes.json').read_text('utf-8')}\n"
+            f"Recorded data changes:\n{(preparation / 'changes.json').read_text('utf-8')}\n"
             f"Use at most {steps} attempts, at least {h.config.robustness.min_variants} ordinary variants "
             "and one adversarial permutation of the exposure. Prefer four ordinary variants plus one "
             "adversarial attempt, leaving repair budget. Cover cleaning, model, subgroup and resampling, "

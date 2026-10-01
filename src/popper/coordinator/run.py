@@ -9,7 +9,7 @@ from typing import Literal
 from popper.communicate.paper import write_paper
 from popper.discover.experiment import experiment
 from popper.discover.explore import explore, propose_hypothesis
-from popper.ground.data import prepare
+from popper.ground.steward import ground
 from popper.harness.config import Config
 from popper.harness.descriptive import describe_table, read_table
 from popper.harness.llm import LLM
@@ -161,17 +161,17 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             else:
                 frame = commit_review(h, answered, report)
         framing = frame.framing.model_dump()
-        _phase(h, "data")
-        data_node = prepare(h, framing)
+        _phase(h, "ground")
+        foundation = ground(h, frame.research, framing)
         _phase(h, "explore")
         explore_node = explore(h, framing)
         hypothesis = propose_hypothesis(h, framing, explore_node)
         _phase(h, "experiment")
-        evidence = experiment(h, framing, hypothesis, data_node)
+        evidence = experiment(h, framing, hypothesis, foundation.preparation)
         _phase(h, "publication")
-        changes = json.loads((data_node.execution_dir / "changes.json").read_text("utf-8"))
+        changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))
         tex, pdf, missing = write_paper(
-            h, framing, changes, explore_node, hypothesis, evidence, data_node
+            h, framing, changes, explore_node, hypothesis, evidence, foundation.preparation
         )
         status = "completed"
     except _AwaitingReview as waiting:

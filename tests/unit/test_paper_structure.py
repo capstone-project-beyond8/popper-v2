@@ -88,16 +88,16 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     assert "drop & 73 & missing" in tex
 
 
-def test_figure_references_are_identity_based_bounded_known_and_data_first() -> None:
+def test_figure_references_are_identity_based_bounded_known_and_exploration_first() -> None:
     nodes = [
         cast(Node, SimpleNamespace(id=f"main-{i:03d}", stage="main", figures=["fit.png"]))
         for i in range(4)
     ]
-    data = cast(Node, SimpleNamespace(id="data-000", stage="data", figures=["raw.png"]))
+    explore = cast(Node, SimpleNamespace(id="explore-000", stage="explore", figures=["raw.png"]))
     refs = [FigureRef(node_id=n.id, file="fit.png", caption="fit", section="main") for n in nodes]
     assert len(_select_figures(refs + refs, nodes)) == 3
-    raw = FigureRef(node_id="data-000", file="raw.png", caption="raw", section="data_methods")
-    assert _select_figures([*refs, raw], [*nodes, data])[0][0] is data
+    raw = FigureRef(node_id="explore-000", file="raw.png", caption="raw", section="data_methods")
+    assert _select_figures([*refs, raw], [*nodes, explore])[0][0] is explore
     escape = FigureRef(node_id="main-000", file="../secret.png", caption="x", section="main")
     assert _select_figures([escape], nodes) == []
 

@@ -26,6 +26,13 @@ def latex_escape(text: str) -> str:
     return "".join(_ESCAPES.get(c, c) for c in text)
 
 
+def entry_values(key: str, entry: Mapping[str, Any]) -> dict[str, Any]:
+    """The value of a results entry under `key`, plus its `ci` and `n` parts when present."""
+    values = {key: entry["value"]}
+    values.update({f"{key}.{part}": entry[part] for part in ("ci", "n") if part in entry})
+    return values
+
+
 def collect_values(
     nodes: Sequence[Node], *, selected: Mapping[str, str] | None = None
 ) -> dict[str, Any]:
@@ -44,10 +51,7 @@ def collect_values(
             if aliases.get(node.stage) == node.id:
                 keys.append(f"{node.stage}.{name}")
             for key in keys:
-                values[key] = entry["value"]
-                for part in ("ci", "n"):
-                    if part in entry:
-                        values[f"{key}.{part}"] = entry[part]
+                values.update(entry_values(key, entry))
     return values
 
 

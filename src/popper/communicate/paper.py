@@ -14,12 +14,14 @@ from pydantic import BaseModel, ConfigDict
 from popper.communicate.evidence import artifact_path, evidence_rows, load_evidence, render_curve
 from popper.communicate.numbers import (
     collect_values,
+    entry_values,
     explain_missing,
     fill_numbers,
     latex_escape,
 )
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
+from popper.harness.results import validate_results
 from popper.harness.session import Harness
 from popper.harness.store import next_sequence
 from popper.treesearch.engine import Node, load_nodes
@@ -147,7 +149,7 @@ def _select_figures(refs: list[FigureRef], nodes: list[Node]) -> list[tuple[Node
         if node is not None and (node.id, ref.file) not in seen:
             selected.append((node, ref))
             seen.add((node.id, ref.file))
-    order = {"data": 0, "explore": 1, "baseline": 2, "main": 3, "robustness": 4}
+    order = {"explore": 0, "baseline": 1, "main": 2, "robustness": 3}
     return sorted(selected, key=lambda item: order[item[0].stage])[:3]
 
 
@@ -307,7 +309,7 @@ def write_paper(
     explore: Node,
     hypothesis: dict[str, Any],
     evidence: Path,
-    data_node: Node,
+    preparation: Path,
 ) -> tuple[Path, Path | None, list[str]]:
     committed = h.run.committed("report")
     if committed:
@@ -320,10 +322,11 @@ def write_paper(
     report_dir = h.run.new_attempt("report")
     manifest = load_evidence(evidence, h.run.root)
     experiments = [n for stage in ("baseline", "main", "robustness") for n in load_nodes(h, stage)]
-    nodes = [data_node, explore, *experiments]
-    values = collect_values(
-        nodes, selected={**manifest["selected"], "data": data_node.id, "explore": explore.id}
-    )
+    nodes = [explore, *experiments]
+    values = collect_values(nodes, selected={**manifest["selected"], "explore": explore.id})
+    prepared = validate_results(json.loads((preparation / "results.json").read_text("utf-8")))
+    for name, entry in prepared.items():
+        values.update(entry_values(f"data.{name}", entry))
     summary = json.loads(artifact_path(h.run.root, manifest["summary"]).read_text("utf-8"))
     values.update({f"summary.{key}": entry["value"] for key, entry in summary.items()})
     rows = evidence_rows(manifest, h.run.root)

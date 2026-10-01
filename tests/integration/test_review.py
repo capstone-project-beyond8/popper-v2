@@ -20,11 +20,11 @@ REVISED = {
 
 
 def _llm(revision: bool = False) -> FakeLLM:
-    """Replies like a normal run but stops at the first data-stage call."""
+    """Replies like a normal run but stops at the first steward call."""
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        if req.tag == "analyst:data":
-            raise KeyboardInterrupt("reached the data stage")
+        if req.tag == "steward":
+            raise KeyboardInterrupt("reached the ground phase")
         if revision and req.tag == "theorist" and "Guidance for this revision" in req.prompt:
             return (ToolCall("frame-2", "submit_frame", {"framing": REVISED}),)
         return _respond(req)
@@ -110,7 +110,7 @@ def test_reject_triggers_one_revision_session(tmp_path: Path) -> None:
 
 def test_auto_commits_the_frame_unchanged_without_stopping(tmp_path: Path) -> None:
     outcome, root, llm = _start(tmp_path, auto=True)
-    assert outcome is None and _tags(llm)[-1] == "analyst:data"  # ran past the frame
+    assert outcome is None and _tags(llm)[-1] == "steward"  # ran past the frame
     store = RunStore(root)
     assert store.committed("frame_reviewed") == store.committed("frame")
     assert _provenance(root) == {}
@@ -145,7 +145,7 @@ def test_crash_after_review_commit_repeats_neither_review_nor_model_calls(
     assert reviewed is not None
     llm = _llm()
     _reach_data_stage(root, llm)
-    assert _tags(llm) == ["analyst:data"]  # the review and the revision are not repeated
+    assert _tags(llm) == ["steward"]  # the review and the revision are not repeated
     assert RunStore(root).committed("frame_reviewed") == reviewed
     assert len(list(root.glob("understand/attempt-*"))) == 2
 

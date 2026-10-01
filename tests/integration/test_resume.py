@@ -45,7 +45,7 @@ def test_resume_keeps_committed_prefix_and_completes_once(tmp_path: Path) -> Non
         in {
             "theorist",
             "hypothesis",
-            "analyst:data",
+            "steward",
             "analyst:explore",
             "analyst:baseline",
             "judge:baseline",

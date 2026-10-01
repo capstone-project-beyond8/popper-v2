@@ -184,14 +184,14 @@ def experiment(
     h: Harness,
     framing: dict[str, Any],
     hypothesis: dict[str, Any],
-    data_node: Node,
+    preparation: Path,
 ) -> Path:
     committed = h.run.committed("evidence")
     if committed:
         return committed
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None)
     main = run_experiment_stage(h, "main", framing, hypothesis, baseline)
-    plan = plan_robustness(h, hypothesis, main, data_node)
+    plan = plan_robustness(h, hypothesis, main, preparation)
     schedule = load_robustness_plan(plan, h.config)
     columns = pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
     attempts = tuple(
@@ -219,8 +219,8 @@ def experiment(
                 inputs={
                     "data": h.run.path("data", "processed.parquet"),
                     "raw": h.run.path("data", "raw.csv"),
-                    "prepare": data_node.execution_dir / "code.py",
-                    "changes": data_node.execution_dir / "changes.json",
+                    "prepare": preparation / "code.py",
+                    "changes": preparation / "changes.json",
                 },
                 required_outputs=("results.json", "estimand.json"),
                 seed_code=main.code,
