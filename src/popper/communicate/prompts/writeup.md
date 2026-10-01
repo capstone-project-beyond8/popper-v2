@@ -15,6 +15,10 @@ Interpret direction relative to the selected hypothesis, including equally legit
 
 {analyses}
 
+{notes}
+
+Code adds the operationalization table and a Limitations list; do not repeat them.
+
 ## Figure files available, by node identity
 {figures}
 

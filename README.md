@@ -1,6 +1,6 @@
 # Popper v2
 
-An AI scientist for quantitative tabular data. From a research brief and a CSV, Popper runs five phases: ideation & framing → data → exploration & hypothesis → experiment → publication. It prepares and explores discovery data, selects one primary hypothesis, runs baseline → main → bounded robustness analyses, and writes a LaTeX report with every successful experiment attempt. Stability (`stable`/`fragile`) is computed from executed estimates and a permutation diagnostic; standing always remains `exploratory`. Held-out data is reserved, not used for verification yet.
+An AI scientist for quantitative tabular data. From a research context (`research.md`) and a CSV, Popper runs five phases: ideation & framing → data → exploration & hypothesis → experiment → publication. It prepares and explores discovery data, selects one primary hypothesis, runs baseline → main → bounded robustness analyses, and writes a LaTeX report with every successful experiment attempt. Stability (`stable`/`fragile`) is computed from executed estimates and a permutation diagnostic; standing always remains `exploratory`. Held-out data is reserved, not used for verification yet.
 
 Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/ROADMAP.md](docs/ROADMAP.md) · Contributing: [AGENTS.md](AGENTS.md)
 
@@ -21,7 +21,7 @@ uv run popper --version
 
 ## Run
 
-Run all phases on a brief and a CSV file:
+Run all phases on a research context and a CSV file:
 
 ```sh
 uv run --env-file .env popper run examples/student_performance

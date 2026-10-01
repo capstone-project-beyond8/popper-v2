@@ -41,7 +41,7 @@ def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
         return (ToolCall("submit", "submit", {"code": code}),)
 
     cfg = load_config(env={})
-    store = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv", config=cfg)
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     pd.DataFrame({"score": [1], "hours": [2]}).to_parquet(store.path("data", "processed.parquet"))
     fake = FakeLLM(respond)
     h = Harness(cfg, fake, store)

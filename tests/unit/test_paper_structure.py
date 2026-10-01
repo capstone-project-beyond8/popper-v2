@@ -8,6 +8,7 @@ from popper.communicate.paper import (
     _render_report,
     _select_figures,
 )
+from popper.coordinator.limitations import PREPARATION_ACCESS
 from popper.treesearch.engine import Node
 from tests.integration.test_run import WRITEUP
 
@@ -64,6 +65,16 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
             "summary.adversarial_count": 1,
             "data.rows_removed": 73,
         },
+        ["Only 5 clusters & few", PREPARATION_ACCESS],
+        [
+            {
+                "concept": "Effort",
+                "concept_id": "effort",
+                "columns": ["hours"],
+                "proxy_strength": "proxy",
+            }
+        ],
+        True,
     )
     headings = [
         r"\section{Introduction}",
@@ -86,18 +97,23 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     assert "All 4 variants" in tex and missing == [r"\R{main.nope}"]
     assert tex.index("Step & Rows") < tex.index(r"\section{Results}")
     assert "drop & 73 & missing" in tex
+    assert "Effort & hours & proxy" in tex and "proposed by the data agent" in tex
+    assert tex.index("Effort & hours") < tex.index(r"\section{Results}")
+    assert r"\item Only 5 clusters \& few" in tex and PREPARATION_ACCESS in tex
+    assert tex.index(r"\subsection{Limitations}") < tex.index(r"\section{Conclusion}")
+    assert "reviewed and steered by the researcher" in tex
 
 
-def test_figure_references_are_identity_based_bounded_known_and_data_first() -> None:
+def test_figure_references_are_identity_based_bounded_known_and_exploration_first() -> None:
     nodes = [
         cast(Node, SimpleNamespace(id=f"main-{i:03d}", stage="main", figures=["fit.png"]))
         for i in range(4)
     ]
-    data = cast(Node, SimpleNamespace(id="data-000", stage="data", figures=["raw.png"]))
+    explore = cast(Node, SimpleNamespace(id="explore-000", stage="explore", figures=["raw.png"]))
     refs = [FigureRef(node_id=n.id, file="fit.png", caption="fit", section="main") for n in nodes]
     assert len(_select_figures(refs + refs, nodes)) == 3
-    raw = FigureRef(node_id="data-000", file="raw.png", caption="raw", section="data_methods")
-    assert _select_figures([*refs, raw], [*nodes, data])[0][0] is data
+    raw = FigureRef(node_id="explore-000", file="raw.png", caption="raw", section="data_methods")
+    assert _select_figures([*refs, raw], [*nodes, explore])[0][0] is explore
     escape = FigureRef(node_id="main-000", file="../secret.png", caption="x", section="main")
     assert _select_figures([escape], nodes) == []
 

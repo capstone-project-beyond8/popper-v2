@@ -1,7 +1,8 @@
 An exploratory analysis of the data has finished. Turn what it found into one testable hypothesis.
 
-## Framing
 {framing}
+
+{notes}
 
 {results}
 
@@ -26,5 +27,7 @@ Reply with JSON only, exactly these keys:
 - refuting_result: the executed result that would refute this claim
 - planned_test: model/test, covariates, contrast calculation and interval method
 - methods: list of the operations the planned test uses, chosen only from the allowed values in the schema
+
+- assumptions: ids of the research-context assumptions this hypothesis relies on (empty list if none)
 
 Do not supply IDs, source nodes, attribution or a confidence/stability label.

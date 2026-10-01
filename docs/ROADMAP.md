@@ -8,7 +8,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - **Demo gate.** One command a person can run, producing output they can read. A milestone is done only when its gate and acceptance criteria pass on a real model.
 - **Size estimate.** A rough guess of `src/` lines for planning, not a limit. Code stays as small as the outcome allows.
 - **From milestone to code.** Milestone → spec in `docs/specs/` (refines ARCHITECTURE contracts, never contradicts them) → implementation plan → build → close. A spec is removed once its milestone closes.
-- **Scope discipline.** Nothing is built ahead of its milestone. After M3, a new mechanism names the failure it fixes and its evaluation result.
+- **Scope discipline.** Nothing is built ahead of its milestone. After M4, a new mechanism names the failure it fixes and its evaluation result.
 
 ## Product overview
 
@@ -16,27 +16,28 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 |---|---|---|---|---|---|
 | **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | ~2k | done |
 | **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | ~2.5k | done |
-| **M2** Grounded hypotheses | The researcher reviews an agent-cleaned research context before analysis; the hypothesis rests on what the variables mean, faces its rivals, respects the design's clusters and says which rows tested it | `popper run examples/student_performance` stops for review of the cleaned research context; after `popper resume` → paper with a sample flow, a sample characteristics table, rival explanations with their checks, school fixed effects and the bounded outcome stated | M1 | ~1.5k | todo |
-| **M3** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, estimand recovery, holdout gap and cost for two configurations | M2 | + `evals/` | todo |
-| **M4** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | ~3k | todo |
-| **M5** Research loop | The researcher steers; results change what the run does next | Several critiqued hypotheses, researcher picks, a second round builds on the first, a late data problem reopens the data stage; eval compares it with the playbook | M3, M4 | ~3.5k | todo |
-| **M6** Literature | Framing, hypotheses and related work grounded in real prior work | The demo paper cites resolved prior work | M5 | ~4k | todo |
-| **M7** Verify | Confirm a chosen result once on held-back data | `popper verify <run> <result>` → a computed outcome | M3 | ~4.5k | todo |
-| **M8** Long-term track | Deferred capabilities, each started when its trigger is met | Per item | M3 | per item | parked |
+| **M2** Grounded frame | The researcher steers an agent's understanding of the problem; an agent grounds it in the data and says what the data cannot support | `popper run examples/student_performance` stops for review of the Research Frame; after `popper resume` → paper with an operationalization table and generated limitations | M1 | ~1.5k | todo |
+| **M3** Discover agent | An agent decides what to explore, when to hypothesize and what to test, running the tree underneath | The demo explores at least two directions chosen by the agent and the journal shows why each experiment was run | M2 | ~1.5k | todo |
+| **M4** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, estimand recovery, holdout gap and cost for two configurations | M3 | + `evals/` | todo |
+| **M5** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | ~3k | todo |
+| **M6** Research loop | The researcher steers; results change what the run does next | Several critiqued hypotheses, researcher picks, a second round builds on the first, a late data problem opens a new Ground attempt; eval compares it with the playbook | M4, M5 | ~3.5k | todo |
+| **M7** Literature | Framing, hypotheses and related work grounded in real prior work | The demo paper cites resolved prior work | M6 | ~4k | todo |
+| **M8** Verify | Confirm a chosen result once on held-back data | `popper verify <run> <result>` → a computed outcome | M4 | ~4.5k | todo |
+| **M9** Long-term track | Deferred capabilities, each started when its trigger is met | Per item | M4 | per item | parked |
 
 ## Capability growth
 
-| Area | M0 | M1 | M2 | M3 | M4 | M5 | M6 | M7 |
-|---|---|---|---|---|---|---|---|---|
-| **Ideation** | Profile and framing with one reflection | — | Research context with per-entry provenance; agent proposes variable meanings with evidence; open questions listed; review table and stop before analysis; framing refers to roles | — | Introduction from objectives and audience | Objectives and researcher hypotheses in the research context; clarifying questions asked one at a time; per-entry approval; research-context revision after results | Domain background in the research context; prior work shapes questions | — |
-| **Data** | Agentic `data` stage, change log, row counts | Holdout set aside at ingest | One descriptive-statistics module, before and after `data`; confirm partition, off by default | — | Before/after figures, derived-variable checks | Reopened when a later phase finds a problem | — | — |
-| **Exploration & hypothesis** | Agentic `explore` stage, one hypothesis | Hypothesis contract (one primary estimand, refuting result) | SESOI, adjustment set, typed rival checks; code gate on roles, order and clusters | — | — | 3–5 hypotheses with mechanism and auxiliary predictions, Critic rubric, researcher choice, revision from results | Relation to prior work | — |
-| **Experiment** | One combined stage | `baseline` → `main` → `robustness`, multiverse, adversarial check, stability label | Layered method vocabulary, computed method fit, hard cluster rule; rival checks as variants or adversarial checks | — | — | One tree per chosen hypothesis; label intervals adjusted for several hypotheses | — | Locked re-run on holdout |
-| **Search engine** | Draft/debug/improve, typed Judge answers | Judge blind to estimates, reads figures | Judge method reference from the layered vocabulary | — | — | — | — | — |
-| **Publication** | Template paper, named-result numbers, fixed label | Standard paper structure, results table, robustness section, specification curve | Sample flow, sample characteristics, rivals and checks, method fit, `tested_on`, unconfirmed assumptions and bounded outcome | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results, research path | Related work, citations | Verified labels |
-| **Roles** | PI playbook, Theorist, Analyst, Judge, Writer | — | Theorist runs ideation, states rivals | — | Critic reviews the paper | PI agent, Critic | Literature for Theorist and Writer | — |
-| **Harness** | Agent loop, tools, context, sandbox, journal, run store, budget, failure classes, progress | Vision input, resume, import contract | Research-context ingest, descriptive-statistics module, `awaiting_review` stop | — | — | PI tools, `ask_researcher`, working memory, researcher input, per-phase budgets | Literature tool | Verify package |
-| **Evaluation** | — | — | — | Planted (leak, few clusters, bounded outcome) and null suites, headline metrics, first comparisons, adoption records | Traced-number share | PI agent vs playbook, Critic on vs off | — | — |
+| Area | M0 | M1 | M2 | M3 | M4 | M5 | M6 | M7 | M8 |
+|---|---|---|---|---|---|---|---|---|---|
+| **Understand** | Profile and framing with one reflection | — | Theorist session (explore, critique, synthesize); research context with provenance and concepts; `ask_researcher`; item-level review signals and one revision; computed framing warnings | — | — | Introduction from objectives and audience | Research Frame revision after results | Domain background in the research context; prior work shapes questions | — |
+| **Ground** | Agentic `data` stage, change log, row counts | Holdout set aside at ingest | Data Steward session with code-checked submits; operationalization, concerns, readiness; one descriptive-statistics module; bounded return to Understand | — | — | Before/after figures, derived-variable checks | New Ground attempt when a later phase finds a problem | — | — |
+| **Exploration & hypothesis** | Agentic `explore` stage, one hypothesis | Hypothesis contract (one primary estimand, refuting result) | Reads frame and foundation; computed hypothesis warnings | Agent chooses directions and when to hypothesize | — | — | 3–5 hypotheses with mechanism and auxiliary predictions, Critic rubric, researcher choice | Relation to prior work | — |
+| **Experiment** | One combined stage | `baseline` → `main` → `robustness`, multiverse, adversarial check, stability label | — | Agent chooses which hypotheses to test | — | — | One tree per chosen hypothesis; label intervals adjusted for several hypotheses | — | Locked re-run on holdout |
+| **Search engine** | Draft/debug/improve, typed Judge answers | Judge blind to estimates, reads figures | Discover stages only | Driven by the Discover agent | — | — | — | — | — |
+| **Publication** | Template paper, named-result numbers, fixed label | Standard paper structure, results table, robustness section, specification curve | Operationalization table; limitations from proposals, concerns, readiness and warnings; raw-access disclosure | Research path through the Discover agent's choices | — | Figure aggregation, checks, claims file, rubric review, search map, disclosure | Per-hypothesis results | Related work, citations | Verified labels |
+| **Roles** | PI playbook, Theorist, Analyst, Judge, Writer | — | Theorist as a session; Data Steward | Discover agent | — | Critic reviews the paper | PI agent across phases, Critic | Literature for Theorist and Writer | — |
+| **Harness** | Agent loop, tools, context, sandbox, journal, run store, budget, failure classes, progress | Vision input, resume, import contract | Research-context ingest, descriptive module, code-checked terminal tools, researcher callback, `awaiting_review` stop | Stage and hypothesis tools for the Discover agent | — | — | Working memory, researcher input, per-phase budgets | Literature tool | Verify package |
+| **Evaluation** | — | — | — | — | Planted (leak, few clusters, bounded outcome) and null suites, headline metrics, first comparisons, adoption records | Traced-number share | PI agent vs playbook, Critic on vs off | — | — |
 
 ---
 
@@ -51,7 +52,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - Stages `data`, `explore` and one combined experiment stage (§5.4).
 - Harness: model client with retry, agent loop, the Analyst tools, context assembly with untrusted wrapping, sandbox, journal, write-once run store, money budget priced per model with prompt caching, failure classes, progress (§7).
 - Publication: fixed template, named-result numbers with `??` on unknown names, the fixed `exploratory` label, generated appendix, PDF when an engine exists (§10 steps 3, 4, 8).
-- CLI: `popper run <example_dir | --brief B --data D> [--config C] [--runs-dir R] [--quiet]`, and `popper pdf <run>`.
+- CLI: `popper run <example_dir | --research R --data D> [--config C] [--runs-dir R] [--quiet]`, and `popper pdf <run>`.
 
 **Acceptance.**
 - On `student_performance` with a real model: the paper reports the planted data issues it fixed (duplicates, `absent`, impossible values, income labels), finds a positive effect of study hours, has no `??`, costs under $5 and finishes under 45 minutes.
@@ -92,49 +93,56 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 **Out.** Diverse drafts (a later challenger), decision layer, several hypotheses, researcher input, going back, data before/after figures.
 
-**Risks.** Variant count drives cost; the stage budget bounds it. The 80% stability share is a default to revisit in M3.
+**Risks.** Variant count drives cost; the stage budget bounds it. The 80% stability share is a default to revisit in M4.
 
 ---
 
-## M2 — Grounded hypotheses
+## M2 — Grounded frame
 
-**Outcome.** A researcher gives a research context and a dataset, reviews the cleaned research context the agent returns (what it understood, what each variable means, what it could not tell), and receives a hypothesis that passes code checks on roles, timing and clusters, faces its rival explanations with typed checks, and states its method fit and which rows tested it. The paper shows who was studied and how the sample was reduced.
+**Outcome.** A researcher gives a research context and a dataset. An agent turns it into a Research Frame (problem, questions, concepts, scope, assumptions, unknowns, directions), the researcher steers it item by item, and a second agent grounds it in the data: what the data measure, how each concept is represented, what is missing. When the data cannot represent the frame, the run goes back to the frame instead of silently changing research intent. The paper states every proposal, concern and warning it relied on.
 
 **Scope.**
-- Research context `research.md`: narrative body with optional front matter holding `variables`, `design`, `assumptions`, `constraints`, `sesoi` and `notes`; each entry `confirmed`, `computed`, `proposed` or `unknown`; replaces `brief.md`; `popper run <example_dir | --research R --data D>`; validated at ingest against the dataset (§4.1).
-- Code checks, gates and labels use `confirmed` and `computed` entries; a `proposed` entry only makes a check stricter; `notes` steer prompts only (§4.1).
-- Ideation steps 1a, 1b, 1e and 1f (§4.1): code lists the gaps; the Theorist restates the request and proposes meaning, unit, type, role and order with evidence, listing open questions; the run prints the cleaned research context as a table and stops with status `awaiting_review`; `popper resume` commits the researcher's edits; `--auto` skips the stop. Framing keeps questions, directions and data concerns and refers to roles instead of listing key variables.
-- One role-free descriptive-statistics module in the harness behind the ingest profile, the Judge's data summary and `inspect_data`: structure, data quality, univariate distribution with floor and ceiling share, cluster count and sizes, sample flow and the sample characteristics table, in the `results.json` schema, on discovery raw rows and on `processed.parquet` (§4.2).
-- Confirm partition built and off by default: when on, `data` fits on explore rows and replays on confirm rows, `explore` reads explore rows, experiment stages read confirm rows; every hypothesis records `tested_on` (§11).
-- Layered closed method vocabulary replacing the current method list; computed method fit printed in the paper; the cluster rule as a hard check on the planned test and the robustness schedule; thresholds under `analysis` in config (§4.4).
-- Hypothesis contract adds `sesoi` (set before exploration, else recorded as `post_exploration`), `adjustment_set` and rival explanations with typed checks: `adjustment` becomes a robustness variant, `negative_control` an adversarial check, `sensitivity` a reported bound. Code gate on roles, order, adjustment set and clusters (§4, §4.3, §5.5).
-- Publication: sample flow, sample characteristics table without significance tests, rival explanations and their checks, method fit, the `tested_on` sentence, unconfirmed research-context assumptions and a bounded outcome as limitations (§10).
-- `examples/student_performance` and `examples/student_performance_null` move to `research.md`; one keeps a body-only research context to exercise ideation.
+- Research context `research.md`: narrative body with optional front matter (`domain`, `objectives`, `variables`, `design`, `assumptions`, `constraints`, `concepts`, `notes`); entries `confirmed`, `proposed` or `unknown`; replaces `brief.md`; `popper run <example_dir | --research R --data D> [--auto]`; validated at ingest against the dataset (§4.1).
+- One role-free descriptive-statistics module in the harness behind the Theorist's and Steward's evidence and `inspect_data`, on discovery raw rows and on the prepared data (§4.2).
+- Understand as one Theorist session: explore, critique, synthesize; `ask_researcher`; `submit_frame` checked by code (evidence must resolve, no change to confirmed entries); computed framing warnings (§4.1).
+- Review: `review.yaml` with stable item ids, signals approve / edit / reject / unknown with notes, status `awaiting_review`, `popper resume [--review FILE]`, one revision session, `--auto` (§4.1).
+- Ground as one Data Steward session replacing the `data` tree stage: `submit_ground` re-run from scratch and checked by code; operationalization (proposed), typed concerns, readiness facts; frame concerns return to Understand at most once (§4.3).
+- Discover reads the frame and the foundation; hypothesis gates replaced by computed warnings (§4.4).
+- Publication: operationalization table, generated limitations, raw-access disclosure (§10).
+- Examples move to `research.md`; one keeps a body-only research context.
 
 **Acceptance.**
-- The demo stops with `awaiting_review` and prints the cleaned research context as a table; after `popper resume` the run completes.
-- The demo's three schools lead to school fixed effects with the observed-clusters limitation stated, in the planned test and in every robustness variant; no node reports cluster-robust SE or the wild cluster bootstrap.
-- The demo outcome's ceiling at 100 is reported as a bounded outcome in the limitations.
-- The demo hypothesis names at least one rival explanation; its `adjustment` check appears among the robustness variants and a `negative_control` check, when present, among the adversarial checks, never in the stability share.
-- Every number in the sample flow and sample characteristics table resolves to a descriptive-statistics artifact.
+- The demo stops with `awaiting_review` and a readable `review.yaml`; after `popper resume` the paper has an operationalization table, generated limitations and a positive study-hours effect.
 - On the null demo, the paper claims no effect or labels the result `fragile`.
-- On the body-only example under `--auto`, ideation proposes outcome and exposure roles with evidence, the gate still rejects an `id` or `post_outcome` exposure, and the paper lists the unconfirmed entries it relied on.
-- Tests cover research-context validation (missing column, invalid type, role or status), gaps computed from a fixture, the review stop and its resume, a `proposed` entry tightening but never loosening a check, the descriptive-statistics module on fixtures (types, co-missing patterns, cluster sizes, floor and ceiling share), the confirm partition when on (no confirm row reaches `explore` or the fitting of `data`), each gate rule firing on a bad fixture and staying silent on a good one, the cluster rule across the three cluster-count bands, and rival checks routed by type.
+- On the body-only example under `--auto`, the run completes and the paper lists the proposed entries it relied on.
+- Tests cover research-context validation, the descriptive module on fixtures, evidence checks, review signal application, the review stop and resume (including a crash between commit and checkpoint), a rejected submit returned to the agent and fixed, one reframe on a frame concern, readiness facts, hypothesis warnings, and holdout rows never reaching a session or tool.
 
-**Out.** Mechanism and auxiliary predictions, several hypotheses, Critic rubric on hypotheses, clarifying questions, literature, balance and precision groups, the `underpowered` label, diagnostic-triggered variants, method fit as a gate, a censored-outcome estimator, the confirm partition on by default.
+**Out.** Hypothesis gate, hard cluster rule, closed method vocabulary with declared plans, typed rival checks, SESOI contract, confirm partition, sample flow and characteristics tables, literature, several hypotheses, the Discover agent.
 
-**Risks.** Gate rejections can loop the Theorist; retries are bounded like schema retries. Writing front matter is a burden, so every field stays optional and ideation drafts it. A body-only run under `--auto` rests on proposals; the paper lists them, and M3 measures how often they are wrong.
+**Risks.** Agent sessions can run long; turn and submit limits bound them. A reframe roughly doubles Understand and Ground cost; it is bounded to one. Ground without best-of-N may prepare data less well; M4 compares it with the tree stage.
 
 ---
 
-## M3 — Evidence baseline
+## M3 — Discover agent
+
+**Outcome.** Discovery behaves like an investigation: an agent decides which direction to explore, when observations suffice for a hypothesis, and which hypothesis to test, while the tree still runs every stage underneath so attempts stay comparable and every `ok` node is reported.
+
+**Scope.** A Discover agent session with tools to run `explore` with a focus, read artifacts, propose a hypothesis and run the experiment stages, and to finish; budgets bound it and every decision is journaled with a reason; the playbook stays available as the default for evaluation (§4, §6).
+
+**Acceptance.** On the demo the agent explores at least two directions it chose, the journal states why each experiment ran, and the null demo still claims no effect or is `fragile`.
+
+**Out.** Several hypotheses tested per run, PI agent across phases, researcher choice of hypotheses.
+
+---
+
+## M4 — Evidence baseline
 
 **Outcome.** Every later change is judged by measurement. The team knows how often Popper reports an effect that is not there, how well it recovers one that is, whether it picks the right estimand and method, and what a run costs.
 
 **Scope** (§13).
 - Suites: planted (2 synthetic datasets with known effects, planted data issues, a reference research context, an outcome-derived leak column, a few-cluster design and a bounded outcome), null (1 dataset with no effect, several seeds).
 - Headline metrics: null false-finding rate, share of traced numbers. Per-run metrics: effect recovery, role-proposal accuracy against the reference research context, estimand recovery, method fit, cluster-rule adherence, leak pick rate, data-issue fix rate, holdout gap, node failure rate, cost, wall time.
-- Comparisons at equal model and budget, using existing config switches and inputs only: agentic vs single-shot nodes (`max_turns = 1`); 1 vs 3 drafts; figure judging on vs off; research-context body only vs with front matter; agent-cleaned research context with vs without researcher review; confirm partition on vs off, which sets its default.
+- Comparisons at equal model and budget, using existing config switches and inputs only: agentic vs single-shot nodes (`max_turns = 1`); 1 vs 3 drafts; figure judging on vs off; research-context body only vs with front matter; Research Frame with vs without researcher review; Ground agent vs `data` tree stage; warnings vs gates on roles and clusters.
 - Adoption record per comparison in `evals/decisions.md`.
 
 **Acceptance.** One command (`popper-eval`) generates the table, and the shipped defaults follow the recorded decisions.
@@ -143,7 +151,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ---
 
-## M4 — Publication quality
+## M5 — Publication quality
 
 **Outcome.** The paper compiles without manual fixes and every number and claim can be checked against the run.
 
@@ -155,7 +163,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - Introduction drawn from the research-context objectives and audience.
 - Claims file beside the PDF.
 - Critic rubric review (soundness, clarity, limitations, faithfulness) and one Writer revision.
-- Data stage adds before/after figures for changed columns and range checks on derived variables.
+- Ground adds before/after figures for changed columns and range checks on derived variables.
 - AI-generation disclosure.
 - Search map: a static page of the trees with each node's code, output, figures, score and kind.
 
@@ -165,14 +173,13 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ---
 
-## M5 — Research loop
+## M6 — Research loop
 
 **Outcome.** The run behaves like a research process: it proposes and challenges several hypotheses, lets the researcher choose, learns from results, and goes back when something is wrong.
 
 **Scope.**
-- PI becomes an agent on the same loop, with tools to run a stage, propose and revise hypotheses, reopen the data stage, ask the researcher, update memory and finish; the playbook stays the default order and every return is journaled with a reason (§4, §6).
-- Ideation step 1c (§4.1): the Theorist asks open questions one at a time through `ask_researcher`, each with a proposed answer and an "unknown" option; the review stop offers per-entry approval on the CLI; the PI may revise the research context after results as a new attempt with a journaled reason.
-- Research context gains `objectives` (fixed or open) and researcher `hypotheses` (§4.1).
+- PI becomes an agent across phases, building on the Discover agent, with tools to run a phase, open a new Ground attempt, ask the researcher, update memory and finish; the playbook stays the default order and every return is journaled with a reason (§4, §6).
+- The PI may revise the Research Frame after results as a new attempt with a journaled reason; research context gains researcher `hypotheses` (§4.1).
 - Hypotheses may state a mechanism with auxiliary predictions, each tested as a secondary estimand (§4, §4.3).
 - 3–5 hypotheses with reflection, each in the hypothesis contract and through the gate, drawn from the research context, exploration and researcher hypotheses, each recording its origin; one experiment tree per chosen hypothesis.
 - Critic scores each hypothesis on the hypothesis-quality rubric before the choice and challenges each main result before publication; critiques are assessments and never change a result (§4.3, §6, §9).
@@ -184,7 +191,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 - Evaluation: PI agent vs playbook and Critic on vs off, recorded in `evals/decisions.md`.
 
 **Acceptance.**
-- On a fixture with a data issue that only shows during experiments (a unit mismatch in one school), the run reopens the data stage and the paper reports it.
+- On a fixture with a data issue that only shows during experiments (a unit mismatch in one school), the run opens a new Ground attempt and the paper reports it.
 - A second-round hypothesis cites first-round results.
 - `--auto` makes no researcher calls. A scripted PI run with a reopen and a revision passes.
 - The PI agent is the default only if the evaluation does not show it worse than the playbook.
@@ -195,17 +202,17 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ---
 
-## M6 — Literature
+## M7 — Literature
 
 **Outcome.** Framing, hypotheses and the related-work section rest on real, retrieved prior work (§12).
 
-**Scope.** `search_literature` over OpenAlex for Theorist and Writer; ideation step 1d adds `domain` to the research context and proposes background, mechanisms and confounders as `proposed` research-context entries with retrieved evidence (§4.1); literature as a hypothesis origin, with mechanisms that may cite retrieved work; hypotheses record replicate/extend/contradict as coverage; related-work section with BibTeX; only retrieved records are cited; queries carry concepts, never data values.
+**Scope.** `search_literature` over OpenAlex for Theorist and Writer; Understand adds `domain` background to the research context and proposes background, mechanisms and confounders as `proposed` research-context entries with retrieved evidence (§4.1); literature as a hypothesis origin, with mechanisms that may cite retrieved work; hypotheses record replicate/extend/contradict as coverage; related-work section with BibTeX; only retrieved records are cited; queries carry concepts, never data values.
 
 **Acceptance.** The demo paper cites at least five resolved works with no unresolved keys.
 
 ---
 
-## M7 — Verify
+## M8 — Verify
 
 **Outcome.** A researcher can confirm a chosen result once on data the search never saw (§11).
 
@@ -215,28 +222,34 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ---
 
-## M8 — Long-term track
+## M9 — Long-term track
 
-Capabilities Popper keeps as goals but does not build yet. Each waits for its trigger; when the trigger is met it becomes a milestone of its own with an outcome, demo gate and, where §1 excludes it today, an ARCHITECTURE scope change first. The M3 evaluation decides whether an item that adds a mechanism stays.
+Capabilities Popper keeps as goals but does not build yet. Each waits for its trigger; when the trigger is met it becomes a milestone of its own with an outcome, demo gate and, where §1 excludes it today, an ARCHITECTURE scope change first. The M4 evaluation decides whether an item that adds a mechanism stays.
 
 | Item | Why it waits | Trigger to start | ARCHITECTURE |
 |---|---|---|---|
-| Decision layer (decision model answers Judge questions, `shadow` before `on`) | An optimization of Judge cost and calibration; nothing to calibrate against before M3 | M3 shows Judge cost or disagreement worth reducing | §8 |
-| Diverse drafts | Unmeasured benefit | M3 draft-diversity metric shows drafts collapsing onto one approach | §5.2 |
-| Hypothesis tournament (pairwise ranking of many hypotheses) | M5 handles 3–5 hypotheses without it | Runs routinely produce more hypotheses than the researcher can compare | §6 |
+| Decision layer (decision model answers Judge questions, `shadow` before `on`) | An optimization of Judge cost and calibration; nothing to calibrate against before M4 | M4 shows Judge cost or disagreement worth reducing | §8 |
+| Diverse drafts | Unmeasured benefit | M4 draft-diversity metric shows drafts collapsing onto one approach | §5.2 |
+| Hypothesis tournament (pairwise ranking of many hypotheses) | M6 handles 3–5 hypotheses without it | Runs routinely produce more hypotheses than the researcher can compare | §6 |
 | Parallel Analysts per stage | Sequential nodes are cheaper to debug; wall time is not yet the bottleneck | Wall time, not cost, blocks the demo gates | §6 |
 | Container sandbox and network isolation | Single-user local use only | Before any shared or hosted use | §7.4 |
-| Reference suites (BLADE, DiscoveryBench) and contamination checks | Planted and null suites come first | M3 suites stable across two milestones | §13 |
+| Reference suites (BLADE, DiscoveryBench) and contamination checks | Planted and null suites come first | M4 suites stable across two milestones | §13 |
 | Working memory across runs | One run per question today | Researchers repeatedly rerun the same dataset with new questions | §7.3 |
-| Balance and precision groups, `underpowered` label | Need settled roles and a `sesoi` set before exploration | M3 shows role proposals accurate and hypotheses failing for lack of rows | §4.2, §4.3 |
-| Diagnostic-triggered robustness variants | No measured failure yet | M3 shows skewed, overdispersed or sparse cases changing labels | §4.4 |
-| Method fit as a gate | A label first; a gate could block valid plans | M3 shows `mismatch` plans producing wrong estimates | §4.4 |
+| Hypothesis code gate on roles, order, adjustment set and level sizes | Warnings first; a gate could block valid plans | M4 shows warnings missed failures that changed conclusions | §4.4 |
+| Typed rival checks and SESOI contract | Rivals stated in prose for now | M4 shows hypotheses facing no testable rival or no stated magnitude | §4, §4.4 |
+| Hard cluster rule and declared method plans (`analysis.json`) | Few-cluster advice is a warning | M4 shows few-cluster inference changing labels | §4.5 |
+| Confirm partition | Off by default and unbuilt | M4 shows a holdout gap that a partition would close | §11 |
+| Shuffled-outcome scratch for the Steward | Ground forbids using, not seeing, relations | M4 shows preparation choices that track the outcome–exposure relation | §4.3 |
+| Sample flow and sample characteristics tables | Limitations and the change table cover current needs | M5 publication quality or a reviewer asks for them | §10 |
+| Balance and precision groups, `underpowered` label | Need settled roles and a `sesoi` set before exploration | M4 shows role proposals accurate and hypotheses failing for lack of rows | §4.2, §4.3 |
+| Diagnostic-triggered robustness variants | No measured failure yet | M4 shows skewed, overdispersed or sparse cases changing labels | §4.4 |
+| Method fit as a gate | A label first; a gate could block valid plans | M4 shows `mismatch` plans producing wrong estimates | §4.4 |
 | Censored-outcome estimator | Bounded outcomes are stated as limitations | The planted bounded outcome shows attenuation changing conclusions | §4.4 |
-| Missing-data mechanism tests (e.g. Little's MCAR test) | Co-missing patterns and missing share by cluster cover current needs | M3 shows missing-data handling driving `fragile` labels | §4.2 |
+| Missing-data mechanism tests (e.g. Little's MCAR test) | Co-missing patterns and missing share by cluster cover current needs | M4 shows missing-data handling driving `fragile` labels | §4.2 |
 | Sample representativeness against a target population | Needs population margins the research context does not hold | A researcher supplies population margins | §4.1 |
-| Causal-graph adjustment (DAG in the research context) | Confounder lists and role checks cover current needs | M3 shows the gate missing mediators or colliders | §4.3 |
+| Causal-graph adjustment (DAG in the research context) | Confounder lists and role checks cover current needs | M4 shows the gate missing mediators or colliders | §4.3 |
 | Multiple datasets and joins per run | Out of scope in §1 | A real research context needs a second table | §1 scope change |
-| Non-tabular data (text, images) via feature extraction | Out of scope in §1 | Tabular pipeline and M3 metrics stable | §1 scope change |
+| Non-tabular data (text, images) via feature extraction | Out of scope in §1 | Tabular pipeline and M4 metrics stable | §1 scope change |
 | Web UI and API | The CLI and search map serve one researcher | A user outside the team runs Popper | §1 scope change |
 
 ---

@@ -36,6 +36,7 @@ def test_default_models_are_named_by_function(tmp_path: Path) -> None:
     assert set(load_config(env={}).models.model_dump()) == {
         "theorist",
         "analyst",
+        "steward",
         "judge",
         "writer",
     }
@@ -68,3 +69,20 @@ def test_example_base_and_explicit_overrides_merge_key_by_key(tmp_path: Path) ->
     assert cfg.data.group_column == "student_id" and cfg.data.holdout_fraction == 0.3
     assert cfg.search.steps_for("main") == 4 and cfg.search.steps_for("baseline") == 2
     assert cfg.search.steps_for("robustness") == 6
+
+
+def test_steward_follows_analyst_and_session_limits(tmp_path: Path) -> None:
+    user = tmp_path / "c.yaml"
+    user.write_text("models: {analyst: m-haiku}\n", encoding="utf-8")
+    cfg = load_config(user, env={})
+    assert cfg.models.steward == "m-haiku"
+    assert (cfg.understand.max_turns, cfg.understand.max_submits) == (30, 3)
+    assert (cfg.understand.max_questions, cfg.understand.max_reframes) == (5, 1)
+    assert (cfg.ground.max_turns, cfg.ground.max_submits) == (40, 3)
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("understand: {max_turns: 0}\n", encoding="utf-8")
+    with pytest.raises(ValidationError):
+        load_config(bad, env={})
+    bad.write_text("understand: {max_reframes: 0}\nground: {max_submits: 0}\n", encoding="utf-8")
+    with pytest.raises(ValidationError):
+        load_config(bad, env={})

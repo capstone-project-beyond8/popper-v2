@@ -2,13 +2,12 @@
 
 import json
 import random
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from popper.harness.agent import agent_loop
 from popper.harness.config import Search
@@ -16,6 +15,7 @@ from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
 from popper.harness.recovery import read_events
+from popper.harness.results import validate_results
 from popper.harness.session import Harness
 from popper.treesearch.judge import JudgeReference, judge_input, make_diagnostic
 from popper.treesearch.tools import node_tools
@@ -75,19 +75,6 @@ class StageSpec:
     seed_node: str | None = None
     attempts: tuple[AttemptSpec, ...] = ()
     judge_reference: JudgeReference | None = None
-
-
-class ResultEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    value: float | int | str
-    ci: tuple[float, float] | None = None
-    n: int | None = None
-    note: str | None = None
-
-
-_RESULTS = TypeAdapter(dict[str, ResultEntry])
-_RESULT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 class Verdict(BaseModel):
@@ -174,13 +161,10 @@ def _reason(
 def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
     """Validated results.json content; raises ValueError describing the first problem."""
     try:
-        entries = _RESULTS.validate_json((workdir / "results.json").read_bytes())
+        raw = json.loads((workdir / "results.json").read_bytes())
     except OSError as exc:
         raise ValueError(f"results.json unreadable: {exc}") from exc
-    for key in entries:
-        if not _RESULT_KEY.match(key):
-            raise ValueError(f"results.json key {key!r} must match [A-Za-z][A-Za-z0-9_]*")
-    return {k: v.model_dump(mode="json", exclude_none=True) for k, v in entries.items()}
+    return validate_results(raw)
 
 
 def _step(

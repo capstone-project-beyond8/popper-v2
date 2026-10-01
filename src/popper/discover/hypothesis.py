@@ -49,6 +49,7 @@ class HypothesisProposal(BaseModel):
     refuting_result: Text
     planned_test: Text
     methods: list[Method] = Field(min_length=1)
+    assumptions: list[Text] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def checked_roles(self, info: ValidationInfo) -> Self:

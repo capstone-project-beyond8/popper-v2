@@ -1,7 +1,7 @@
 import pytest
 
 from popper.discover.robustness import compute_stability
-from popper.treesearch.engine import ResultEntry
+from popper.harness.results import ResultEntry
 
 
 def estimate(value: float, interval: tuple[float, float] = (1, 3)) -> ResultEntry:

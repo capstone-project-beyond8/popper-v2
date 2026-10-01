@@ -35,7 +35,7 @@ def _harness(tmp_path: Path, analyst: list[Reply], judge: list[Reply] | None = N
             raise reply
         return reply
 
-    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     h = Harness(load_config(env={}), FakeLLM(respond), run)
     h.config.search.num_drafts = 1
     h.config.search.debug_prob = 1.0

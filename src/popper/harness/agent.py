@@ -76,10 +76,18 @@ def agent_loop(
     tools: Sequence[Tool],
     max_turns: int,
     max_tokens: int = 32000,
+    max_submits: int | None = None,
 ) -> dict[str, Any] | None:
+    """Run until the terminal tool is called; None when turns or rejected submits run out.
+
+    A terminal tool with a handler validates the submission: a raised error goes back to the
+    model as an error result, and `max_submits` rejections end the loop.
+    """
     by_name = {t.name: t for t in tools}
     terminal = next(t.name for t in tools if t.terminal)
     specs = [ToolSpec(t.name, t.description, t.schema) for t in tools]
+    validated = by_name[terminal].handler is not None
+    rejected = 0
     history = [Message("user", task)]
     for turn in range(1, max_turns + 1):
         done = h.converse(
@@ -89,7 +97,7 @@ def agent_loop(
             _extend(history, Message("assistant", done.text), Message("user", _TRUNCATED))
             continue
         submitted = next((c for c in done.tool_calls if c.name == terminal), None)
-        if submitted:
+        if submitted and not validated:
             h.journal.write(
                 "tool_call",
                 tag=tag,
@@ -103,6 +111,13 @@ def agent_loop(
         )
         if done.tool_calls:
             results = tuple(_run(h, tag, turn, by_name, c) for c in done.tool_calls)
+            if submitted:
+                verdict = next(r for r in results if r.call_id == submitted.id)
+                if verdict.status == "success":
+                    return submitted.input
+                rejected += 1
+                if max_submits is not None and rejected >= max_submits:
+                    return None
             _extend(history, assistant, Message("user", tool_results=results))
         else:
             nudge = f"Use a tool. Finish by calling {terminal}."

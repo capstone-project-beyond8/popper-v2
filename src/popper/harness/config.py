@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Role = Literal["theorist", "analyst", "judge", "writer"]
+Role = Literal["theorist", "analyst", "steward", "judge", "writer"]
 
 
 class _Strict(BaseModel):
@@ -19,8 +19,16 @@ class _Strict(BaseModel):
 class Models(_Strict):
     theorist: str
     analyst: str
+    steward: str
     judge: str
     writer: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def steward_follows_analyst(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "steward" not in data and "analyst" in data:
+            return {**data, "steward": data["analyst"]}
+        return data
 
 
 class Search(_Strict):
@@ -58,6 +66,18 @@ class Robustness(_Strict):
     min_variants: int = Field(default=3, ge=3)
 
 
+class Understand(_Strict):
+    max_turns: int = Field(default=30, ge=1)
+    max_submits: int = Field(default=3, ge=1)
+    max_questions: int = Field(default=5, ge=1)
+    max_reframes: int = Field(default=1, ge=0)
+
+
+class Ground(_Strict):
+    max_turns: int = Field(default=40, ge=1)
+    max_submits: int = Field(default=3, ge=1)
+
+
 class Price(_Strict):
     input: float  # USD per million tokens
     output: float
@@ -84,6 +104,8 @@ class Config(_Strict):
     budget: Budget
     data: DataConfig = Field(default_factory=DataConfig)
     robustness: Robustness = Field(default_factory=Robustness)
+    understand: Understand = Field(default_factory=Understand)
+    ground: Ground = Field(default_factory=Ground)
 
     @model_validator(mode="after")
     def enough_robustness_steps(self) -> "Config":

@@ -15,7 +15,7 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 
 
 def _setup(tmp_path: Path) -> tuple[Harness, dict[str, Tool], Path]:
-    run = RunStore.create(tmp_path, EXAMPLE / "brief.md", EXAMPLE / "data.csv")
+    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
     node_dir = run.path("tree", "data", "data-001")
     tools = {t.name: t for t in node_tools(h, {"data": EXAMPLE / "data.csv"}, node_dir)}
@@ -74,7 +74,7 @@ def test_paths_cannot_leave_run_dir(tmp_path: Path) -> None:
         ("read_artifact", "../x/results.json"),
         ("read_artifact", absolute),
         ("view_figure", "../../a.png"),
-        ("read_artifact", "brief.md"),
+        ("read_artifact", "research.md"),
     ]:
         with pytest.raises(ValueError):
             _call(tools, name, path=path)

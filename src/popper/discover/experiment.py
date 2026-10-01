@@ -15,11 +15,12 @@ from popper.discover.robustness import (
     load_robustness_plan,
     plan_robustness,
 )
+from popper.harness.context import RESEARCH_CHARS, part
+from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
 from popper.treesearch.engine import (
     AttemptSpec,
     Node,
-    ResultEntry,
     StageFailed,
     StageSpec,
     run_stage,
@@ -137,12 +138,17 @@ def check_estimate(
     return None
 
 
+def _notes_part(notes: str) -> str:
+    return part("Researcher notes", notes or "(none)", RESEARCH_CHARS, untrusted=True)
+
+
 def run_experiment_stage(
     h: Harness,
     name: Literal["baseline", "main"],
     framing: dict[str, Any],
     hypothesis: dict[str, Any],
     seed: Node | None,
+    notes: str = "",
 ) -> Node:
     estimand = hypothesis["primary_estimand"]
     goal = (
@@ -163,7 +169,10 @@ def run_experiment_stage(
         StageSpec(
             name=name,
             goal=goal,
-            context=f"Framing:\n{json.dumps(framing)}\nHypothesis:\n{json.dumps(hypothesis)}",
+            context=(
+                f"Framing:\n{json.dumps(framing)}\nHypothesis:\n{json.dumps(hypothesis)}\n"
+                f"{_notes_part(notes)}"
+            ),
             inputs={"data": h.run.path("data", "processed.parquet")},
             required_outputs=("results.json", "estimand.json"),
             min_figures=1,
@@ -184,14 +193,15 @@ def experiment(
     h: Harness,
     framing: dict[str, Any],
     hypothesis: dict[str, Any],
-    data_node: Node,
+    preparation: Path,
+    notes: str = "",
 ) -> Path:
     committed = h.run.committed("evidence")
     if committed:
         return committed
-    baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None)
-    main = run_experiment_stage(h, "main", framing, hypothesis, baseline)
-    plan = plan_robustness(h, hypothesis, main, data_node)
+    baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None, notes)
+    main = run_experiment_stage(h, "main", framing, hypothesis, baseline, notes)
+    plan = plan_robustness(h, hypothesis, main, preparation)
     schedule = load_robustness_plan(plan, h.config)
     columns = pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
     attempts = tuple(
@@ -215,12 +225,12 @@ def experiment(
             StageSpec(
                 name="robustness",
                 goal="Test the main contrast under recorded alternative analyses.",
-                context=f"Hypothesis:\n{json.dumps(hypothesis)}",
+                context=f"Hypothesis:\n{json.dumps(hypothesis)}\n{_notes_part(notes)}",
                 inputs={
                     "data": h.run.path("data", "processed.parquet"),
                     "raw": h.run.path("data", "raw.csv"),
-                    "prepare": data_node.execution_dir / "code.py",
-                    "changes": data_node.execution_dir / "changes.json",
+                    "prepare": preparation / "code.py",
+                    "changes": preparation / "changes.json",
                 },
                 required_outputs=("results.json", "estimand.json"),
                 seed_code=main.code,

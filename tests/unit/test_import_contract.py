@@ -46,10 +46,10 @@ def violations(source: str, module: str, *, package: bool = False) -> list[str]:
     ("source", "module", "bad"),
     [
         ("from popper.harness.session import Harness", "popper.discover.experiment", False),
-        ("from ..treesearch import engine", "popper.ground.data", False),
+        ("from ..treesearch import engine", "popper.ground.steward", False),
         ("from . import hypothesis", "popper.discover.experiment", False),
-        ("from popper.ground.data import prepare", "popper.discover.experiment", True),
-        ("from ..ground import data", "popper.discover.experiment", True),
+        ("from popper.ground.steward import ground", "popper.discover.experiment", True),
+        ("from ..ground import steward", "popper.discover.experiment", True),
         ("from popper import discover", "popper.harness.session", True),
         ("from ..discover import experiment", "popper.treesearch.engine", True),
         ("import evals.suite", "popper.coordinator.run", True),
