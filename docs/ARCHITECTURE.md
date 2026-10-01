@@ -206,7 +206,7 @@ One engine runs every search stage; a stage supplies only its goal, inputs and r
 
 Each step starts one Analyst with a task chosen by:
 
-1. fewer than `num_drafts` drafts → **draft**; the Analyst sees summaries of earlier drafts and must take a different approach;
+1. fewer than `min(num_drafts, steps − 1)` drafts (at least one) → **draft**, so every stage keeps a step to debug or improve; the Analyst sees summaries of earlier drafts and must take a different approach;
 2. else with probability `debug_prob` → **debug** a `buggy` leaf with `debug_depth < max_debug_depth`;
 3. else → **improve** the best `ok` node.
 
