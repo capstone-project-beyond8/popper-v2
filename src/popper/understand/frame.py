@@ -15,11 +15,13 @@ from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.descriptive import DescriptiveReport, format_description
 from popper.harness.prompts import load_prompt
 from popper.harness.research import (
+    UNUSABLE_ROLES,
     Assumption,
     Concept,
     Entry,
     ResearchContext,
     Variable,
+    format_errors,
     render_research,
 )
 from popper.harness.session import Harness
@@ -28,7 +30,6 @@ from popper.treesearch.engine import StageFailed
 from popper.treesearch.tools import node_tools
 
 _ID = re.compile(r"^[a-z][a-z0-9_]*$")
-_UNUSABLE_OUTCOME_ROLES = {"id", "cluster", "post_outcome", "protected", "ignore"}
 _YAML_ATTRIBUTES = {"range", "levels", "order"}
 _NO_RESEARCHER = "No researcher is available; leave the item proposed or unknown."
 
@@ -123,10 +124,7 @@ def _merge[M: BaseModel](
     try:
         return type(model).model_validate(merged)
     except ValidationError as exc:
-        problems = "; ".join(
-            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()
-        )
-        raise ValueError(f"{label}: {problems}") from exc
+        raise ValueError(f"{label}: {format_errors(exc)}") from exc
 
 
 def _set(model: BaseModel, *attrs: str) -> dict[str, Entry[Any]]:
@@ -200,7 +198,7 @@ def framing_warnings(ctx: ResearchContext, framing: Framing) -> list[str]:
             continue
         variable = ctx.variables.get(column)
         role = variable.role.value if variable else None
-        if role in _UNUSABLE_OUTCOME_ROLES:
+        if role in UNUSABLE_ROLES:
             out.append(f"question {q.id}: outcome candidate {column!r} has role {role}")
         if column in excluded:
             out.append(f"question {q.id}: outcome candidate {column!r} is an excluded column")
@@ -388,7 +386,7 @@ def understand(
 ) -> Frame:
     run: RunStore = h.run
     attempt = run.new_attempt("understand")
-    declared = render_research(research.model_copy(update={"body": ""})).replace("---\n", "", 0)
+    declared = render_research(research.model_copy(update={"body": ""}))
     task = load_prompt(
         "popper.understand",
         "theorist.md",

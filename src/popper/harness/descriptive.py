@@ -55,11 +55,8 @@ def _declared[T](entry: Entry[T]) -> T | None:
 def _text(series: pd.Series, strip: bool = True) -> pd.Series:
     """Strings with blanks as missing, trimmed unless `strip` is false; a new series."""
     text = series.where(series.notna()).astype("string")
-    return (
-        text.mask(text.str.strip() == "").str.strip()
-        if strip
-        else text.mask(text.str.strip() == "")
-    )
+    text = text.mask(text.str.strip() == "")
+    return text.str.strip() if strip else text
 
 
 def _numbers(series: pd.Series) -> pd.Series:

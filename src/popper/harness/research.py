@@ -23,11 +23,17 @@ Role = Literal[
     "ignore",
     "unknown",
 ]
+UNUSABLE_ROLES = {"id", "cluster", "post_outcome", "protected", "ignore"}
 NoteKey = Literal["understand", "ground", "explore", "hypothesis", "experiment", "writing"]
 
 
 class ResearchError(ValueError):
     pass
+
+
+def format_errors(exc: ValidationError) -> str:
+    """Validation errors as `location: message` pairs on one line."""
+    return "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors())
 
 
 class _Strict(BaseModel):
@@ -155,10 +161,7 @@ def parse_research(text: str) -> ResearchContext:
     try:
         return ResearchContext.model_validate({**front, "body": body})
     except ValidationError as exc:
-        problems = "; ".join(
-            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()
-        )
-        raise ResearchError(f"invalid research context: {problems}") from exc
+        raise ResearchError(f"invalid research context: {format_errors(exc)}") from exc
 
 
 def render_research(ctx: ResearchContext) -> str:

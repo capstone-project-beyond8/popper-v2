@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, model_validator
@@ -19,13 +19,11 @@ from popper.harness.store import next_sequence
 from popper.treesearch.engine import StageFailed
 from popper.treesearch.tools import node_tools
 
-_FRAME_CONCERNS = {
-    "unmeasured_concept",
-    "weak_proxy",
-    "unit_mismatch",
-    "missing_variable",
-    "scope_conflict",
-}
+FrameConcern = Literal[
+    "unmeasured_concept", "weak_proxy", "unit_mismatch", "missing_variable", "scope_conflict"
+]
+DataConcern = Literal["quality", "sample", "structure", "other"]
+_FRAME_CONCERNS = set(get_args(FrameConcern))
 _OUTPUTS = ("processed.parquet", "changes.json", "results.json")
 
 
@@ -41,17 +39,7 @@ class Operationalization(_Model):
 
 
 class Concern(_Model):
-    type: Literal[
-        "unmeasured_concept",
-        "weak_proxy",
-        "unit_mismatch",
-        "missing_variable",
-        "scope_conflict",
-        "quality",
-        "sample",
-        "structure",
-        "other",
-    ]
+    type: FrameConcern | DataConcern
     kind: Literal["frame", "data"]
     description: str
     evidence: list[str]

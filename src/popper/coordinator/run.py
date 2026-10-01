@@ -104,10 +104,16 @@ def _commits(store: RunStore) -> list[str]:
     return [e["name"] for e in read_events(store.root) if e["event"] == "artifact_commit"]
 
 
+def _latest(store: RunStore, *names: str) -> str | None:
+    """Which of `names` was committed last, or None when none was."""
+    return next((n for n in reversed(_commits(store)) if n in names), None)
+
+
 def _pending_frame(store: RunStore) -> Path | None:
     """The committed frame the researcher has not reviewed yet."""
-    frames = [n for n in _commits(store) if n in ("frame", "frame_reviewed")]
-    return store.committed("frame") if frames and frames[-1] == "frame" else None
+    return (
+        store.committed("frame") if _latest(store, "frame", "frame_reviewed") == "frame" else None
+    )
 
 
 def _answer(store: RunStore, review: Path | None) -> ReviewOutcome | None:
@@ -147,7 +153,7 @@ def _reviewed_frame(
 ) -> Frame:
     """The latest frame once reviewed: asks the Theorist when none exists, else stops for review."""
     store = h.run
-    if not any(n in ("frame", "frame_reviewed") for n in _commits(store)):
+    if _latest(store, "frame", "frame_reviewed") is None:
         understand(h, research, report)
     pending = _pending_frame(store)
     if pending is not None:
@@ -164,10 +170,7 @@ def _reviewed_frame(
 
 def _foundation(h: Harness, frame: Frame) -> Foundation:
     """The foundation of the reviewed frame; Ground runs again whenever the frame is newer."""
-    names = _commits(h.run)
-    if "foundation" in names and (
-        names[::-1].index("foundation") < names[::-1].index("frame_reviewed")
-    ):
+    if _latest(h.run, "foundation", "frame_reviewed") == "foundation":
         existing = load_foundation(h)
         assert existing is not None
         return existing

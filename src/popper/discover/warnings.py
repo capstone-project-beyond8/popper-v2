@@ -4,10 +4,9 @@ from typing import Any
 
 import pandas as pd
 
-from popper.harness.research import ResearchContext
+from popper.harness.research import UNUSABLE_ROLES, ResearchContext
 
 MIN_CLUSTERS = 30
-_UNUSABLE_ROLES = {"id", "cluster", "post_outcome", "protected", "ignore"}
 _CORE = ("meaning", "unit", "type", "role")
 _OTHER = ("range", "levels", "order")
 
@@ -26,7 +25,7 @@ def hypothesis_warnings(
     for label, column in named.items():
         variable = research.variables.get(column)
         if variable is not None and (
-            variable.role.value in _UNUSABLE_ROLES or variable.type.value == "id"
+            variable.role.value in UNUSABLE_ROLES or variable.type.value == "id"
         ):
             kind = variable.type.value if variable.type.value == "id" else variable.role.value
             warnings.append(f"The {label} {column} is declared as {kind}, not a measured variable.")

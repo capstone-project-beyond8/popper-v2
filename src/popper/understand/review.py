@@ -15,6 +15,7 @@ from popper.harness.research import (
     ResearchContext,
     Variable,
     check_columns,
+    format_errors,
 )
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
@@ -138,10 +139,7 @@ def load_review(path: Path) -> Review:
     except yaml.YAMLError as exc:
         raise ValueError(f"{path}: not valid YAML: {exc}") from exc
     except ValidationError as exc:
-        problems = "; ".join(
-            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()
-        )
-        raise ValueError(f"{path}: invalid review: {problems}") from exc
+        raise ValueError(f"{path}: invalid review: {format_errors(exc)}") from exc
 
 
 def _apply_entries[M: BaseModel](model: M, key: str, attrs: Sequence[str], sig: Signal) -> M:
