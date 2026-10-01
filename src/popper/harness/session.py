@@ -87,6 +87,7 @@ class Harness:
         tools: Sequence[ToolSpec] = (),
         max_tokens: int = 32000,
         output_schema: dict[str, Any] | None = None,
+        session: str | None = None,
     ) -> Completion:
         budget = self.config.budget
         if self.spent_usd >= budget.max_usd:
@@ -133,6 +134,7 @@ class Harness:
         self.spent_usd += usd
         self.journal.write(
             "llm_call",
+            session=session,
             tag=tag,
             role=role,
             model=model,

@@ -23,6 +23,7 @@ def _schema(**props: str) -> dict[str, Any]:
 def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[Tool]:
     root = h.run.root.resolve()
     scratch = 0
+    figures: list[str] = []
 
     def inside(rel: str) -> Path:
         if Path(rel).is_absolute():
@@ -59,6 +60,13 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         )
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
+        written = sorted(
+            p.relative_to(root).as_posix()
+            for p in evidence.rglob("*")
+            if p.is_file() and p.name not in {"code.py", "stdout.txt", "stderr.txt"}
+        )
+        figures.extend(p for p in written if p.endswith(".png"))
+        output += "\nfiles written (relative to the run):\n" + fence("\n".join(written) or "(none)")
         if r.exit_code != 0 or r.timed_out:
             raise ValueError(
                 f"{output}\nFix the snippet and try again; submitted results are separate."
@@ -70,22 +78,39 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         if path.suffix != ".png":
             raise ValueError("only .png figures can be viewed")
         if not path.is_file():
-            raise ValueError("figure does not exist")
+            raise ValueError(
+                "figure does not exist; PNGs written this session: " + ", ".join(figures)
+                if figures
+                else "figure does not exist; no PNGs written this session"
+            )
         if path.stat().st_size > 3_750_000:
             raise ValueError("figure is larger than 3.75 MB")
         return path
 
     def read_artifact(args: dict[str, Any]) -> str:
-        path = inside(str(args.get("path", "")))
+        path = artifact_path(str(args.get("path", "")))
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return fence(head(text, ARTIFACT_CHARS))
+
+    def artifact_path(rel: str) -> Path:
+        path = inside(rel)
         if path.name not in ARTIFACTS:
             raise ValueError(f"only these files can be read: {', '.join(sorted(ARTIFACTS))}")
         if not path.is_file():
             raise ValueError("artifact does not exist")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        return fence(head(text, ARTIFACT_CHARS))
+        return path
 
-    artifact_list = ", ".join(sorted(ARTIFACTS))
-    return [
+    artifact_list = []
+    for path in sorted(root.rglob("*")):
+        if path.name not in ARTIFACTS:
+            continue
+        rel = path.relative_to(root).as_posix()
+        try:
+            artifact_path(rel)
+        except ValueError:
+            continue
+        artifact_list.append(rel)
+    tools = [
         Tool(
             "inspect_data",
             "Describe one stage input. For CSV or Parquet: structure, missing values, distribution "
@@ -96,7 +121,8 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         ),
         Tool(
             "run_python",
-            "Run a throwaway Python snippet and return exit code, stdout and stderr. Each call "
+            "Run a throwaway Python snippet and return exit code, stdout, stderr and written paths. "
+            "Save figures in the current folder using relative paths. Each call "
             "starts a fresh process in a new empty folder: variables and files do not persist "
             "between calls. Inputs are available through the same environment variables as the "
             "final script. Calls time out and long output is truncated. Nothing here counts "
@@ -112,7 +138,7 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         ),
         Tool(
             "read_artifact",
-            f"Read an artifact of this run: {artifact_list}. Other files are refused. "
+            f"Read an artifact of this run. Existing paths: {', '.join(artifact_list)}. Other files are refused. "
             f"Output is cut at {ARTIFACT_CHARS} characters.",
             _schema(path="File path relative to the run directory."),
             read_artifact,
@@ -126,3 +152,4 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             terminal=True,
         ),
     ]
+    return [t for t in tools if t.name != "read_artifact" or artifact_list]

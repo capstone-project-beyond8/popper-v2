@@ -1,6 +1,7 @@
 """Exploration and hypothesis phase."""
 
 import json
+from functools import partial
 from typing import Any, Literal
 
 import pandas as pd
@@ -21,9 +22,14 @@ GOAL = (
 
 
 def _frame_context(
-    research: ResearchContext, framing: dict[str, Any], foundation: dict[str, Any]
+    h: Harness,
+    tag: str,
+    research: ResearchContext,
+    framing: dict[str, Any],
+    foundation: dict[str, Any],
 ) -> str:
     """The framing plus what the data steward concluded about measuring and trusting it."""
+    context_part = partial(part, journal=h.journal, tag=tag)
     shown = {
         "Concepts": [c.model_dump(mode="json") for c in research.concepts],
         "Operationalization (proposed by the data agent)": foundation["operationalization"],
@@ -31,26 +37,31 @@ def _frame_context(
         "Readiness": foundation["readiness"],
     }
     parts = [
-        part("Research context", render_research(research), RESEARCH_CHARS, untrusted=True),
-        part("Framing", json.dumps(framing, indent=2), RESEARCH_CHARS, untrusted=True),
+        context_part("Research context", render_research(research), RESEARCH_CHARS, untrusted=True),
+        context_part("Framing", json.dumps(framing, indent=2), RESEARCH_CHARS, untrusted=True),
     ]
     parts += [
-        part(title, json.dumps(value, indent=2), ARTIFACT_CHARS, untrusted=True)
+        context_part(title, json.dumps(value, indent=2), ARTIFACT_CHARS, untrusted=True)
         for title, value in shown.items()
     ]
     return "\n\n".join(parts)
 
 
-def _notes(research: ResearchContext, key: Literal["explore", "hypothesis"]) -> str:
+def _notes(h: Harness, research: ResearchContext, key: Literal["explore", "hypothesis"]) -> str:
     return part(
-        "Researcher notes", research.notes.get(key, "(none)"), RESEARCH_CHARS, untrusted=True
+        "Researcher notes",
+        research.notes.get(key, "(none)"),
+        RESEARCH_CHARS,
+        untrusted=True,
+        journal=h.journal,
+        tag=key,
     )
 
 
 def explore(
     h: Harness, research: ResearchContext, framing: dict[str, Any], foundation: dict[str, Any]
 ) -> Node:
-    context = f"{_frame_context(research, framing, foundation)}\n\n{_notes(research, 'explore')}"
+    context = f"{_frame_context(h, 'analyst:explore', research, framing, foundation)}\n\n{_notes(h, research, 'explore')}"
     spec = StageSpec(
         name="explore",
         goal=GOAL,
@@ -75,6 +86,7 @@ def propose_hypothesis(
         result: dict[str, Any] = json.loads(committed.read_text("utf-8"))[0]
         return result
     processed = pd.read_parquet(h.run.path("data", "processed.parquet"))
+    context_part = partial(part, journal=h.journal, tag="hypothesis")
     hypothesis = h.ask_model(
         "theorist",
         schema=HypothesisProposal,
@@ -83,15 +95,15 @@ def propose_hypothesis(
         prompt=load_prompt(
             "popper.discover",
             "hypothesis.md",
-            framing=_frame_context(research, framing, foundation),
-            notes=_notes(research, "hypothesis"),
-            results=part(
+            framing=_frame_context(h, "hypothesis", research, framing, foundation),
+            notes=_notes(h, research, "hypothesis"),
+            results=context_part(
                 "Exploration results",
                 json.dumps(best.results, indent=2),
                 ARTIFACT_CHARS,
                 untrusted=True,
             ),
-            analysis=part(
+            analysis=context_part(
                 "Analysis of the exploration", best.analysis, ARTIFACT_CHARS, untrusted=True
             ),
             figures="\n".join(f"- {f}" for f in best.figures),

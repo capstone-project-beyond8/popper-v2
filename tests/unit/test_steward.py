@@ -67,6 +67,15 @@ def test_valid_submission_is_accepted(tmp_path: Path) -> None:
     assert _run(tmp_path) is None
 
 
+def test_invalid_evidence_names_all_available_sources(tmp_path: Path) -> None:
+    concern = Concern(type="quality", kind="data", description="r", evidence=["assumption"])
+    error = str(_run(tmp_path, concerns=(concern,)))
+    assert all(
+        key in error
+        for key in ("assumption", "rows_before", "rows_after", "rows_removed", "drop", "c000_mean")
+    )
+
+
 def test_row_counts_must_match_the_table(tmp_path: Path) -> None:
     assert "rows_before and rows_after" in str(
         _run(tmp_path, results={"rows_before": {"value": 3}})

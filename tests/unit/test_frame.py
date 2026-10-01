@@ -72,11 +72,23 @@ def test_check_evidence() -> None:
     assert not check_evidence("", BODY, IDA)
 
 
+def test_rejected_evidence_names_valid_keys() -> None:
+    patch = FramePatch.model_validate(
+        {"variables": {"study_hours_week": {"unit": _proposed("hours", "missing")}}}
+    )
+    with pytest.raises(ValueError) as exc:
+        apply_patch(CTX, patch, BODY, IDA)
+    assert "missing" in str(exc.value)
+    assert "c000_mean" in str(exc.value) and "c002" in str(exc.value)
+
+
 def test_apply_patch_valid() -> None:
     patch = FramePatch.model_validate(
         {
             "variables": {"study_hours_week": {"unit": _proposed("hours", "c002_mean")}},
-            "concepts": [{"id": "effort", "definition": _proposed("time spent", "Study time may drive")}],
+            "concepts": [
+                {"id": "effort", "definition": _proposed("time spent", "Study time may drive")}
+            ],
         }
     )
     out = apply_patch(CTX, patch, BODY, IDA)
@@ -213,12 +225,15 @@ def test_ask_researcher(tmp_path: Path) -> None:
     args = {"question": "Unit?", "proposed_answer": "hours", "item": "variables.sleep_hours.unit"}
     ask = (ToolCall("q", "ask_researcher", args),)
     for name, researcher, text, status, value in (
-        ("none", None, "No researcher is available", "proposed", "hours"),
+        ("none", None, "unknown tool ask_researcher", "proposed", "hours"),
         ("some", lambda q, p: "hrs", "hrs", "confirmed", "hrs"),
     ):
         replies = iter([ask, _submit("s", "c005_mean")])
         fake = _scripted(replies)
         frame = understand(_harness(tmp_path / name, fake, researcher), ctx, ida)
+        assert ("ask_researcher" in {t.name for t in fake.calls[0].tools}) is (
+            researcher is not None
+        )
         assert text in fake.calls[1].messages[-1].tool_results[0].text
         unit = frame.research.variables["sleep_hours"].unit
         assert (unit.status, unit.value) == (status, value)

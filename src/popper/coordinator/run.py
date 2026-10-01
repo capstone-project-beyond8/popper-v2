@@ -1,6 +1,7 @@
 """Run the five phases in order and record the outcome."""
 
 import json
+import math
 import stat
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -93,10 +94,11 @@ def resume(
     llm: LLM,
     review: Path | None = None,
     progress: Callable[[str], None] | None = None,
+    max_usd: float | None = None,
 ) -> RunOutcome:
     store = RunStore(run_dir)
     with store.lock():
-        return _resume_locked(store, llm, review, progress)
+        return _resume_locked(store, llm, review, progress, max_usd)
 
 
 def _commits(store: RunStore) -> list[str]:
@@ -127,7 +129,11 @@ def _answer(store: RunStore, review: Path | None) -> ReviewOutcome | None:
 
 
 def _resume_locked(
-    store: RunStore, llm: LLM, review: Path | None, progress: Callable[[str], None] | None
+    store: RunStore,
+    llm: LLM,
+    review: Path | None,
+    progress: Callable[[str], None] | None,
+    max_usd: float | None,
 ) -> RunOutcome:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
     if metadata.get("format_version") == 3:
@@ -135,13 +141,32 @@ def _resume_locked(
     if metadata.get("format_version") != 4:
         raise ValueError("unsupported run format; older runs cannot reserve unseen data or resume")
     state = load_state(store)
+    config = Config.model_validate(metadata["config"])
+    # The journal is authoritative; checkpoints project the latest explicit raise.
+    raises = [e for e in read_events(store.root) if e["event"] == "budget_raise"]
+    if raises:
+        config.budget.max_usd = float(raises[-1]["max_usd"])
+    spent = recorded_spend(store)
+    if max_usd is not None and (
+        not math.isfinite(max_usd)
+        or max_usd <= max(config.budget.max_usd, spent)
+        or state["status"] == "completed"
+    ):
+        raise ValueError(
+            "money cap must be finite, above the current cap and recorded spend, on an unfinished run"
+        )
     if review is not None and state["status"] != "awaiting_review":
         raise ValueError("the run is not awaiting review")
     if state["status"] == "completed":
         return _outcome(store)
     outcome = _answer(store, review) if state["status"] == "awaiting_review" else None
-    config = Config.model_validate(metadata["config"])
-    h = Harness(config, llm, store, spent_usd=recorded_spend(store))
+    h = Harness(config, llm, store, spent_usd=spent)
+    if max_usd is not None:
+        h.journal.write(
+            "budget_raise", old_max_usd=config.budget.max_usd, max_usd=max_usd, spent_usd=spent
+        )
+        config.budget.max_usd = max_usd
+        store.checkpoint({**state, "max_usd": max_usd, "spent_usd": spent})
     if progress is not None:
         h.progress = progress
     h.journal.write("resume", spent_usd=h.spent_usd)
@@ -291,6 +316,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                 "message": message,
                 "failed_stage": failed_stage,
                 "spent_usd": h.spent_usd,
+                "max_usd": h.config.budget.max_usd,
                 "missing": missing,
                 "review": review_path.relative_to(store.root).as_posix() if review_path else None,
                 "artifacts": {

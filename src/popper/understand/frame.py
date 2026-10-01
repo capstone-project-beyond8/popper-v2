@@ -4,6 +4,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from popper.harness.agent import Tool, agent_loop
-from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
+from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, fence, part, valid_names
 from popper.harness.descriptive import DescriptiveReport, format_description
 from popper.harness.prompts import load_prompt
 from popper.harness.research import (
@@ -137,7 +138,12 @@ def _merge[M: BaseModel](
             if not check_evidence(quote, body, ida):
                 raise ValueError(
                     f"{where}: evidence {quote!r} is neither an exact quote of the research "
-                    "body nor a descriptive result key"
+                    "body (at least three words), descriptive result key or column key; "
+                    + valid_names(ida.results, "Data description")
+                    + "; "
+                    + valid_names(
+                        (c["key"] for c in ida.layout["columns"]), "Data description columns"
+                    )
                 )
         merged[attr] = entry.model_dump()
     try:
@@ -179,7 +185,9 @@ def apply_patch(
             variables.get(column, Variable()),
             f"variables.{column}",
             changes,
-            None if column in columns else "column is not in the data",
+            None
+            if column in columns
+            else "column is not in the data; " + valid_names(columns, "Data description columns"),
         )
     concepts = {c.id: c for c in ctx.concepts}
     for concept in patch.concepts:
@@ -215,7 +223,10 @@ def _check_framing(framing: Framing, columns: set[str], rejected: Mapping[str, o
         if f"questions.{q.id}" in rejected:
             raise ValueError(f"questions.{q.id}: this question was rejected by the researcher")
         if q.outcome_candidate is not None and q.outcome_candidate not in columns:
-            raise ValueError(f"questions.{q.id}: column {q.outcome_candidate!r} is not in the data")
+            raise ValueError(
+                f"questions.{q.id}: column {q.outcome_candidate!r} is not in the data; "
+                + valid_names(columns, "Data description columns")
+            )
     for d in framing.directions:
         if f"directions.{d.id}" in rejected:
             raise ValueError(f"directions.{d.id}: this direction was rejected by the researcher")
@@ -299,7 +310,7 @@ def _tools(
     result: dict[str, Any],
 ) -> list[Tool]:
     columns = {c["name"] for c in ida.layout["columns"]}
-    reader = next(t for t in node_tools(h, {}, attempt) if t.name == "read_artifact")
+    readers = [t for t in node_tools(h, {}, attempt) if t.name == "read_artifact"]
 
     def ask_researcher(args: dict[str, Any]) -> str:
         if h.researcher is None:
@@ -329,8 +340,8 @@ def _tools(
         result["framing"] = framing
         return "Frame accepted."
 
-    return [
-        reader,
+    tools = [
+        *readers,
         Tool(
             "ask_researcher",
             "Ask the researcher one question about the study. They can accept your proposed "
@@ -370,6 +381,7 @@ def _tools(
             terminal=True,
         ),
     ]
+    return [t for t in tools if t.name != "ask_researcher" or h.researcher is not None]
 
 
 def load_frame(path: Path) -> Frame:
@@ -420,17 +432,26 @@ def understand(
     run: RunStore = h.run
     attempt = run.new_attempt("understand")
     declared = render_research(research.model_copy(update={"body": ""}))
+    context_part = partial(part, journal=h.journal, tag="theorist")
     task = load_prompt(
         "popper.understand",
         "theorist.md",
-        research=part("Research context", research.body, RESEARCH_CHARS, untrusted=True),
-        declared=part("Declared context", declared.strip() or "(none)", RESEARCH_CHARS, untrusted=True),
-        description=part("Data description", format_description(ida), ARTIFACT_CHARS, untrusted=True),
-        notes=part("Researcher notes", research.notes.get("understand", "(none)"), RESEARCH_CHARS, untrusted=True),
-        guidance=part("Guidance for this revision", guidance, RESEARCH_CHARS, untrusted=True)
+        research=context_part("Research context", research.body, RESEARCH_CHARS, untrusted=True),
+        declared=context_part("Declared context", declared.strip() or "(none)", RESEARCH_CHARS, untrusted=True),
+        description=context_part("Data description", format_description(ida), ARTIFACT_CHARS, untrusted=True),
+        notes=context_part("Researcher notes", research.notes.get("understand", "(none)"), RESEARCH_CHARS, untrusted=True),
+        guidance=context_part("Guidance for this revision", guidance, RESEARCH_CHARS, untrusted=True)
         if guidance
         else "",
     )  # fmt: skip
+    task += "\nValid columns and evidence keys:\n" + fence(
+        json.dumps(
+            {
+                "columns": [{"name": c["name"], "key": c["key"]} for c in ida.layout["columns"]],
+                "result_keys": list(ida.results),
+            }
+        )
+    )
     asked: list[dict[str, Any]] = []
     result: dict[str, Any] = {}
     config = h.config.understand

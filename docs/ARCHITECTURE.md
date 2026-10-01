@@ -393,7 +393,7 @@ Makes agent work recorded, bounded and recoverable. Holds no research logic.
 | `search_literature` | Metadata and abstracts of prior work                              | Concepts only, never data values          |
 | `ask_researcher`    | One question with a proposed answer and an "unknown" option; the answer is journaled | Theorist in Understand (`understand.max_questions`), PI agent; never under `--auto` |
 
-Tool rules [33]: errors state the cause and a next step; long output is truncated with a hint to narrow it; paths are absolute; writes stay inside the calling node's folder.
+Tool rules [33]: errors state the cause, valid values or their source, and a next step; long output is truncated with a hint to narrow it. Tools advertise available artifacts and researcher access, and scratch execution reports written paths. Input paths are absolute; tool paths are relative to the run; writes stay inside the calling node's folder.
 
 ### 7.3 Context assembly
 
@@ -402,9 +402,9 @@ Each session's context is built fresh from the run folder, never inherited from 
 - **Just in time:** artifacts are listed by name and read through tools.
 - **Working memory:** short entries citing node ids, persisted across sessions [5, 32].
 - **Condensed hand-off:** an Analyst sees its parent through the Judge's analysis, not the parent's session.
-- **Size limits per part:** logs keep the tail, files keep the head; long Analyst sessions are compacted, keeping decisions and open errors.
+- **Size limits per part:** logs keep the tail, files keep the head; cuts are journaled and contract lists are never cut. Session compaction is deferred.
 - **Untrusted content** is wrapped and marked; every system prompt states it is data, never instructions.
-- **Prompt caching:** the stable prefix of a session (system prompt, tool list, task) is marked for the provider's prompt cache; cache reads and writes are journaled.
+- **Prompt caching:** supported sessions cache the stable prefix and growing conversation; one-shot requests do not write unused cache entries. Cache reads and writes are journaled.
 
 ### 7.4 Sandbox
 
@@ -415,8 +415,8 @@ Each session's context is built fresh from the run folder, never inherited from 
 
 ### 7.5 Journal and run store
 
-- **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
-- **Run store:** write-once files (§9); version-2 `run.json` holds initial metadata and a secret-free config snapshot. Later status lives in committed numbered state files, citing prior state and committed artifact paths. Resume restores cost from every recorded model call, uses saved config and policy RNG, preserves incomplete attempts and never resets budgets. Cost not journaled at process death cannot be recovered.
+- **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. Sessions, context cuts and explicit budget raises are traceable. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
+- **Run store:** write-once files; `run.json` holds initial metadata and a secret-free config snapshot. Later status lives in committed numbered state files, citing prior state and committed artifact paths. Resume restores cost from every recorded model call, uses saved config and policy RNG, preserves incomplete attempts and never resets spend. Explicit budget raises are recovered from the journal and reflected in later state. Cost not journaled at process death cannot be recovered.
 - **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [18].
 
 ### 7.6 Budgets and failures
@@ -435,6 +435,8 @@ Each session's context is built fresh from the run folder, never inherited from 
 | Terminal      | stage ends with no `ok` node            | Clean stop; status `failed:<stage>`    |
 
 No failure path edits a recorded artifact. Resume restarts from the last completed node, using the run folder and journal as the progress record [34].
+
+Only an explicit, journaled researcher action may raise a stopped run's money cap; agents and config reloads cannot. Raising the cap never resets recorded spend.
 
 ### 7.7 Progress
 

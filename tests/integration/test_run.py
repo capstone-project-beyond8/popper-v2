@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -10,8 +11,8 @@ import pytest
 from popper.communicate.paper import compile_pdf
 from popper.coordinator.run import resume, run
 from popper.harness.config import Config, load_config
-from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.recovery import load_state
+from popper.harness.llm import Completion, FakeLLM, LLMRequest, ToolCall
+from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.research import parse_research
 from popper.harness.store import RunStore
 
@@ -225,18 +226,29 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
             raise KeyboardInterrupt("interrupted during analyst")
         return _respond(req)
 
-    llm = FakeLLM(interrupt)
+    class MeteredFake(FakeLLM):
+        def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
+            return replace(super().complete(req, max_tokens), input_tokens=1)
+
+    llm = MeteredFake(interrupt)
     lines: list[str] = []
+    config = _config()
+    config.budget.max_usd = 0.000003
+    stopped = run(
+        EXAMPLE / "research.md",
+        EXAMPLE / "data.csv",
+        config=config,
+        auto=True,
+        llm=llm,
+        runs_dir=tmp_path,
+        progress=lines.append,
+    )
+    assert stopped.status == "budget_exceeded"
+    store = RunStore(stopped.run_dir)
+    prior_spend = recorded_spend(store)
+    assert prior_spend > 0
     with pytest.raises(KeyboardInterrupt):
-        run(
-            EXAMPLE / "research.md",
-            EXAMPLE / "data.csv",
-            config=_config(),
-            auto=True,
-            llm=llm,
-            runs_dir=tmp_path,
-            progress=lines.append,
-        )
+        resume(stopped.run_dir, llm=llm, max_usd=1, progress=lines.append)
     root = next(p for p in tmp_path.iterdir() if p.is_dir())
     prefix = {
         p: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -275,6 +287,10 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     out = resume(root, llm=no_calls)
     assert all(p.read_bytes() == contents for p, contents in original.items())
     assert out.status == "completed" and out.tex is not None
+    assert recorded_spend(store) > prior_spend
+    assert load_state(store)["spent_usd"] == recorded_spend(store)
+    assert load_state(store)["max_usd"] == 1
+    assert len([e for e in read_events(root) if e["event"] == "budget_raise"]) == 1
     tex = out.tex.read_text(encoding="utf-8")
     results = next((out.run_dir / "tree" / "main").glob("*/execution/results.json"))
     slope = json.loads(results.read_text(encoding="utf-8"))["primary_estimate"]["value"]
@@ -295,10 +311,9 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert record["status"] == "completed" and record["missing"] == [r"\R{main.nope}"]
     writer = [r for r in fake.calls if r.tag == "writeup"]
     assert len(writer) == 3 and r"\R{main.nope}: no key main.nope" in writer[1].prompt
-    # phases: 4 before the analyst interrupt, then 5 on each of the two resumes
     journal_lines = (out.run_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
     events = [json.loads(line)["event"] for line in journal_lines]
-    assert events.count("phase") == 14 and "exec" in events
+    assert events.count("phase") == 16 and "exec" in events
     data = out.run_dir / "data"
     raw_ids = set(pd.read_csv(data / "raw.csv").student_id)
     held_only = set(RunStore(out.run_dir).read_holdout().student_id) - raw_ids

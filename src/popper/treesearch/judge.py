@@ -4,12 +4,14 @@ import ast
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.interpreter import ExecResult
 from popper.harness.prompts import load_prompt
+from popper.harness.recovery import Journal
 
 if TYPE_CHECKING:
     from popper.harness.session import Harness
@@ -95,6 +97,8 @@ def judge_input(
     spec: "StageSpec",
     node: "Node",
     execution: ExecResult,
+    *,
+    journal: Journal | None = None,
 ) -> tuple[str, tuple[Path, ...]]:
     images: tuple[Path, ...]
     if spec.blind_estimates:
@@ -120,13 +124,14 @@ def judge_input(
         goal, code, stdout, projected = spec.goal, node.code, execution.stdout, node.results
         summary = spec.describe(node.execution_dir) if spec.describe else "(none)"
         images = tuple(node.execution_dir / "figures" / name for name in node.figures)
+    context_part = partial(part, journal=journal, tag=f"judge:{spec.name}")
     prompt = load_prompt(
         "popper.treesearch",
         "judge.md",
         goal=goal,
-        code=part("Code", code, CODE_CHARS, untrusted=True),
-        stdout=part("Output", stdout, ARTIFACT_CHARS, keep="tail", untrusted=True),
-        results=part("results.json", json.dumps(projected), ARTIFACT_CHARS, untrusted=True),
-        summary=part("Independent summary", summary, ARTIFACT_CHARS, untrusted=True),
+        code=context_part("Code", code, CODE_CHARS, untrusted=True),
+        stdout=context_part("Output", stdout, ARTIFACT_CHARS, keep="tail", untrusted=True),
+        results=context_part("results.json", json.dumps(projected), ARTIFACT_CHARS, untrusted=True),
+        summary=context_part("Independent summary", summary, ARTIFACT_CHARS, untrusted=True),
     )
     return prompt, tuple(validate_image(path) for path in images)

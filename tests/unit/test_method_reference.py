@@ -86,6 +86,12 @@ def test_transformed_outcome_requirement_only_when_log_transform_declared() -> N
     assert "Transformed outcome" in text(["log_transform"], "main", [])
     assert "Transformed outcome" not in text(["log_transform"], "baseline", [])
     assert "Transformed outcome" in text(["bootstrap"], "model", ["log_transform"])
+    adversary = text(
+        ["bootstrap", "log_transform"], "adversarial", ["permutation_test", "linear_regression"]
+    )
+    assert "Transformed outcome" not in adversary
+    assert "bootstrap" not in adversary and "log transform" not in adversary
+    assert "linear regression" in adversary
 
 
 def test_method_reference_lists_only_declared_methods() -> None:
@@ -95,7 +101,7 @@ def test_method_reference_lists_only_declared_methods() -> None:
         "methods": ["logistic_regression"],
     }
     reference = method_reference(
-        hypothesis, ["hours", "score"], purpose="model", choice="log-odds robust", methods=[]
+        hypothesis, ["hours", "score"], purpose="main", choice="log-odds robust", methods=[]
     )
     text = " ".join(reference.requirements)
     assert "logistic regression" in text

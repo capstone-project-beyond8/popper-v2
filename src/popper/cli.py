@@ -36,6 +36,9 @@ def _build_parser() -> argparse.ArgumentParser:
     resume_p.add_argument("run_dir", type=Path)
     resume_p.add_argument("--review", type=Path, help="review.yaml with the researcher's signals")
     resume_p.add_argument("--quiet", action="store_true")
+    resume_p.add_argument(
+        "--max-usd", type=float, help="explicitly raise the run's money cap above recorded spend"
+    )
     return parser
 
 
@@ -66,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_dir,
                 llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
                 review=args.review,
+                max_usd=args.max_usd,
                 progress=None
                 if args.quiet
                 else lambda line: print(line, file=sys.stderr, flush=True),

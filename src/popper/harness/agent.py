@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from popper.harness.config import Role
 from popper.harness.context import head
@@ -28,7 +29,9 @@ def _args(call: ToolCall) -> str:
     return head(json.dumps(call.input, default=str), _JOURNAL_LIMIT)
 
 
-def _run(h: Harness, tag: str, turn: int, by_name: dict[str, Tool], call: ToolCall) -> ToolResult:
+def _run(
+    h: Harness, tag: str, session: str, turn: int, by_name: dict[str, Tool], call: ToolCall
+) -> ToolResult:
     tool = by_name.get(call.name)
     out: str | Path
     status = "success"
@@ -44,6 +47,8 @@ def _run(h: Harness, tag: str, turn: int, by_name: dict[str, Tool], call: ToolCa
     h.journal.write(
         "tool_call",
         tag=tag,
+        session=session,
+        terminal=bool(tool and tool.terminal),
         turn=turn,
         tool=call.name,
         args=_args(call),
@@ -89,9 +94,16 @@ def agent_loop(
     validated = by_name[terminal].handler is not None
     rejected = 0
     history = [Message("user", task)]
+    session = uuid4().hex
     for turn in range(1, max_turns + 1):
         done = h.converse(
-            role, tag=tag, system=system, messages=history, tools=specs, max_tokens=max_tokens
+            role,
+            tag=tag,
+            session=session,
+            system=system,
+            messages=history,
+            tools=specs,
+            max_tokens=max_tokens,
         )
         if done.stop_reason == "max_tokens":
             _extend(history, Message("assistant", done.text), Message("user", _TRUNCATED))
@@ -101,6 +113,9 @@ def agent_loop(
             h.journal.write(
                 "tool_call",
                 tag=tag,
+                session=session,
+                terminal=True,
+                status="success",
                 turn=turn,
                 tool=terminal,
                 args=_args(submitted),
@@ -110,11 +125,15 @@ def agent_loop(
             "assistant", done.text, tool_calls=done.tool_calls, content=done.content
         )
         if done.tool_calls:
-            results = tuple(_run(h, tag, turn, by_name, c) for c in done.tool_calls)
+            results = tuple(_run(h, tag, session, turn, by_name, c) for c in done.tool_calls)
             if submitted:
                 status = {r.call_id: r.status for r in results}
                 accepted = next(
-                    (c for c in done.tool_calls if c.name == terminal and status[c.id] == "success"),
+                    (
+                        c
+                        for c in done.tool_calls
+                        if c.name == terminal and status[c.id] == "success"
+                    ),
                     None,
                 )
                 if accepted:

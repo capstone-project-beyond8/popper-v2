@@ -69,12 +69,12 @@ def method_reference(
     ]
     if purpose == "baseline":
         requirements.append("Use a simple transparent baseline and report an uncertainty interval.")
-    else:
+    elif purpose == "main":
         requirements.append(f"Main planned method operations: {_names(hypothesis['methods'])}.")
     if methods:
         requirements.append(f"Recorded alternative operations: {_names(methods)}.")
     if "log_transform" in methods or (
-        purpose != "baseline" and "log_transform" in hypothesis["methods"]
+        purpose == "main" and "log_transform" in hypothesis["methods"]
     ):
         requirements.append(
             "Transformed outcome: the contrast and its interval must be on the original outcome "
@@ -138,8 +138,15 @@ def check_estimate(
     return None
 
 
-def _notes_part(notes: str) -> str:
-    return part("Researcher notes", notes or "(none)", RESEARCH_CHARS, untrusted=True)
+def _notes_part(h: Harness, tag: str, notes: str) -> str:
+    return part(
+        "Researcher notes",
+        notes or "(none)",
+        RESEARCH_CHARS,
+        untrusted=True,
+        journal=h.journal,
+        tag=tag,
+    )
 
 
 def run_experiment_stage(
@@ -171,10 +178,10 @@ def run_experiment_stage(
             name=name,
             goal=goal,
             context=(
-                f"{part('Framing', json.dumps(framing), RESEARCH_CHARS, untrusted=True)}\n"
+                f"{part('Framing', json.dumps(framing), RESEARCH_CHARS, untrusted=True, journal=h.journal, tag=f'analyst:{name}')}\n"
                 f"Hypothesis:\n{json.dumps(hypothesis)}\n"
-                f"{part('Study design', design or '(none)', RESEARCH_CHARS, untrusted=True)}\n"
-                f"{_notes_part(notes)}"
+                f"{part('Study design', design or '(none)', RESEARCH_CHARS, untrusted=True, journal=h.journal, tag=f'analyst:{name}')}\n"
+                f"{_notes_part(h, f'analyst:{name}', notes)}"
             ),
             inputs={"data": h.run.path("data", "processed.parquet")},
             required_outputs=("results.json", "estimand.json"),
@@ -229,7 +236,7 @@ def experiment(
             StageSpec(
                 name="robustness",
                 goal="Test the main contrast under recorded alternative analyses.",
-                context=f"Hypothesis:\n{json.dumps(hypothesis)}\n{_notes_part(notes)}",
+                context=f"Hypothesis:\n{json.dumps(hypothesis)}\n{_notes_part(h, 'analyst:robustness', notes)}",
                 inputs={
                     "data": h.run.path("data", "processed.parquet"),
                     "raw": h.run.path("data", "raw.csv"),

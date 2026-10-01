@@ -1,4 +1,22 @@
+from pathlib import Path
+
 from popper.harness.context import fence, head, part, tail
+from popper.harness.recovery import Journal, read_events
+
+
+def test_cut_parts_are_journaled_at_the_boundary(tmp_path: Path) -> None:
+    journal = Journal(tmp_path / "journal.jsonl")
+    part("Data", "abcde", 4, journal=journal, tag="steward")
+    part("Exact", "abcd", 4, journal=journal, tag="steward")
+    events = read_events(tmp_path)
+    assert len(events) == 1
+    assert {key: events[0][key] for key in ("event", "tag", "title", "length", "limit")} == {
+        "event": "context_cut",
+        "tag": "steward",
+        "title": "Data",
+        "length": 5,
+        "limit": 4,
+    }
 
 
 def test_untrusted_neutralises_embedded_closing_tag() -> None:

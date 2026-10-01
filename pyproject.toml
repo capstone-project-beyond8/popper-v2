@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 popper = "popper.cli:main"
+popper-metrics = "evals.run_metrics:main"
 
 [dependency-groups]
 dev = [
@@ -40,7 +41,7 @@ build-backend = "hatchling.build"
 path = "src/popper/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/popper"]
+packages = ["src/popper", "evals"]
 
 [tool.ruff]
 target-version = "py313"
@@ -53,7 +54,7 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.13"
-files = ["src/popper", "tests", "examples/student_performance/make_data.py", "examples/student_performance_null/make_data.py"]
+files = ["src/popper", "evals", "tests", "examples/student_performance/make_data.py", "examples/student_performance_null/make_data.py"]
 strict = true
 mypy_path = "src"
 explicit_package_bases = true
