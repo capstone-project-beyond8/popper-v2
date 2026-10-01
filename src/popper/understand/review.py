@@ -50,6 +50,7 @@ class Signal(BaseModel):
 class Review(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    frame: str = ""
     items: dict[str, Signal]
     note: str = ""
 
@@ -122,7 +123,7 @@ def write_review(frame: Frame, run: RunStore) -> Path:
         return path
     items = {key: {**item, "signal": "approve", "note": ""} for key, item in _items(frame).items()}
     text = yaml.safe_dump(
-        {"note": "", "warnings": frame.warnings, "items": items},
+        {"frame": frame.attempt, "note": "", "warnings": frame.warnings, "items": items},
         sort_keys=False,
         allow_unicode=True,
     )
@@ -130,7 +131,7 @@ def write_review(frame: Frame, run: RunStore) -> Path:
 
 
 def approve_all(frame: Frame) -> Review:
-    return Review(items={key: Signal(signal="approve") for key in _items(frame)})
+    return Review(frame=frame.attempt, items={key: Signal(signal="approve") for key in _items(frame)})
 
 
 def load_review(path: Path) -> Review:
@@ -168,6 +169,11 @@ def _grouped_value(model: BaseModel, attrs: Sequence[str]) -> dict[str, Any]:
 
 def apply_review(frame: Frame, review: Review, columns: Sequence[str]) -> ReviewOutcome:
     """The frame after the signals; ValueError names the first problem."""
+    if review.frame != frame.attempt:
+        raise ValueError(
+            f"the review is for frame {review.frame or '(none)'}, "
+            f"but the pending frame is {frame.attempt}"
+        )
     expected = set(_items(frame))
     missing, unknown = expected - set(review.items), set(review.items) - expected
     if missing or unknown:

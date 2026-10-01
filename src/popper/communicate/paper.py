@@ -328,6 +328,7 @@ def write_paper(
     operationalization: list[dict[str, Any]],
     steered: bool = False,
     notes: str = "",
+    research: str = "",
 ) -> tuple[Path, Path | None, list[str]]:
     committed = h.run.committed("report")
     if committed:
@@ -357,7 +358,8 @@ def write_paper(
         "popper.communicate",
         "writeup.md",
         keys="\n".join(f"- {k} = {v}" for k, v in values.items()),
-        framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS),
+        framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS, untrusted=True),
+        research=part("Research context", research or "(none)", ARTIFACT_CHARS, untrusted=True),
         hypothesis=json.dumps(hypothesis, indent=2),
         analyses=part(
             "Analyses",

@@ -149,6 +149,7 @@ def run_experiment_stage(
     hypothesis: dict[str, Any],
     seed: Node | None,
     notes: str = "",
+    design: str = "",
 ) -> Node:
     estimand = hypothesis["primary_estimand"]
     goal = (
@@ -170,7 +171,9 @@ def run_experiment_stage(
             name=name,
             goal=goal,
             context=(
-                f"Framing:\n{json.dumps(framing)}\nHypothesis:\n{json.dumps(hypothesis)}\n"
+                f"{part('Framing', json.dumps(framing), RESEARCH_CHARS, untrusted=True)}\n"
+                f"Hypothesis:\n{json.dumps(hypothesis)}\n"
+                f"{part('Study design', design or '(none)', RESEARCH_CHARS, untrusted=True)}\n"
                 f"{_notes_part(notes)}"
             ),
             inputs={"data": h.run.path("data", "processed.parquet")},
@@ -195,12 +198,13 @@ def experiment(
     hypothesis: dict[str, Any],
     preparation: Path,
     notes: str = "",
+    design: str = "",
 ) -> Path:
     committed = h.run.committed("evidence")
     if committed:
         return committed
-    baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None, notes)
-    main = run_experiment_stage(h, "main", framing, hypothesis, baseline, notes)
+    baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None, notes, design)
+    main = run_experiment_stage(h, "main", framing, hypothesis, baseline, notes, design)
     plan = plan_robustness(h, hypothesis, main, preparation)
     schedule = load_robustness_plan(plan, h.config)
     columns = pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()

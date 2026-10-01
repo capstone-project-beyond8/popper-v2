@@ -90,9 +90,14 @@ class Frame:
     attempt: str = ""
 
 
+_MIN_QUOTE_WORDS = 3
+
+
 def check_evidence(evidence: str, body: str, ida: DescriptiveReport) -> bool:
-    """Evidence is an exact quote of the research body or an existing descriptive result key."""
-    return bool(evidence) and (evidence in body or evidence in ida.results)
+    """Evidence is an exact quote of at least three words of the body or a descriptive result key."""
+    return (len(evidence.split()) >= _MIN_QUOTE_WORDS and evidence in body) or (
+        evidence in ida.results
+    )
 
 
 def _merge[M: BaseModel](

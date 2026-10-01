@@ -9,7 +9,7 @@ from popper.discover.hypothesis import Hypothesis, HypothesisProposal
 from popper.discover.warnings import hypothesis_warnings
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
-from popper.harness.research import ResearchContext
+from popper.harness.research import ResearchContext, render_research
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, StageSpec, run_stage
 
@@ -30,7 +30,10 @@ def _frame_context(
         "Data concerns": foundation["concerns"],
         "Readiness": foundation["readiness"],
     }
-    parts = [f"Framing:\n{json.dumps(framing, indent=2)}"]
+    parts = [
+        part("Research context", render_research(research), RESEARCH_CHARS, untrusted=True),
+        part("Framing", json.dumps(framing, indent=2), RESEARCH_CHARS, untrusted=True),
+    ]
     parts += [
         part(title, json.dumps(value, indent=2), ARTIFACT_CHARS, untrusted=True)
         for title, value in shown.items()
@@ -65,6 +68,7 @@ def propose_hypothesis(
     framing: dict[str, Any],
     foundation: dict[str, Any],
     best: Node,
+    raw_columns: list[str],
 ) -> dict[str, Any]:
     committed = h.run.committed("hypothesis")
     if committed:
@@ -98,7 +102,9 @@ def propose_hypothesis(
         **hypothesis.model_dump(), id="hypothesis-001", source_nodes=[best.id], supplied_by="agent"
     ).model_dump(mode="json")
     attempt = h.run.new_attempt("hypotheses").relative_to(h.run.root).as_posix()
-    warnings = hypothesis_warnings(result, research, foundation["operationalization"], processed)
+    warnings = hypothesis_warnings(
+        result, research, foundation["operationalization"], processed, raw_columns
+    )
     h.run.write_json(f"{attempt}/warnings.json", warnings)
     path = h.run.write_json(f"{attempt}/hypotheses.json", [result])
     h.run.commit_artifact("hypothesis", path)

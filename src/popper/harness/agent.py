@@ -112,9 +112,13 @@ def agent_loop(
         if done.tool_calls:
             results = tuple(_run(h, tag, turn, by_name, c) for c in done.tool_calls)
             if submitted:
-                verdict = next(r for r in results if r.call_id == submitted.id)
-                if verdict.status == "success":
-                    return submitted.input
+                status = {r.call_id: r.status for r in results}
+                accepted = next(
+                    (c for c in done.tool_calls if c.name == terminal and status[c.id] == "success"),
+                    None,
+                )
+                if accepted:
+                    return accepted.input
                 rejected += 1
                 if max_submits is not None and rejected >= max_submits:
                     return None

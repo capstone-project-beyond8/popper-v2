@@ -6,7 +6,13 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from popper.ground.steward import Concern, Operationalization, check_submission, readiness
+from popper.ground.steward import (
+    Concern,
+    Operationalization,
+    check_submission,
+    describe_submission,
+    readiness,
+)
 from popper.harness.descriptive import DescriptiveReport
 from popper.harness.research import ResearchContext
 
@@ -158,3 +164,23 @@ def test_readiness_reports_facts_without_blocking() -> None:
     assert score["constant"] is False and score["missing_share"] == 0.25
     assert score["ceiling_share"] == pytest.approx(1 / 3)
     assert "school" not in facts["columns"]
+
+
+def test_undescribable_table_is_a_rejection(tmp_path: Path) -> None:
+    pd.DataFrame({"score": [[1, 2], [3]], "hours": [3, 4]}).to_parquet(tmp_path / "t.parquet")
+    with pytest.raises(ValueError, match="could not be described"):
+        describe_submission(tmp_path / "t.parquet", _research())
+
+
+def test_operationalization_strength_must_match_columns_and_concepts_be_unique(
+    tmp_path: Path,
+) -> None:
+    def item(columns: list[str], strength: Any) -> Operationalization:
+        return Operationalization(
+            concept_id="effort", columns=columns, proxy_strength=strength, rationale="r"
+        )
+
+    assert "none goes with no columns" in str(_run(tmp_path, mapping=[item(["hours"], "none")]))
+    assert "needs columns" in str(_run(tmp_path, mapping=[item([], "proxy")]))
+    assert "more than once" in str(_run(tmp_path, mapping=[MAPPING[0], MAPPING[0]]))
+    assert _run(tmp_path, mapping=[item([], "none")]) is None

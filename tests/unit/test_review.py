@@ -52,7 +52,7 @@ def _frame(*questions: str) -> Frame:
 
 def _review(frame: Frame, **signals: Signal) -> Review:
     base = approve_all(frame)
-    return Review(items={**base.items, **{k.replace("__", "."): v for k, v in signals.items()}})
+    return Review(frame=frame.attempt, items={**base.items, **{k.replace("__", "."): v for k, v in signals.items()}})
 
 
 def test_signal_effects() -> None:
@@ -117,6 +117,13 @@ def test_invalid_review(change: str, message: str) -> None:
         review.items["questions.q1"] = Signal(signal="edit", value=_question("q1", column="ghost"))
     with pytest.raises(ValueError, match=message):
         apply_review(frame, review, COLUMNS)
+
+
+def test_review_for_another_frame_is_rejected() -> None:
+    frame = _frame("q1")
+    stale = approve_all(frame).model_copy(update={"frame": "attempt-000009"})
+    with pytest.raises(ValueError, match="review is for frame attempt-000009"):
+        apply_review(frame, stale, COLUMNS)
 
 
 def test_edit_needs_value_and_valid_type(tmp_path: Path) -> None:
