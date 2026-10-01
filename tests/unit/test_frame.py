@@ -85,6 +85,14 @@ def test_apply_patch_valid() -> None:
     assert out.concepts[0].name.value == "Effort"
 
 
+def test_evidence_quoting_a_result_key_with_its_value_cites_the_key() -> None:
+    patch = FramePatch.model_validate(
+        {"variables": {"study_hours_week": {"unit": _proposed("hours", "c002_mean = 3.5")}}}
+    )
+    out = apply_patch(CTX, patch, BODY, IDA)
+    assert out.variables["study_hours_week"].unit.evidence == ["c002_mean"]
+
+
 def _var(column: str, **attrs: Any) -> dict[str, Any]:
     return {"variables": {column: attrs}}
 

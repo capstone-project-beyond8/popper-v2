@@ -100,6 +100,12 @@ def check_evidence(evidence: str, body: str, ida: DescriptiveReport) -> bool:
     )
 
 
+def _cited(evidence: str, ida: DescriptiveReport) -> str:
+    """A result key quoted with its value, as in c000_mean=12.5, cites the key alone."""
+    key = evidence.split("=", 1)[0].strip()
+    return key if key in ida.results else evidence
+
+
 def _merge[M: BaseModel](
     model: M, label: str, changes: Mapping[str, Entry[Any]], body: str, ida: DescriptiveReport,
     rejected: Mapping[str, object],
@@ -112,13 +118,17 @@ def _merge[M: BaseModel](
         if not isinstance(current, Entry):
             raise ValueError(f"{where}: unknown attribute")
         if entry.status == "confirmed":
-            raise ValueError(f"{where}: an agent cannot set status confirmed")
+            raise ValueError(
+                f"{where}: an agent cannot set status confirmed (a bare value means confirmed); "
+                'send {"value": ..., "status": "proposed", "evidence": [...]} instead'
+            )
         if current.status == "confirmed":
             if entry.value == current.value:
                 continue
             raise ValueError(f"{where}: confirmed by the researcher and cannot be changed")
         if where in rejected and rejected[where] == entry.value:
             raise ValueError(f"{where}: this value was rejected by the researcher")
+        entry = entry.model_copy(update={"evidence": [_cited(q, ida) for q in entry.evidence]})
         for quote in entry.evidence:
             if not check_evidence(quote, body, ida):
                 raise ValueError(

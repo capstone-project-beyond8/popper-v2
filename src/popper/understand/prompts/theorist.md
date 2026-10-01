@@ -17,7 +17,7 @@ Work in any order and repeat as needed.
 3. Synthesize. Call submit_frame once.
 
 Rules:
-- Entries you propose have status "proposed" with evidence, or "unknown" with value null. You can never set "confirmed"; entries already confirmed by the researcher cannot change.
+- Every entry is an object {{"value", "status", "evidence"}}, never a bare value. Entries you propose have status "proposed" with evidence, or "unknown" with value null. You can never set "confirmed"; entries already confirmed by the researcher cannot change.
 - Evidence is an exact quote copied from the Research context text above, or a result key from the data description (for example c000_mean). Anything else is rejected.
 - Use ask_researcher only for what the text and data cannot settle. Pass `item` when the answer settles one attribute. If no researcher is available, leave the item proposed or unknown.
 - A concept names an idea, never a column.
