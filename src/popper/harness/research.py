@@ -171,6 +171,12 @@ def render_research(ctx: ResearchContext) -> str:
     return f"{_FENCE}\n{yaml.safe_dump(front, sort_keys=False, allow_unicode=True)}{_FENCE}\n{ctx.body}"
 
 
+def render_fields(ctx: ResearchContext, *fields: str) -> str:
+    """The named front-matter fields as YAML, omitting empty ones; no body."""
+    front = ctx.model_dump(mode="json", include=set(fields), exclude_defaults=True)
+    return yaml.safe_dump(front, sort_keys=False, allow_unicode=True).strip() if front else "(none)"
+
+
 def check_columns(ctx: ResearchContext, columns: Sequence[str]) -> list[str]:
     """Every named column that is not in the dataset header (exact match)."""
     known = set(columns)

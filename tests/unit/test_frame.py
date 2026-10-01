@@ -66,6 +66,8 @@ def test_check_evidence() -> None:
     assert check_evidence("Study time may drive", BODY, IDA)
     assert check_evidence("c000_mean", BODY, IDA)
     assert not check_evidence("study time", BODY, IDA)
+    assert not check_evidence("Study time", BODY, IDA)
+    assert check_evidence("time may drive", BODY, IDA)
     assert not check_evidence("c999_mean", BODY, IDA)
     assert not check_evidence("", BODY, IDA)
 
@@ -74,7 +76,7 @@ def test_apply_patch_valid() -> None:
     patch = FramePatch.model_validate(
         {
             "variables": {"study_hours_week": {"unit": _proposed("hours", "c002_mean")}},
-            "concepts": [{"id": "effort", "definition": _proposed("time spent", "Study time")}],
+            "concepts": [{"id": "effort", "definition": _proposed("time spent", "Study time may drive")}],
         }
     )
     out = apply_patch(CTX, patch, BODY, IDA)

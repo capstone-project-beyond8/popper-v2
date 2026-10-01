@@ -16,6 +16,7 @@ def hypothesis_warnings(
     research: ResearchContext,
     operationalization: list[dict[str, Any]],
     processed: pd.DataFrame,
+    raw_columns: list[str],
 ) -> list[str]:
     estimand = hypothesis["primary_estimand"]
     named = {"outcome": estimand["outcome"], "exposure": estimand["exposure"]}
@@ -33,7 +34,11 @@ def hypothesis_warnings(
             warnings.append(f"The {label} {column} is an excluded column.")
         if column in protected:
             warnings.append(f"The {label} {column} is a protected column.")
-        if variable is not None:
+        if variable is None:
+            warnings.append(f"The {label} {column} has no declared or proposed meaning or role.")
+            if column not in raw_columns:
+                warnings.append(f"The {label} {column} was derived by the data agent.")
+        else:
             for attr in (*_CORE, *_OTHER):
                 entry = getattr(variable, attr)
                 if entry.status == "proposed" or (entry.status == "unknown" and attr in _CORE):

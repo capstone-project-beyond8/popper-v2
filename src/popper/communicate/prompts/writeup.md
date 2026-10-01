@@ -10,6 +10,8 @@ Interpret direction relative to the selected hypothesis, including equally legit
 
 {framing}
 
+{research}
+
 ## Hypothesis
 {hypothesis}
 

@@ -108,7 +108,16 @@ def _check_mapping(
         raise ValueError(
             f"operationalization misses concepts: {', '.join(uncovered)} (use proxy_strength none)"
         )
+    seen: set[str] = set()
     for item in operationalization:
+        if item.concept_id in seen:
+            raise ValueError(f"operationalization lists concept {item.concept_id} more than once")
+        seen.add(item.concept_id)
+        if (item.proxy_strength == "none") != (not item.columns):
+            raise ValueError(
+                f"operationalization of {item.concept_id}: proxy_strength none goes with "
+                "no columns, and any other strength needs columns"
+            )
         missing = [c for c in item.columns if c not in processed.columns]
         if missing:
             raise ValueError(
@@ -191,6 +200,17 @@ def readiness(processed: pd.DataFrame, research: ResearchContext) -> dict[str, A
     return facts
 
 
+def describe_submission(
+    path: Path, research: ResearchContext
+) -> tuple[DescriptiveReport, dict[str, Any]]:
+    """The description and readiness of an accepted table; any failure is a rejection."""
+    try:
+        processed = pd.read_parquet(path)
+        return describe_table(processed, research), readiness(processed, research)
+    except Exception as exc:  # the agent can fix its table, so no failure may crash the run
+        raise ValueError(f"Check failed: processed data could not be described: {exc}") from exc
+
+
 def _tools(
     h: Harness,
     attempt: Path,
@@ -230,8 +250,13 @@ def _tools(
         problem = check_submission(workdir, research, operationalization, concerns, ida_raw)
         if problem:
             raise ValueError(f"Check failed: {problem}.")
+        report, facts = describe_submission(workdir / "processed.parquet", research)
         accepted.update(
-            preparation=workdir, operationalization=operationalization, concerns=concerns
+            preparation=workdir,
+            operationalization=operationalization,
+            concerns=concerns,
+            report=report,
+            readiness=facts,
         )
         return "Preparation accepted."
 
@@ -317,18 +342,17 @@ def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Fo
     if submitted is None:
         raise StageFailed("ground")
     preparation: Path = accepted["preparation"]
-    processed = pd.read_parquet(preparation / "processed.parquet")
-    report = describe_table(processed, research)
-    ida = json.dumps({"results": report.results, "layout": report.layout}, indent=2, default=str)
-    run.write_text(f"{preparation.relative_to(run.root).as_posix()}/ida.json", ida)
+    report: DescriptiveReport = accepted["report"]
     foundation = Foundation(
         preparation,
         accepted["operationalization"],
         accepted["concerns"],
-        readiness(processed, research),
+        accepted["readiness"],
         attempt.name,
     )
     rel = attempt.relative_to(run.root).as_posix()
+    ida = json.dumps({"results": report.results, "layout": report.layout}, indent=2, default=str)
+    run.write_text(f"{rel}/ida.json", ida)
     body = foundation.as_dict()
     run.write_json(f"{rel}/operationalization.json", body["operationalization"])
     run.write_json(f"{rel}/concerns.json", body["concerns"])

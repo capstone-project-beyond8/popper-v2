@@ -16,7 +16,7 @@ from popper.harness.config import Config
 from popper.harness.descriptive import DescriptiveReport, describe_table, read_table
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
-from popper.harness.research import ResearchContext, parse_research
+from popper.harness.research import ResearchContext, parse_research, render_fields
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageFailed
@@ -194,8 +194,11 @@ def _guidance(concerns: list[Concern], frame: Frame) -> str:
 
 def _promote(store: RunStore, foundation: Foundation) -> None:
     """Publish the final foundation's table and description as the run's data files."""
-    for name in ("processed.parquet", "ida.json"):
-        store.copy_once(foundation.preparation / name, f"data/{name}").chmod(stat.S_IREAD)
+    for source in (
+        foundation.preparation / "processed.parquet",
+        store.path("ground", foundation.attempt, "ida.json"),
+    ):
+        store.copy_once(source, f"data/{source.name}").chmod(stat.S_IREAD)
 
 
 def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
@@ -232,10 +235,18 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
         notes = frame.research.notes
         _phase(h, "explore")
         explore_node = explore(h, frame.research, framing, facts)
-        hypothesis = propose_hypothesis(h, frame.research, framing, facts, explore_node)
+        raw_columns = [c["name"] for c in report.layout["columns"]]
+        hypothesis = propose_hypothesis(
+            h, frame.research, framing, facts, explore_node, raw_columns
+        )
         _phase(h, "experiment")
         evidence = experiment(
-            h, framing, hypothesis, foundation.preparation, notes.get("experiment", "")
+            h,
+            framing,
+            hypothesis,
+            foundation.preparation,
+            notes.get("experiment", ""),
+            render_fields(frame.research, "design"),
         )
         _phase(h, "publication")
         changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))
@@ -260,6 +271,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             ],
             steered=(reviewed.parent / "provenance.json").exists(),
             notes=notes.get("writing", ""),
+            research=render_fields(frame.research, "domain", "objectives", "assumptions"),
         )
         status = "completed"
     except _AwaitingReview as waiting:

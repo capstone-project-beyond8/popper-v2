@@ -168,3 +168,8 @@ def test_rejected_submits_stop_at_max_submits(tmp_path: Path) -> None:
     fake = FakeLLM(lambda req: (ToolCall("a", "submit", {}),))
     assert _validated(_harness(tmp_path, fake), 3) is None
     assert len(fake.calls) == 3
+
+
+def test_accepted_terminal_call_wins_over_earlier_rejected_one(tmp_path: Path) -> None:
+    fake = _scripted((ToolCall("a1", "submit", {}), ToolCall("a2", "submit", {"ok": 2})))
+    assert _validated(_harness(tmp_path, fake), 1) == {"ok": 2}

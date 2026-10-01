@@ -33,10 +33,11 @@ def _warn(
     mapping: list[dict[str, Any]] = MAPPING,
     clusters: int = 40,
     assumptions: tuple[str, ...] = (),
+    raw: tuple[str, ...] = ("school", "score", "hours"),
 ) -> list[str]:
     research: ResearchContext = parse_research(front)
     return hypothesis_warnings(
-        {**HYPOTHESIS, "assumptions": list(assumptions)}, research, mapping, _data(clusters)
+        {**HYPOTHESIS, "assumptions": list(assumptions)}, research, mapping, _data(clusters), list(raw)
     )
 
 
@@ -75,6 +76,15 @@ def test_proposed_unknown_and_assumption_entries_are_reported() -> None:
     assert "meaning of hours is unknown" in joined
     assert "assumption a1, whose description is proposed" in joined
     assert "assumption a9, which is not declared" in joined
+
+
+def test_columns_without_a_variable_are_reported() -> None:
+    front = GOOD.replace("  hours: {role: exposure, type: continuous, meaning: study time, unit: hours}\n", "")
+    joined = "\n".join(_warn(front))
+    assert "exposure hours has no declared or proposed meaning or role" in joined
+    assert "derived by the data agent" not in joined
+    derived = "\n".join(_warn(front, raw=("school", "score")))
+    assert "exposure hours was derived by the data agent" in derived
 
 
 def test_exposure_measured_before_outcome_is_silent() -> None:

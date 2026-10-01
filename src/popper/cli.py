@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -38,7 +39,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
 def _ask_on_terminal(question: str, proposed: str) -> str | None:
+    question, proposed = _CONTROL.sub("", question), _CONTROL.sub("", proposed)
     print(f"\n{question}\n  proposed: {proposed}", file=sys.stderr)
     reply = input("answer (enter accepts the proposal, ? for unknown): ").strip()
     if reply == "?":
