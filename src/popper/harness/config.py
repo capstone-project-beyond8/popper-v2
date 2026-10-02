@@ -79,6 +79,12 @@ class Ground(_Strict):
     max_submits: int = Field(default=3, ge=1)
 
 
+class Discovery(_Strict):
+    hypotheses: Literal[2, 3] = 3
+    max_moves: int = Field(default=4, ge=1)
+    max_revisits: int = Field(default=1, ge=0)
+
+
 class Price(_Strict):
     input: _NonnegativeFinite  # USD per million tokens
     output: _NonnegativeFinite
@@ -107,6 +113,7 @@ class Config(_Strict):
     robustness: Robustness = Field(default_factory=Robustness)
     understand: Understand = Field(default_factory=Understand)
     ground: Ground = Field(default_factory=Ground)
+    discovery: Discovery = Field(default_factory=Discovery)
 
     @model_validator(mode="after")
     def enough_robustness_steps(self) -> "Config":

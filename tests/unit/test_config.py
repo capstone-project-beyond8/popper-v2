@@ -4,7 +4,31 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from popper.harness.config import load_config
+from popper.harness.config import Config, load_config
+
+
+def test_discovery_defaults_and_old_config() -> None:
+    cfg = load_config(env={})
+    assert cfg.discovery.model_dump() == {"hypotheses": 3, "max_moves": 4, "max_revisits": 1}
+    old = cfg.model_dump()
+    del old["discovery"]
+    assert Config.model_validate(old).discovery.hypotheses == 3
+
+
+@pytest.mark.parametrize("limits", [
+    {"hypotheses": 1}, {"hypotheses": 4}, {"max_moves": 0}, {"max_revisits": -1},
+])
+def test_invalid_discovery_limits(limits: dict[str, int]) -> None:
+    payload = load_config(env={}).model_dump()
+    payload["discovery"] = limits
+    with pytest.raises(ValidationError):
+        Config.model_validate(payload)
+
+
+def test_discovery_boundary_limits() -> None:
+    payload = load_config(env={}).model_dump()
+    payload["discovery"] = {"hypotheses": 2, "max_moves": 1, "max_revisits": 0}
+    assert Config.model_validate(payload).discovery.max_revisits == 0
 
 
 @pytest.mark.parametrize("field", ["max_usd", "input", "output", "cache_write", "cache_read"])
