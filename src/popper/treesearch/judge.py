@@ -124,7 +124,7 @@ def judge_input(
         goal, code, stdout, projected = spec.goal, node.code, execution.stdout, node.results
         summary = spec.describe(node.execution_dir) if spec.describe else "(none)"
         images = tuple(node.execution_dir / "figures" / name for name in node.figures)
-    context_part = partial(part, journal=journal, tag=f"judge:{spec.name}")
+    context_part = partial(part, journal=journal, tag=f"judge:{spec.execution_id}")
     prompt = load_prompt(
         "popper.treesearch",
         "judge.md",
