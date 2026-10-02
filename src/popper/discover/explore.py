@@ -1,15 +1,20 @@
 """Exploration and hypothesis phase."""
 
 import json
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any, Literal
 
 import pandas as pd
+from pydantic import Field, ValidationInfo, model_validator
 
+from popper.discover.compatibility import StudyPolicy
+from popper.discover.contracts import Candidate, CandidateProposal, commit_record
 from popper.discover.hypothesis import Hypothesis, HypothesisProposal
 from popper.discover.warnings import hypothesis_warnings
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
+from popper.harness.records import ArtifactRef, Record
 from popper.harness.research import ResearchContext, render_research
 from popper.harness.session import Harness
 from popper.treesearch.engine import Node, StageSpec, run_stage
@@ -121,3 +126,50 @@ def propose_hypothesis(
     path = h.run.write_json(f"{attempt}/hypotheses.json", [result])
     h.run.commit_artifact("hypothesis", path)
     return result
+
+
+class CandidateSetProposal(Record):
+    candidates: list[CandidateProposal] = Field(min_length=2, max_length=3)
+
+    @model_validator(mode="after")
+    def configured_count(self, info: ValidationInfo) -> "CandidateSetProposal":
+        if len(self.candidates) != (info.context or {}).get("count", 3):
+            raise ValueError("candidate set must contain exactly the configured count")
+        return self
+
+
+def generate_candidates(
+    h: Harness, research: ResearchContext, framing: Mapping[str, Any],
+    foundation: Mapping[str, Any], best: Node, raw_columns: Sequence[str],
+    policy: StudyPolicy,
+) -> ArtifactRef:
+    if not policy.adaptive:
+        propose_hypothesis(h, research, dict(framing), dict(foundation), best, list(raw_columns))
+        return h.run.artifact_ref("hypothesis")
+    if h.run.committed("science:candidates:initial"):
+        return h.run.artifact_ref("science:candidates:initial")
+    processed = pd.read_parquet(h.run.path("data", "processed.parquet"))
+    origins = [h.run.artifact_ref("frame_reviewed"), h.run.artifact_ref("exploration")]
+    exposure = [h.run.artifact_ref("inputs")]
+    proposal = h.ask_model(
+        "theorist", schema=CandidateSetProposal, tag="candidates",
+        system="You are a careful research scientist.",
+        prompt=(
+            f"Generate exactly {policy.hypothesis_count} distinct sourced, testable hypotheses. "
+            "Retain plausible competing explanations and refuting outcomes. Return candidates only; "
+            "code assigns IDs and sources. Each methods item is an open MethodSpec with family, "
+            "description, algorithm for custom methods, inputs, outputs, effect_scale, assumptions, "
+            "diagnostics and parameters. No family-name allowlist.\n"
+            + _frame_context(h, "candidates", research, dict(framing), dict(foundation))
+            + f"\nExploration: {json.dumps(best.results)}\n{best.analysis}\n"
+            + _notes(h, research, "hypothesis")
+        ), validation_context={"columns": processed.columns.tolist(), "count": policy.hypothesis_count},
+    )
+    candidates = []
+    for index, item in enumerate(proposal.candidates):
+        warnings = hypothesis_warnings(item.model_dump(mode="json"), research, foundation["operationalization"], processed, list(raw_columns))
+        candidates.append(Candidate(
+            **item.model_dump(), id=f"hypothesis-{index+1:03d}",
+            origins=origins, exposure=exposure, warnings=warnings,
+        ).model_dump(mode="json"))
+    return commit_record(h, "candidates", {"version": 1, "candidates": candidates}, key="initial")
