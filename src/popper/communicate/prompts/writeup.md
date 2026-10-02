@@ -29,6 +29,14 @@ Code reserves one slot for its specification curve and places at most three othe
 Captions also use \R{{key}}. Discuss adaptive exploration, reserved ingest rows (not evidence of verification), restricted
 subgroup populations and failed attempts. Do not claim independent verification.
 
+Keep the abstract and body consistent with recorded attempts, including timeouts. A repeated
+main analysis is not independent sensitivity evidence. Distinguish missing-cell replacements
+from excluded rows and exploratory sample sizes from the regression population. Describe each
+variant by its recorded transformation target. An interval containing zero does not establish
+a negligible effect; cross-sectional group comparisons do not establish mediation. Only cite
+secondary contrasts when they have named result keys; do not invent a difference between two
+reported coefficients. Describe adaptive choices as exploratory rather than pre-specified.
+
 Reply with one JSON object with exactly these keys:
 - "title", "abstract", "introduction", "data", "exploration", "hypothesis", "methods", "results", "robustness", "discussion", "conclusion": LaTeX body text
 - "figures": list of {{"node_id": node identity, "file": existing file name, "caption": text, "section": "data_methods"|"exploratory"|"main"|"robustness"}}

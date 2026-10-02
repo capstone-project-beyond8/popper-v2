@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -354,14 +355,19 @@ def write_paper(
         curve = render_curve(h, rows, report_dir)
         h.run.commit_artifact("curve", curve)
     figures = {n.id: n.figures for n in nodes if n.figures}
+    context_part = partial(part, journal=h.journal, tag="writeup")
     prompt = load_prompt(
         "popper.communicate",
         "writeup.md",
         keys="\n".join(f"- {k} = {v}" for k, v in values.items()),
-        framing=part("Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS, untrusted=True),
-        research=part("Research context", research or "(none)", ARTIFACT_CHARS, untrusted=True),
+        framing=context_part(
+            "Framing", json.dumps(framing, indent=2), ARTIFACT_CHARS, untrusted=True
+        ),
+        research=context_part(
+            "Research context", research or "(none)", ARTIFACT_CHARS, untrusted=True
+        ),
         hypothesis=json.dumps(hypothesis, indent=2),
-        analyses=part(
+        analyses=context_part(
             "Analyses",
             f"Exploration:\n{explore.analysis}\n\nExperiments:\n"
             + "\n".join(f"{n.id}: {n.analysis}" for n in experiments),
@@ -369,7 +375,7 @@ def write_paper(
             untrusted=True,
         ),
         figures=json.dumps(figures),
-        notes=part("Researcher notes", notes or "(none)", ARTIFACT_CHARS, untrusted=True),
+        notes=context_part("Researcher notes", notes or "(none)", ARTIFACT_CHARS, untrusted=True),
     )
     prompt += "\nRecorded evidence and failed attempts:\n" + json.dumps(manifest)
     saved_writeup = h.run.committed("writeup")

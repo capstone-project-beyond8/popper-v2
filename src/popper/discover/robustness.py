@@ -76,9 +76,12 @@ class RobustnessPlan(BaseModel):
         return self
 
 
-def schedule_context(config: Config) -> dict[str, Any]:
+def schedule_context(config: Config, *, reserve_repair: bool = True) -> dict[str, Any]:
+    steps = config.search.steps_for("robustness") - int(reserve_repair)
+    if reserve_repair and steps < config.robustness.min_variants + 1:
+        raise ValueError("robustness budget needs room for variants, an adversary and a repair")
     return {
-        "steps": config.search.steps_for("robustness"),
+        "steps": steps,
         "min_variants": config.robustness.min_variants,
     }
 
@@ -87,7 +90,9 @@ def load_robustness_plan(path: Path, config: Config) -> RobustnessPlan:
     record = json.loads(path.read_text("utf-8"))
     if record.get("format_version") != 2:
         raise ValueError("unsupported robustness schedule version")
-    return RobustnessPlan.model_validate(record["schedule"], context=schedule_context(config))
+    return RobustnessPlan.model_validate(
+        record["schedule"], context=schedule_context(config, reserve_repair=False)
+    )
 
 
 def supports(main: ResultEntry, variant: ResultEntry | None) -> bool:
@@ -128,7 +133,7 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, preparat
     committed = h.run.committed("robustness_plan")
     if committed:
         return committed
-    steps = h.config.search.steps_for("robustness")
+    context = schedule_context(h.config)
     proposal = h.ask_model(
         "theorist",
         schema=RobustnessPlan,
@@ -137,19 +142,27 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, preparat
         prompt=(
             f"Plan a bounded multiverse for this hypothesis:\n{json.dumps(hypothesis)}\n"
             f"Recorded data changes:\n{(preparation / 'changes.json').read_text('utf-8')}\n"
-            f"Use at most {steps} attempts, at least {h.config.robustness.min_variants} ordinary variants "
-            "and one adversarial permutation of the exposure. Prefer four ordinary variants plus one "
-            "adversarial attempt, leaving repair budget. Cover cleaning, model, subgroup and resampling, "
+            f"Use at most {context['steps']} attempts, at least {h.config.robustness.min_variants} ordinary variants "
+            "and one adversarial permutation of the exposure; one stage step is reserved for repair. "
+            "Cover cleaning, model, subgroup and resampling, "
             "or record an inapplicable reason. Code keeps the declared outcome, exposure, "
             "contrast and units; subgroup variants give population (the restricted population), other variants omit it. "
             "Do not select choices to obtain significance. "
+            "Every ordinary choice must change an actual decision in the main analysis, not repeat it. "
+            "For cleaning, name the existing rule being changed and the alternative; applying all "
+            "existing cleaning steps unchanged is not a variant. If no defensible alternative exists, "
+            "record an inapplicable reason. State whether a log transformation targets the exposure "
+            "or the outcome. Keep each script feasible within "
+            f"{h.config.execution.timeout_seconds} seconds. Avoid nested bootstrap x imputation "
+            "workloads with tens of thousands of fits; choose a justified affordable design or mark "
+            "it inapplicable. Do not remove missingness uncertainty just to save time. "
             "Return {attempts: [{id, kind: variant|adversarial, dimension: cleaning|model|subgroup|resampling|adversarial, "
             "choice, methods: [operations this variant uses, from the allowed method values; empty if none], "
             "population (subgroup variants only), "
             "result_key: primary_estimate|placebo_estimate, seed: 7}], inapplicable: {dimension: reason}}. "
             "Adversarial choice must be exactly permutation. Do not include estimates or a label."
         ),
-        validation_context=schedule_context(h.config),
+        validation_context=context,
     )
     destination = h.run.new_attempt("discover/robustness").relative_to(h.run.root).as_posix()
     path = h.run.write_json(

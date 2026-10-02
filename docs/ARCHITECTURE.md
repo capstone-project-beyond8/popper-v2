@@ -307,7 +307,7 @@ Defaults: `num_drafts = 3`, `debug_prob = 0.5`, `max_debug_depth = 3` [1]. A sta
 ### 5.3 Node evaluation
 
 1. **Code checks.** Non-zero exit, timeout, missing required output, invalid results file or out-of-range declared value → `buggy`, no model call.
-2. **Judge.** A separate session reads projected code, results and figures, writes an analysis, and returns the typed answers of §8. It scores validity, completeness and fidelity, never effect size, sign or significance [24]. Experiment input masks source literals, including signed numbers, except validated outcome/exposure column names projected to role aliases. A code-owned reference supplies closed method vocabulary and specification identity, never raw hypothesis prose or expected direction. Free-form logs/notes/context and result values/intervals are withheld. Only code-generated sample-count diagnostics are attached; unblinded result figures are publication artifacts. Non-experiment stages attach validated PNGs normally. `figure_issues` records presentation reasons, including on schema correction.
+2. **Judge.** A separate session reads projected code, results and figures, writes an analysis, and returns the typed answers of §8. It scores validity, completeness and fidelity, never effect size, sign or significance [24]. Experiment input masks source literals, including signed numbers, except validated outcome/exposure column names projected to role aliases. A code-owned reference supplies closed method vocabulary and specification identity, never raw hypothesis prose or expected direction. Robustness references follow each attempt's recorded operations, including its transforms. Free-form logs/notes/context and result values/intervals are withheld. Only code-generated sample-count diagnostics are attached; unblinded result figures are publication artifacts. Non-experiment stages attach validated PNGs normally. `figure_issues` records presentation reasons, including on schema correction.
 3. **Selection.** Highest-scoring `ok` node; ties go to the earlier node. The best node seeds the next stage. Every `ok` node's estimate is still reported (§5.5), so selection cannot hide the spread of attempts.
 
 Each check has a test that it fires on a bad fixture and stays silent on a good one [37].
@@ -321,7 +321,7 @@ Each check has a test that it fires on a bad fixture and stays silent on a good 
 | `main`       | Experiment  | Planned analysis and the follow-ups results call for                                  | best `baseline`        | estimates with intervals, figures     |
 | `robustness` | Experiment  | Multiverse and adversarial checks (§5.5)                                              | best `main`            | main estimate under every variant     |
 
-Experiment stages are separate; default step budgets are baseline 3, main 6, robustness 6. `search.stage_steps` overrides individual stages. Scheduled robustness attempts run before optional repairs and do not stop on goal/plateau; repairs retain specification identity and consume the same budget.
+Experiment stages are separate; default step budgets are baseline 3, main 6, robustness 6. `search.stage_steps` overrides individual stages. New robustness schedules reserve a step for repair; recorded schedules remain replayable. Scheduled attempts run before repairs and do not stop on goal/plateau; repairs retain specification identity and consume the same budget. Failed execution feedback includes stdout and stderr so repairs can see the underlying fit failure as well as the final exception.
 
 ### 5.5 Robustness and stability
 
@@ -406,9 +406,9 @@ Each session's context is built fresh from the run folder, never inherited from 
 - **Just in time:** artifacts are listed by name and read through tools.
 - **Working memory:** short entries citing node ids, persisted across sessions [5, 32].
 - **Condensed hand-off:** an Analyst sees its parent through the Judge's analysis, not the parent's session.
-- **Size limits per part:** logs keep the tail, files keep the head; long Analyst sessions are compacted, keeping decisions and open errors.
+- **Size limits per part:** logs keep the tail, files keep the head; cuts are journaled and contract lists are never cut. Session compaction is deferred.
 - **Untrusted content** is wrapped and marked; every system prompt states it is data, never instructions.
-- **Prompt caching:** the stable prefix of a session (system prompt, tool list, task) is marked for the provider's prompt cache; cache reads and writes are journaled.
+- **Prompt caching:** supported sessions cache the stable prefix and growing conversation; one-shot requests do not write unused cache entries. Cache reads and writes are journaled.
 
 ### 7.4 Sandbox
 
@@ -419,8 +419,8 @@ Each session's context is built fresh from the run folder, never inherited from 
 
 ### 7.5 Journal and run store
 
-- **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
-- **Run store:** write-once files (§9); version-4 `run.json` holds initial metadata and a secret-free config snapshot. Later status lives in committed numbered state files, citing prior state and committed artifact paths. Resume restores cost from every recorded model call, uses saved config and policy RNG, preserves incomplete attempts and never resets budgets. Interactive resume supplies a new researcher callback; the saved automatic-run setting disables it. Cost not journaled at process death cannot be recovered.
+- **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. Sessions, context cuts and explicit budget raises are traceable. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
+- **Run store:** write-once files; version-4 `run.json` holds initial metadata and a secret-free config snapshot. Later status lives in committed numbered state files, citing prior state and committed artifact paths. Resume restores cost from every recorded model call, uses saved config and policy RNG, preserves incomplete attempts and never resets spend. Explicit budget raises are recovered from the journal and reflected in later state. Interactive resume supplies a new researcher callback; the saved automatic-run setting disables it. Cost not journaled at process death cannot be recovered.
 - **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [18].
 
 ### 7.6 Budgets and failures
@@ -441,6 +441,8 @@ Money caps, token prices and cache-price multipliers must be finite and nonnegat
 | Terminal      | stage ends with no `ok` node            | Clean stop; status `failed:<stage>`    |
 
 No failure path edits a recorded artifact. Resume restarts from the last completed node, using the run folder and journal as the progress record [34].
+
+Only an explicit, journaled researcher action may raise a stopped run's money cap; agents and config reloads cannot. Raising the cap never resets recorded spend.
 
 ### 7.7 Progress
 

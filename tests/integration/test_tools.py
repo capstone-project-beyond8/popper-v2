@@ -19,6 +19,7 @@ def _setup(tmp_path: Path) -> tuple[Harness, dict[str, Tool], Path]:
     run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
     node_dir = run.path("tree", "data", "data-001")
+    run.write_json("tree/seed/results.json", {"seed": {"value": 1}})
     tools = {t.name: t for t in node_tools(h, {"data": EXAMPLE / "data.csv"}, node_dir)}
     return h, tools, node_dir
 
@@ -113,6 +114,45 @@ def test_failed_scratch_exposes_full_logs_through_reader(tmp_path: Path) -> None
     assert "FIRST_DETAIL" in out
     out = str(_call(tools, "read_artifact", path=stderr, offset=8000))
     assert "LAST_DETAIL" in out
+
+
+def test_artifact_tool_only_advertises_available_paths(tmp_path: Path) -> None:
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    initial = {t.name: t for t in node_tools(h, {}, tmp_path / "node")}
+    assert "results.json" not in initial["read_artifact"].description
+    h.run.write_json("tree/seed/results.json", {"x": {"value": 1}})
+    tools = {t.name: t for t in node_tools(h, {}, tmp_path / "node")}
+    assert "tree/seed/results.json" in tools["read_artifact"].description
+    assert "framing.json" not in tools["read_artifact"].description
+
+
+def test_artifact_discovery_uses_the_resolved_read_policy(tmp_path: Path) -> None:
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    secret = h.run.write_text("research.md", "private text")
+    alias = tmp_path / "results.json"
+    try:
+        alias.symlink_to(secret)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    initial = {t.name: t for t in node_tools(h, {}, tmp_path / "node")}
+    assert "results.json" not in initial["read_artifact"].description
+
+
+def test_scratch_files_are_reported_and_missing_figures_list_them(tmp_path: Path) -> None:
+    h, tools, node = _setup(tmp_path)
+    out = str(
+        _call(
+            tools,
+            "run_python",
+            code="from pathlib import Path\nPath('plot.png').write_bytes(b'png')",
+        )
+    )
+    rel = (node / "scratch/00/plot.png").relative_to(h.run.root).as_posix()
+    assert rel in out
+    assert _call(tools, "view_figure", path=rel).is_file()  # type: ignore[union-attr]
+    with pytest.raises(ValueError) as exc:
+        _call(tools, "view_figure", path="plot.png")
+    assert rel in str(exc.value)
 
 
 def test_run_python_cannot_overwrite_run_inputs(tmp_path: Path) -> None:

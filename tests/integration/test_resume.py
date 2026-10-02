@@ -6,7 +6,7 @@ import pytest
 from popper.coordinator.run import resume, run
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.recovery import read_events
+from popper.harness.recovery import Journal, load_state, read_events
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageSpec, run_stage
@@ -49,7 +49,8 @@ def test_resume_restores_researcher_for_interactive_runs_only(tmp_path: Path, au
         assert resume(root, llm=llm, researcher=researcher).status == "awaiting_review"
     assert answers == ([] if auto else [("Unit?", "hrs")])
     feedback = llm.calls[1].messages[-1].tool_results[0].text
-    assert ("No researcher is available" in feedback) is auto
+    assert ("unknown tool ask_researcher" in feedback) is auto
+    assert ("ask_researcher" in {tool.name for tool in llm.calls[0].tools}) is not auto
     store = RunStore(root)
     frame = store.committed("frame")
     assert frame is not None
@@ -58,6 +59,72 @@ def test_resume_restores_researcher_for_interactive_runs_only(tmp_path: Path, au
         "question": "Unit?", "proposed_answer": "hrs",
         "item": "variables.sleep_hours.unit", "answer": "hours",
     }])
+
+
+@pytest.mark.parametrize("cap", [0, -1, float("nan"), float("inf"), 0.1])
+def test_resume_rejects_caps_that_cannot_raise_the_remaining_budget(
+    tmp_path: Path, cap: float
+) -> None:
+    cfg = _config()
+    cfg.budget.max_usd = 0.1
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    Journal(store.path("journal.jsonl")).write("llm_call", usd=0.2)
+    before = read_events(store.root)
+    with pytest.raises(ValueError, match="cap"):
+        resume(store.root, llm=FakeLLM(lambda _: pytest.fail("no calls expected")), max_usd=cap)
+    assert read_events(store.root) == before
+
+
+def test_raised_cap_survives_another_resume_without_overwriting_run_config(tmp_path: Path) -> None:
+    cfg = _config()
+    cfg.budget.max_usd = 0
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    original = store.path("run.json").read_bytes()
+    observed: list[float] = []
+
+    def interrupt(req: LLMRequest) -> str:
+        observed.append(1.0)
+        raise KeyboardInterrupt()
+
+    for cap in (1.0, None):
+        with pytest.raises(KeyboardInterrupt):
+            resume(store.root, llm=FakeLLM(interrupt), max_usd=cap)
+    assert len(observed) == 2
+    assert store.path("run.json").read_bytes() == original
+    assert load_state(store)["max_usd"] == 1.0
+    raises = [e for e in read_events(store.root) if e["event"] == "budget_raise"]
+    assert len(raises) == 1 and raises[0]["old_max_usd"] == 0 and raises[0]["max_usd"] == 1
+    assert json.loads(original)["config"]["budget"]["max_usd"] == 0
+
+
+def test_budget_raise_survives_failure_before_its_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = _config()
+    cfg.budget.max_usd = 0
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    Journal(store.path("journal.jsonl")).write("llm_call", usd=0.2)
+    original = store.path("run.json").read_bytes()
+
+    def fail_checkpoint(self: RunStore, state: object) -> Path:
+        raise OSError("checkpoint unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(RunStore, "checkpoint", fail_checkpoint)
+        with pytest.raises(OSError, match="checkpoint unavailable"):
+            resume(store.root, llm=FakeLLM(lambda _: pytest.fail("no model call yet")), max_usd=1)
+
+    def interrupt(req: LLMRequest) -> str:
+        raise KeyboardInterrupt()
+
+    llm = FakeLLM(interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        resume(store.root, llm=llm)
+    assert len(llm.calls) == 1
+    assert load_state(store)["max_usd"] == 1
+    assert load_state(store)["spent_usd"] == 0.2
+    assert store.path("run.json").read_bytes() == original
+    assert len([e for e in read_events(store.root) if e["event"] == "budget_raise"]) == 1
 
 
 def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(

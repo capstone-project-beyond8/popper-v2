@@ -138,7 +138,7 @@ class _Capture:
         return {"output": {"message": {"content": [{"text": "ok"}]}}, "usage": usage}
 
 
-def test_cache_points_mark_the_stable_prefix() -> None:
+def test_cache_points_follow_the_conversation_tail() -> None:
     llm = BedrockLLM.__new__(BedrockLLM)
     llm._client = capture = _Capture()
     msgs = (Message("user", "task"), Message("assistant", "a"), Message("user", "more"))
@@ -147,10 +147,14 @@ def test_cache_points_mark_the_stable_prefix() -> None:
     sent = capture.kwargs
     assert sent["system"][-1] == point
     assert sent["toolConfig"]["tools"][-1] == point
-    assert sent["messages"][0]["content"] == [{"text": "task"}, point]
-    assert all(point not in m["content"] for m in sent["messages"][1:])
+    assert sent["messages"][-1]["content"] == [{"text": "more"}, point]
+    assert all(point not in m["content"] for m in sent["messages"][:-1])
     llm.complete(LLMRequest("amazon.nova", "t", "s", msgs, (ToolSpec("x", "d", {}),)), 10)
     assert point not in capture.kwargs["toolConfig"]["tools"]
+    assert all(point not in m["content"] for m in capture.kwargs["messages"])
+    llm.complete(LLMRequest("anthropic.m", "t", "s", (Message("user", "task"),)), 10)
+    assert capture.kwargs["system"] == [{"text": "s"}]
+    assert capture.kwargs["messages"][0]["content"] == [{"text": "task"}]
 
 
 def test_from_converse_reads_cache_counts() -> None:

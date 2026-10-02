@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
 
@@ -16,7 +17,7 @@ from pydantic import (
 )
 
 from popper.harness.agent import Tool, agent_loop
-from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
+from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, fence, part, valid_names
 from popper.harness.descriptive import DescriptiveReport, describe_table, format_description
 from popper.harness.prompts import load_prompt
 from popper.harness.research import ResearchContext, render_research
@@ -98,7 +99,8 @@ def _check_changes(workdir: Path, results: dict[str, dict[str, Any]]) -> list[Ch
         if change.rows_affected not in results:
             raise ValueError(
                 f"rows_affected {change.rows_affected!r} has no entry in results.json; "
-                "report that count there under the same key"
+                "report that count there under the same key; "
+                + valid_names(results, "results.json")
             )
         value = results[change.rows_affected]["value"]
         if type(value) is not int or value < 0:
@@ -137,7 +139,8 @@ def _check_mapping(
         if missing:
             raise ValueError(
                 f"operationalization of {item.concept_id} uses columns not in "
-                f"processed.parquet: {', '.join(missing)}"
+                f"processed.parquet: {', '.join(missing)}; "
+                + valid_names(processed.columns, "processed.parquet columns")
             )
 
 
@@ -187,7 +190,12 @@ def check_submission(
             if stray:
                 raise ValueError(
                     f"concern evidence {', '.join(map(repr, stray))} is not a result key, "
-                    "change step or descriptive result key"
+                    "change step or descriptive result key; "
+                    + valid_names(results, "results.json")
+                    + "; "
+                    + valid_names((c.step for c in changes), "changes.json steps")
+                    + "; "
+                    + valid_names(ida_raw.results, "Raw data description")
                 )
     except ValueError as exc:
         return str(exc)
@@ -310,18 +318,30 @@ def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Fo
     attempt = run.new_attempt("ground")
     ida_raw = DescriptiveReport(**json.loads(run.path("data", "ida-raw.json").read_text("utf-8")))
     inputs = {"raw": run.path("data", "raw.csv")}
+    context_part = partial(part, journal=h.journal, tag="steward")
     task = load_prompt(
         "popper.ground",
         "steward.md",
-        research=part("Research context", render_research(research), RESEARCH_CHARS, untrusted=True),
-        framing=part("Framing", json.dumps(framing, indent=2), RESEARCH_CHARS, untrusted=True),
-        description=part(
+        research=context_part("Research context", render_research(research), RESEARCH_CHARS, untrusted=True),
+        framing=context_part("Framing", json.dumps(framing, indent=2), RESEARCH_CHARS, untrusted=True),
+        description=context_part(
             "Raw data description", format_description(ida_raw), ARTIFACT_CHARS, untrusted=True
         ),
-        notes=part(
+        notes=context_part(
             "Researcher notes", research.notes.get("ground", "(none)"), RESEARCH_CHARS, untrusted=True
         ),
     )  # fmt: skip
+    task += "\nValid concept ids, columns and evidence keys:\n" + fence(
+        json.dumps(
+            {
+                "concept_ids": [c.id for c in research.concepts],
+                "columns": [
+                    {"name": c["name"], "key": c["key"]} for c in ida_raw.layout["columns"]
+                ],
+                "result_keys": list(ida_raw.results),
+            }
+        )
+    )
     accepted: dict[str, Any] = {}
     config = h.config.ground
     submitted = agent_loop(

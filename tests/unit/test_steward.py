@@ -72,6 +72,15 @@ def test_valid_submission_is_accepted(tmp_path: Path) -> None:
     assert _run(tmp_path) is None
 
 
+def test_invalid_evidence_names_all_available_sources(tmp_path: Path) -> None:
+    concern = Concern(type="quality", kind="data", description="r", evidence=["assumption"])
+    error = str(_run(tmp_path, concerns=(concern,)))
+    assert all(
+        key in error
+        for key in ("assumption", "rows_before", "rows_after", "rows_removed", "drop", "c000_mean")
+    )
+
+
 def test_row_counts_must_match_the_table(tmp_path: Path) -> None:
     assert "rows_before and rows_after" in str(
         _run(tmp_path, results={"rows_before": {"value": 3}})
@@ -205,7 +214,7 @@ def test_ground_validates_all_nested_input_before_execution(tmp_path: Path) -> N
         "operationalization": [{"concept_id": "effort", "columns": [], "proxy_strength": "wrong"}],
         "concerns": [{"type": "unit_mismatch", "kind": "data", "description": "d", "evidence": []}],
     }
-    result = run_tool(h, "ground", 1, tools, ToolCall("a", "submit_ground", payload))
+    result = run_tool(h, "ground", "ground-session", 1, tools, ToolCall("a", "submit_ground", payload))
     assert result.status == "error"
     assert "operationalization.0.proxy_strength" in result.text
     assert "operationalization.0.rationale" in result.text
@@ -226,7 +235,7 @@ def test_blank_ground_code_is_rejected_before_execution(tmp_path: Path, code: st
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
     attempt = run.new_attempt("ground")
     tools = {t.name: t for t in _tools(h, attempt, _research(), {}, IDA, {})}
-    result = run_tool(h, "ground", 1, tools, ToolCall(
+    result = run_tool(h, "ground", "ground-session", 1, tools, ToolCall(
         "a", "submit_ground", {"code": code, "operationalization": [], "concerns": []}
     ))
     assert result.status == "error" and "code" in result.text

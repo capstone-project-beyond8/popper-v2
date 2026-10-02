@@ -17,6 +17,7 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 | **M0** Mini scientist | From a brief and a CSV, get a complete paper with one tested hypothesis | `popper run examples/student_performance` → paper with framing, data changes, exploration figures, one hypothesis and a tested result | — | ~2k | done |
 | **M1** Trustworthy results | Every main result comes with robustness evidence and a computed stability label, and the run can later be verified | The paper shows baseline, main and robustness results, a specification curve over every attempt and a stability label | M0 | ~2.5k | done |
 | **M2** Grounded frame | The researcher steers an agent's understanding of the problem; an agent grounds it in the data and says what the data cannot support | `popper run examples/student_performance` stops for review of the Research Frame; after `popper resume` → paper with an operationalization table and generated limitations | M1 | ~1.5k | todo |
+| **M2-optimize** Cost and context | Grounded-frame demos finish within the default budget with measured cache reuse and tool diagnostics | `popper-metrics <run>` plus equal-model positive and null demos | M2 code | ~0.2k + `evals/` | todo |
 | **M3** Discover agent | An agent decides what to explore, when to hypothesize and what to test over a research graph, and every tested hypothesis says how it was generated, what it predicted and whether the result matched | The demo explores at least two questions chosen by the agent; the paper shows the hypothesis origin, a pre-test sample table, the prediction verdict beside the stability label, and a research path from the graph | M2 | ~1.5k | todo |
 | **M4** Evidence baseline | The team can tell whether a change makes Popper better | `popper-eval` prints the null false-finding rate, effect recovery, estimand recovery, holdout gap and cost for two configurations | M3 | + `evals/` | todo |
 | **M5** Publication quality | A paper that compiles cleanly and can be checked claim by claim | Clean compile on three datasets; review, claims file and search map | M1 | ~3k | todo |
@@ -123,6 +124,24 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 
 ---
 
+## M2-optimize — Cost and context
+
+**Outcome.** The grounded-frame demo reaches a paper within the default $5 cap, at a mean cost of at most $3, without reducing output quality.
+
+**Scope.** Journal metrics for cost, cache reuse, submits, tool errors and context cuts; conversation caching and clearer tool contracts; attempt-specific robustness references; explicit researcher-initiated budget raises on resume.
+
+**Acceptance.** At equal models (Sonnet 4.6 except Haiku 4.5 for Analyst), $5 cap and default submit limits:
+- Two positive demos complete through review and resume; mean cost ≤ $3.
+- Steward spend ≤ 35% of the run and ≤ $0.55 per session; cache-read ratios ≥ 75% for Steward and ≥ 60% overall.
+- Mean rejected submits ≤ 1 per session; no avoidable tool errors or context cuts; every cut is recorded.
+- Adversarial checks pass; the null demo claims no effect or is labeled `fragile`, at ≤ $3.
+- Preserve the grounded-frame quality gate: counted data fixes, structured concerns, operationalization, a positive study-hours interval excluding zero, at least three variants, and no missing paper numbers.
+- Ruff, mypy and the full parallel test suite pass; live cost and quality gates close only after measurement.
+
+**Out.** Compaction, default model rerouting, new research mechanisms, review UX and publication-quality changes.
+
+---
+
 ## M3 — Discover agent
 
 **Outcome.** Discovery behaves like an investigation: an agent decides which question to explore, when observations suffice for a hypothesis, and which hypothesis to test, while the tree still runs every stage underneath so attempts stay comparable and every `ok` node is reported. Every tested hypothesis says how it was generated, what it predicted before the test, whether the data allowed the test, and whether the result matched the prediction.
@@ -148,6 +167,8 @@ Product milestones for Popper. Each milestone is a shippable increment: a resear
 ---
 
 ## M4 — Evidence baseline
+
+`popper-metrics` already provides journal cost and session metrics; `popper-eval` builds on those measurements and pins model routes for comparisons.
 
 **Outcome.** Every later change is judged by measurement. The team knows how often Popper reports an effect that is not there, how well it recovers one that is, whether it picks the right estimand and method, and what a run costs.
 

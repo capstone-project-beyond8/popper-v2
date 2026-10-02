@@ -198,8 +198,8 @@ class BedrockLLM:
             ReadTimeoutError,
         )
 
-        # Cache the stable prefix: system, tools and the task in the first user message.
-        # Only Anthropic models accept a cache point in the tool list.
+        # Cache sessions through their rolling tail. One-shot prompts have no reusable prefix.
+        cache = "anthropic" in req.model and (bool(req.tools) or len(req.messages) > 1)
         kwargs: dict[str, Any] = {}
         if req.tools:
             specs: list[dict[str, Any]] = [
@@ -212,7 +212,7 @@ class BedrockLLM:
                 }
                 for t in req.tools
             ]
-            if "anthropic" in req.model:
+            if cache:
                 specs.append(_CACHE_POINT)
             kwargs["toolConfig"] = {"tools": specs}
         if req.output_schema is not None:
@@ -225,12 +225,12 @@ class BedrockLLM:
                 }
             }
         messages = _to_converse(req.messages)
-        first_user = next(m for m in messages if m["role"] == "user")
-        first_user["content"].append(_CACHE_POINT)
+        if cache:
+            messages[-1]["content"].append(_CACHE_POINT)
         try:
             resp = self._client.converse(
                 modelId=req.model,
-                system=[{"text": req.system}, _CACHE_POINT],
+                system=[{"text": req.system}, *([_CACHE_POINT] if cache else [])],
                 messages=messages,
                 inferenceConfig={"maxTokens": max_tokens},
                 **kwargs,

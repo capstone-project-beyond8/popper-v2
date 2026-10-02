@@ -134,13 +134,22 @@ def choose_action(
     return "draft", None
 
 
-def _task(spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
+def _task(h: Harness, spec: StageSpec, kind: NodeKind, parent: Node | None) -> str:
     if parent is None:
         if spec.seed_code:
             return f"Starting point to adapt:\n```python\n{spec.seed_code}\n```"
         return "Draft a new approach."
-    code = part("Previous code", parent.code, CODE_CHARS)
-    analysis = part("Analysis of its output", parent.analysis, ARTIFACT_CHARS, untrusted=True)
+    code = part(
+        "Previous code", parent.code, CODE_CHARS, journal=h.journal, tag=f"analyst:{spec.name}"
+    )
+    analysis = part(
+        "Analysis of its output",
+        parent.analysis,
+        ARTIFACT_CHARS,
+        untrusted=True,
+        journal=h.journal,
+        tag=f"analyst:{spec.name}",
+    )
     if kind == "improve":
         return f"Improve this working script.\n{code}\n{analysis}"
     return f"Fix this script.\n{code}\n{analysis}"
@@ -220,7 +229,7 @@ def _step(
         )
         or "- (none)",
         outputs="\n".join(f"- {o}" for o in spec.required_outputs),
-        task=_task(spec, kind, parent),
+        task=_task(h, spec, kind, parent),
     )
     try:
         submitted = agent_loop(
@@ -334,12 +343,27 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
     if failed:
         node.results = {}
-        node.analysis = f"Check failed: {failed}.\n{res.stderr}"
+        feedback = "\n".join(
+            part(
+                title,
+                text,
+                ARTIFACT_CHARS // 3,
+                keep="tail" if title == "stderr" else "head",
+                untrusted=True,
+                journal=h.journal,
+                tag=f"analyst:{spec.name}",
+            )
+            for title, text in (
+                ("stderr", res.stderr),
+                ("stdout", res.stdout),
+            )
+        )
+        node.analysis = f"Check failed: {failed}.\n{feedback}"
         return
     try:
         if spec.blind_estimates:
             make_diagnostic(h, node)
-        prompt, images = judge_input(spec, node, res)
+        prompt, images = judge_input(spec, node, res, journal=h.journal)
         verdict = h.ask_model(
             "judge",
             schema=Verdict,

@@ -44,6 +44,7 @@ def node_tools(
         else {name: folder.resolve() for name, folder in artifact_roots.items()}
     )
     scratch = 0
+    figures: list[str] = []
 
     def inside(rel: str) -> Path:
         if Path(rel).is_absolute():
@@ -85,6 +86,15 @@ def node_tools(
             f"\nFull logs: {logs}/stdout.txt and {logs}/stderr.txt. "
             "Read with read_artifact using path and offset."
         )
+
+
+        written = sorted(
+            p.relative_to(root).as_posix()
+            for p in evidence.rglob("*")
+            if p.is_file() and p.name not in {"code.py", "stdout.txt", "stderr.txt"}
+        )
+        figures.extend(p for p in written if p.endswith(".png"))
+        output += "\nfiles written (relative to the run):\n" + fence("\n".join(written) or "(none)")
         if r.exit_code != 0 or r.timed_out:
             raise ValueError(
                 f"{output}\nFix the snippet and try again; submitted results are separate."
@@ -96,13 +106,17 @@ def node_tools(
         if path.suffix != ".png":
             raise ValueError("only .png figures can be viewed")
         if not path.is_file():
-            raise ValueError("figure does not exist")
+            raise ValueError(
+                "figure does not exist; PNGs written this session: " + ", ".join(figures)
+                if figures
+                else "figure does not exist; no PNGs written this session"
+            )
         if path.stat().st_size > 3_750_000:
             raise ValueError("figure is larger than 3.75 MB")
         return path
 
-    def read_artifact(args: ReadArtifactInput) -> str:
-        path = inside(args.path)
+    def artifact_path(rel: str) -> tuple[Path, bool]:
+        path = inside(rel)
         diagnostic = (
             path.name == "error.json" and path.parent.parent == root / "diagnostics"
             and path.parent.name.startswith("attempt-")
@@ -118,11 +132,17 @@ def node_tools(
             raise ValueError("artifact is not permitted for this session")
         if not path.is_file():
             raise ValueError("artifact does not exist")
+        if diagnostic:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if diagnostic_tag is not None and record["tag"] != diagnostic_tag:
+                raise ValueError("diagnostic belongs to another session role")
+        return path, diagnostic
+
+    def read_artifact(args: ReadArtifactInput) -> str:
+        path, diagnostic = artifact_path(args.path)
         text = path.read_text(encoding="utf-8", errors="replace")
         if diagnostic:
             record = json.loads(text)
-            if diagnostic_tag is not None and record["tag"] != diagnostic_tag:
-                raise ValueError("diagnostic belongs to another session role")
             text = record["text"]
         end = min(args.offset + ARTIFACT_CHARS, len(text))
         page = fence(text[args.offset:end])
@@ -130,14 +150,17 @@ def node_tools(
             page += f"\nMore: read_artifact({json.dumps({'path': args.path, 'offset': end})})."
         return page
 
-    artifact_list = ", ".join(
-        f"{name} under {folder.relative_to(root).as_posix()}/"
-        for name, folder in sorted(allowed_artifacts.items())
-    )
-    readable = f"{artifact_list}, harness diagnostic reports"
-    if execution_logs:
-        readable += ", execution stdout/stderr logs"
-    return [
+    artifact_list = []
+    for path in sorted(root.rglob("*")):
+        if path.name not in {*allowed_artifacts, "error.json", "stdout.txt", "stderr.txt"}:
+            continue
+        rel = path.relative_to(root).as_posix()
+        try:
+            artifact_path(rel)
+        except ValueError:
+            continue
+        artifact_list.append(rel)
+    tools = [
         Tool(
             "inspect_data",
             "Describe one stage input. For CSV or Parquet: structure, missing values, distribution "
@@ -148,7 +171,8 @@ def node_tools(
         ),
         Tool(
             "run_python",
-            "Run a throwaway Python snippet and return exit code, stdout and stderr. Each call "
+            "Run a throwaway Python snippet and return exit code, stdout, stderr and written paths. "
+            "Save figures in the current folder using relative paths. Each call "
             "starts a fresh process in a new empty folder: variables and files do not persist "
             "between calls. Inputs are available through the same environment variables as the "
             "final script. Calls time out and long output is truncated. Nothing here counts "
@@ -164,7 +188,9 @@ def node_tools(
         ),
         Tool.from_model(
             "read_artifact",
-            f"Read an artifact of this run: {readable}. Returns up to {ARTIFACT_CHARS} characters; "
+            f"Read an artifact of this run. Existing paths: {', '.join(artifact_list)}. "
+            "New diagnostic reports and permitted execution logs can also be read by their returned paths. "
+            f"Returns up to {ARTIFACT_CHARS} characters; "
             "use the returned next offset to read more.",
             ReadArtifactInput,
             read_artifact,
@@ -178,3 +204,4 @@ def node_tools(
             terminal=True,
         ),
     ]
+    return tools

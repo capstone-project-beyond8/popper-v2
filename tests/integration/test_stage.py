@@ -102,6 +102,30 @@ def test_all_buggy_raises_stage_failed(tmp_path: Path) -> None:
     assert info.value.stage == SPEC.name
 
 
+@pytest.mark.parametrize("stderr_length", [0, 12000])
+def test_failed_fit_diagnostics_reach_debug_node(tmp_path: Path, stderr_length: int) -> None:
+    h = _harness(
+        tmp_path,
+        [
+            _submit(
+                "import sys\nprint('fit failed:' + ' parameter dimension mismatch')\n"
+                f"sys.stderr.write('x' * {stderr_length})\nraise RuntimeError('empty fits')"
+            ),
+            _submit(
+                "import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))\n"
+                "open('out.txt','w').write('x')"
+            ),
+        ],
+    )
+    h.config.search.steps_per_stage = 2
+    best = run_stage(h, SPEC, random.Random(0))
+    assert best.kind == "debug"
+    assert isinstance(h.llm, FakeLLM)
+    requests = [req for req in h.llm.calls if req.tag == "analyst:stage"]
+    assert "fit failed: parameter dimension mismatch" in requests[-1].prompt
+    assert "RuntimeError: empty fits" in requests[-1].prompt
+
+
 def test_min_figures_fails_without_figure(tmp_path: Path) -> None:
     code = _submit("import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))")
     h = _harness(tmp_path, [code] * 4)

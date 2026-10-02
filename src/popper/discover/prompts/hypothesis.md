@@ -19,6 +19,11 @@ contrast comparable across linear, nonlinear and adjusted specifications (for ex
 predicted score difference between two stated study-hour values). Interactions and moderators
 are secondary, never a second primary estimand. A null result is valid.
 
+State the eligible population, missingness policy and covariate encoding explicitly in the
+planned test. Distinguish complete-case, single-imputation and multiple-imputation analyses;
+retaining rows is not by itself stronger evidence. Keep methods feasible within script execution
+limits, and specify which variable any transformation targets.
+
 Reply with JSON only, exactly these keys:
 - statement: testable claim
 - rationale: which exploration observations motivated it

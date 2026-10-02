@@ -46,6 +46,19 @@ def test_returns_submitted_input(tmp_path: Path) -> None:
     assert [t.name for t in fake.calls[0].tools] == ["echo", "submit"]
 
 
+def test_each_loop_has_a_distinct_journal_session(tmp_path: Path) -> None:
+    fake = FakeLLM(lambda req: (ToolCall("s", "submit", {}),))
+    h = _harness(tmp_path, fake)
+    _run(h)
+    _run(h)
+    events = [json.loads(line) for line in h.run.path("journal.jsonl").read_text().splitlines()]
+    calls = [e for e in events if e["event"] == "llm_call"]
+    tools = [e for e in events if e["event"] == "tool_call"]
+    assert calls[0]["session"] != calls[1]["session"]
+    assert [e["session"] for e in tools] == [e["session"] for e in calls]
+    assert all(e["terminal"] and e["status"] == "success" for e in tools)
+
+
 def test_stops_at_max_turns(tmp_path: Path) -> None:
     fake = FakeLLM(lambda req: "thinking")
     assert _run(_harness(tmp_path, fake), max_turns=3) is None

@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from popper.discover.robustness import RobustnessPlan, load_robustness_plan
+from popper.discover.robustness import RobustnessPlan, load_robustness_plan, schedule_context
 from popper.harness.config import load_config
 from tests.unit.test_hypothesis import ESTIMAND
 
@@ -97,3 +97,30 @@ def test_saved_schedule_uses_configured_budget(tmp_path: Path) -> None:
     cfg.search.stage_steps["robustness"] = 6
     with pytest.raises(ValueError, match="budget"):
         load_robustness_plan(path, cfg)
+
+
+def test_new_schedule_reserves_repair_without_invalidating_saved_schedule(tmp_path: Path) -> None:
+    cfg = load_config(env={})
+    full = schedule()
+    full["attempts"].insert(
+        0, {**full["attempts"][1], "id": "second-model", "choice": "different estimator"}
+    )
+    path = tmp_path / "robustness_plan.json"
+    path.write_text(json.dumps({"format_version": 2, "schedule": full}))
+    assert len(load_robustness_plan(path, cfg).attempts) == 6
+    assert len(RobustnessPlan.model_validate(schedule(), context=schedule_context(cfg)).attempts) == 5
+    with pytest.raises(ValueError, match="budget"):
+        RobustnessPlan.model_validate(full, context=schedule_context(cfg))
+
+
+def test_new_schedule_rejects_budget_without_room_for_repair(tmp_path: Path) -> None:
+    cfg = load_config(env={})
+    cfg.search.stage_steps["robustness"] = cfg.robustness.min_variants + 1
+    recorded = schedule()
+    recorded["attempts"].pop(3)
+    recorded["inapplicable"]["resampling"] = "No valid resampling design"
+    path = tmp_path / "robustness_plan.json"
+    path.write_text(json.dumps({"format_version": 2, "schedule": recorded}))
+    assert len(load_robustness_plan(path, cfg).attempts) == 4
+    with pytest.raises(ValueError, match="repair"):
+        schedule_context(cfg)

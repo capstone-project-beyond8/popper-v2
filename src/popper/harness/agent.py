@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
 
@@ -46,14 +47,18 @@ def _args(call: ToolCall) -> str:
     return json.dumps(call.input, default=str)
 
 
-def _skip(h: Harness, tag: str, turn: int, call: ToolCall, reason: str) -> None:
+def _skip(
+    h: Harness, tag: str, session: str, turn: int, call: ToolCall, reason: str, *, terminal: bool
+) -> None:
     h.journal.write(
-        "tool_call", tag=tag, turn=turn, tool=call.name, call_id=call.id,
+        "tool_call", tag=tag, session=session, terminal=terminal, turn=turn, tool=call.name, call_id=call.id,
         args=_args(call), result=reason, status="skipped",
     )
 
 
-def _run(h: Harness, tag: str, turn: int, by_name: dict[str, Tool], call: ToolCall) -> ToolResult:
+def _run(
+    h: Harness, tag: str, session: str, turn: int, by_name: dict[str, Tool], call: ToolCall
+) -> ToolResult:
     tool = by_name.get(call.name)
     out: str | Path
     status = "success"
@@ -77,6 +82,8 @@ def _run(h: Harness, tag: str, turn: int, by_name: dict[str, Tool], call: ToolCa
     h.journal.write(
         "tool_call",
         tag=tag,
+        session=session,
+        terminal=bool(tool and tool.terminal),
         turn=turn,
         tool=call.name,
         call_id=call.id,
@@ -123,13 +130,23 @@ def agent_loop(
     specs = [ToolSpec(t.name, t.description, t.schema) for t in tools]
     rejected = 0
     history = [Message("user", task)]
+    session = uuid4().hex
     for turn in range(1, max_turns + 1):
         done = h.converse(
-            role, tag=tag, system=system, messages=history, tools=specs, max_tokens=max_tokens
+            role,
+            tag=tag,
+            session=session,
+            system=system,
+            messages=history,
+            tools=specs,
+            max_tokens=max_tokens,
         )
         if done.stop_reason == "max_tokens":
             for call in done.tool_calls:
-                _skip(h, tag, turn, call, "Skipped: the reply was cut off at the token limit.")
+                _skip(
+                    h, tag, session, turn, call, "Skipped: the reply was cut off at the token limit.",
+                    terminal=call.name == terminal,
+                )
             _extend(history, Message("assistant", done.text), Message("user", _TRUNCATED))
             continue
         assistant = Message(
@@ -141,9 +158,9 @@ def agent_loop(
             stopped = None
             for call in done.tool_calls:
                 if stopped is not None:
-                    _skip(h, tag, turn, call, stopped)
+                    _skip(h, tag, session, turn, call, stopped, terminal=call.name == terminal)
                     continue
-                result = _run(h, tag, turn, by_name, call)
+                result = _run(h, tag, session, turn, by_name, call)
                 results.append(result)
                 if call.name == terminal:
                     if result.status == "success":
