@@ -1,8 +1,9 @@
 """Journal, budget and the single entry point for model calls."""
 
+import hashlib
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
@@ -19,8 +20,9 @@ from popper.harness.llm import (
     ToolSpec,
     TransientLLMError,
 )
-from popper.harness.recovery import Journal
-from popper.harness.store import RunStore
+from popper.harness.records import ArtifactRef, resolve_artifact
+from popper.harness.recovery import Journal, read_events
+from popper.harness.store import RunStore, file_hash
 from popper.harness.validation import format_errors
 
 T = TypeVar("T", bound=BaseModel)
@@ -55,8 +57,19 @@ class Harness:
         inputs: Mapping[str, Path],
         node: str,
         purpose: Literal["scratch", "submitted", "plot"],
+        test: ArtifactRef | None = None,
+        stage_instance: str | None = None,
     ) -> ExecResult:
-        fields = {"node": node, "purpose": purpose, "path": str(workdir.resolve())}
+        if test is not None:
+            resolve_artifact(self.run, test)
+        execution_id = f"exec-{sum(e['event'] == 'exec_start' for e in read_events(self.run.root)):06d}"
+        fields = {
+            "node": node, "purpose": purpose, "path": str(workdir.resolve()),
+            "execution_id": execution_id, "code_hash": hashlib.sha256(code.encode()).hexdigest(),
+            "input_hashes": {name: file_hash(path) for name, path in inputs.items()},
+            "test_ref": test.model_dump(mode="json") if test else None,
+            "stage_instance": stage_instance,
+        }
         self.journal.write("exec_start", **fields)
         try:
             result = run_script(
@@ -76,7 +89,7 @@ class Harness:
             timed_out=result.timed_out,
             seconds=result.seconds,
         )
-        return result
+        return replace(result, execution_id=execution_id)
 
     def converse(
         self,

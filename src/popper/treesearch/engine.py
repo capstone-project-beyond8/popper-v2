@@ -4,7 +4,7 @@ import json
 import random
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -15,9 +15,11 @@ from popper.harness.config import Search
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
+from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.recovery import read_events
 from popper.harness.results import validate_results
 from popper.harness.session import Harness
+from popper.harness.store import file_hash
 from popper.treesearch.judge import JudgeReference, judge_input, make_diagnostic
 from popper.treesearch.tools import node_tools
 
@@ -52,6 +54,12 @@ class Node:
     attempt_id: str | None = None
     seed_node: str | None = None
     stage_instance: str | None = None
+    test_ref: ArtifactRef | None = None
+    hypothesis_id: str | None = None
+    test_id: str | None = None
+    implementation_id: str | None = None
+    execution_id: str | None = None
+    outputs: dict[str, str] = field(default_factory=dict)
 
     @property
     def execution_dir(self) -> Path:
@@ -85,6 +93,7 @@ class StageSpec:
     attempts: tuple[AttemptSpec, ...] = ()
     judge_reference: JudgeReference | None = None
     instance_id: str | None = None
+    test: ArtifactRef | None = None
 
     def __post_init__(self) -> None:
         _validate_execution_id(self.execution_id)
@@ -228,6 +237,7 @@ def _step(
         attempt_id=attempt.id if attempt else None,
         seed_node=spec.seed_node,
         stage_instance=spec.execution_id,
+        test_ref=spec.test,
     )
     node.dir.mkdir(parents=True)
     h.journal.write(
@@ -261,7 +271,7 @@ def _step(
             tag=f"analyst:{spec.execution_id}",
             system=_SYSTEM,
             task=prompt,
-            tools=node_tools(h, spec.inputs, node.dir),
+            tools=node_tools(h, spec.inputs, node.dir, test=spec.test, stage_instance=spec.execution_id),
             max_turns=max_turns,
         )
     except LLMError as exc:
@@ -275,10 +285,13 @@ def _step(
     else:
         node.code = submitted["code"]
         _execute(h, spec, node, limit)
+    node.outputs = {p.relative_to(h.run.root).as_posix(): file_hash(p) for p in node.execution_dir.rglob("*") if p.is_file()}
     meta = {k: v for k, v in asdict(node).items() if k not in ("code", "results", "dir")}
     h.run.write_json(f"tree/{spec.execution_id}/{node_id}/meta.json", meta)
     h.run.write_text(f"tree/{spec.execution_id}/{node_id}/analysis.md", node.analysis)
-    h.journal.write("node_commit", stage=spec.name, stage_instance=spec.execution_id, node=node_id)
+    meta_path = node.dir / "meta.json"
+    h.journal.write("node_commit", stage=spec.name, stage_instance=spec.execution_id, node=node_id,
+                    path=meta_path.relative_to(h.run.root).as_posix(), sha256=file_hash(meta_path), record_id=f"node-{node_id}")
     return node
 
 
@@ -324,6 +337,10 @@ def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> li
         node_dir = h.run.path("tree", stage, str(event["node"]))
         metadata = json.loads((node_dir / "meta.json").read_text("utf-8"))
         metadata.setdefault("stage_instance", metadata["stage"])
+        if event.get("sha256") and file_hash(node_dir / "meta.json") != event["sha256"]:
+            raise ValueError("committed node metadata hash mismatch")
+        if metadata.get("test_ref"):
+            metadata["test_ref"] = ArtifactRef.model_validate(metadata["test_ref"])
         code_file = node_dir / "execution" / "code.py"
         nodes.append(
             Node(
@@ -364,7 +381,13 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         inputs=spec.inputs,
         node=node.id,
         purpose="submitted",
+        test=spec.test, stage_instance=spec.execution_id,
     )
+    node.execution_id = res.execution_id
+    node.implementation_id = f"impl-{res.execution_id}"
+    if spec.test is not None:
+        intended = json.loads(resolve_artifact(h.run, spec.test).read_text("utf-8"))
+        node.test_id, node.hypothesis_id = intended["id"], intended["hypothesis_id"]
     node.figures = sorted(p.name for p in (node.execution_dir / "figures").glob("*.png"))
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
     if failed:

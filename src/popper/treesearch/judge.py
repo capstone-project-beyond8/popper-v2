@@ -88,7 +88,8 @@ def make_diagnostic(h: "Harness", node: "Node") -> None:
         "plt.title('Reported sample sizes; estimates withheld')\n"
         "plt.tight_layout(); plt.savefig('samples.png')\n"
     )
-    result = h.execute(code, node.dir / "judge_figures", inputs={}, node=node.id, purpose="plot")
+    result = h.execute(code, node.dir / "judge_figures", inputs={}, node=node.id, purpose="plot",
+                       test=node.test_ref, stage_instance=node.stage_instance)
     if result.exit_code != 0 or result.timed_out:
         raise ValueError(f"could not create blinded diagnostic: {result.stderr}")
 

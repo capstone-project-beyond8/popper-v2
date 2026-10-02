@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from popper.harness.config import Config, DataConfig, load_config
+from popper.harness.records import ArtifactRef
 from popper.harness.recovery import Journal, read_events
 from popper.harness.research import ResearchError, check_columns, parse_research
 
@@ -134,6 +135,10 @@ class RunStore:
                 "research_hash": file_hash(research),
             },
         )
+        manifest = store.write_json("inputs/manifest.json", {
+            "files": {rel: file_hash(store.path(rel)) for rel in ("research.md", "data/raw.csv", "data/split.json")},
+        })
+        store.commit_artifact("inputs", manifest)
         return store
 
     def read_holdout(self) -> pd.DataFrame:
@@ -201,8 +206,15 @@ class RunStore:
     def commit_artifact(self, name: str, path: Path) -> None:
         rel = path.resolve().relative_to(self.root).as_posix()
         Journal(self.path("journal.jsonl")).write(
-            "artifact_commit", name=name, path=rel, sha256=file_hash(path)
+            "artifact_commit", name=name, path=rel, sha256=file_hash(path),
+            producer=name, record_id=f"artifact-{len(read_events(self.root)):06d}",
         )
+
+    def artifact_ref(self, name: str) -> ArtifactRef:
+        event = next((e for e in reversed(read_events(self.root)) if e["event"] == "artifact_commit" and e.get("name") == name), None)
+        if event is None or "record_id" not in event:
+            raise ValueError(f"no reference-backed commit for {name!r}")
+        return ArtifactRef(path=event["path"], sha256=event["sha256"], producer=event.get("producer", name), record_id=event["record_id"])
 
     def committed(self, name: str) -> Path | None:
         events = [
