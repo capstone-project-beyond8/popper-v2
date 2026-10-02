@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    model_validator,
+)
 
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
@@ -51,6 +58,11 @@ class Concern(_Model):
             raise ValueError(f"concern type {self.type} has kind {expected}, not {self.kind}")
         return self
 
+
+class SubmitGroundInput(_Model):
+    code: str = Field(pattern=r"\S", description="Complete Python preparation script.")
+    operationalization: list[Operationalization]
+    concerns: list[Concern]
 
 class Change(_Model):
     step: str
@@ -222,14 +234,8 @@ def _tools(
     ida_raw: DescriptiveReport,
     accepted: dict[str, Any],
 ) -> list[Tool]:
-    def submit_ground(args: dict[str, Any]) -> str:
-        code = args.get("code")
-        if not isinstance(code, str) or not code.strip():
-            raise ValueError("submit_ground needs the complete preparation script as code")
-        operationalization = TypeAdapter(list[Operationalization]).validate_python(
-            args.get("operationalization", [])
-        )
-        concerns = TypeAdapter(list[Concern]).validate_python(args.get("concerns", []))
+    def submit_ground(args: SubmitGroundInput) -> str:
+        code, operationalization, concerns = args.code, args.operationalization, args.concerns
         folder = attempt / f"submit-{next_sequence(attempt, prefix='submit-'):02d}"
         workdir = folder / "execution"
         res = h.execute(
@@ -249,7 +255,11 @@ def _tools(
             if absent:
                 failed = f"missing required output {', '.join(absent)}"
         if failed:
-            raise ValueError(f"Check failed: {failed}.\n{res.stderr}")
+            log = (workdir / "stderr.txt").relative_to(h.run.root).as_posix()
+            raise ValueError(
+                f"Check failed: {failed}.\n{res.stderr}\n"
+                f'Full stderr: read_artifact({{"path": "{log}", "offset": 0}}).'
+            )
         problem = check_submission(workdir, research, operationalization, concerns, ida_raw)
         if problem:
             raise ValueError(f"Check failed: {problem}.")
@@ -265,30 +275,12 @@ def _tools(
 
     return [
         *(t for t in node_tools(h, inputs, attempt) if not t.terminal),
-        Tool(
+        Tool.from_model(
             "submit_ground",
             "Submit the complete preparation script with the operationalization and concerns. "
             "The harness re-runs the script from scratch; only that run counts. A rejected "
             "submit returns the reason. Call it once the preparation is complete.",
-            {
-                "type": "object",
-                "properties": {
-                    "code": {"type": "string", "description": "Complete Python script."},
-                    "operationalization": {
-                        "type": "array",
-                        "description": "[{concept_id, columns, proxy_strength: "
-                        "direct|proxy|weak|none, rationale}], one per concept of the frame.",
-                        "items": {"type": "object"},
-                    },
-                    "concerns": {
-                        "type": "array",
-                        "description": "[{type, kind: frame|data, description, evidence: "
-                        "[result keys or change steps]}]",
-                        "items": {"type": "object"},
-                    },
-                },
-                "required": ["code", "operationalization", "concerns"],
-            },
+            SubmitGroundInput,
             submit_ground,
             terminal=True,
         ),

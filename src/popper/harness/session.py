@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from popper.harness.config import Config, Role
-from popper.harness.context import UNTRUSTED_NOTE
+from popper.harness.context import UNTRUSTED_NOTE, fence
 from popper.harness.interpreter import ExecResult, run_script
 from popper.harness.llm import (
     LLM,
@@ -21,6 +21,7 @@ from popper.harness.llm import (
 )
 from popper.harness.recovery import Journal
 from popper.harness.store import RunStore
+from popper.harness.validation import format_errors
 
 T = TypeVar("T", bound=BaseModel)
 _MAX_ATTEMPTS = 5
@@ -180,18 +181,28 @@ class Harness:
         images: Sequence[Path] = (),
         validation_context: Mapping[str, Any] | None = None,
     ) -> T:
+        previous = ""
+
         def attempt(text: str) -> T:
-            done = self.ask(
+            nonlocal previous
+            done = self.converse(
                 role,
                 tag=tag,
                 system=system,
-                prompt=text,
-                images=images,
+                messages=(Message("user", text, images=tuple(images)),),
                 output_schema=schema.model_json_schema(),
             )
-            return schema.model_validate_json(done, context=validation_context)
+            previous = done.text
+            if done.stop_reason == "max_tokens":
+                raise ValueError("reply truncated at max_tokens")
+            return schema.model_validate_json(previous, context=validation_context)
 
         try:
             return attempt(prompt)
         except ValueError as err:  # truncation and validation errors both derive from ValueError
-            return attempt(f"{prompt}\n\nYour previous reply could not be used: {err}")
+            feedback = format_errors(err) if isinstance(err, ValidationError) else str(err)
+            self.journal.write("schema_rejection", tag=tag, error=feedback)
+            return attempt(
+                f"{prompt}\n\nYour previous reply could not be used: {feedback}\n\n"
+                f"Previous reply:\n{fence(previous)}\nCorrect it and return the complete response."
+            )

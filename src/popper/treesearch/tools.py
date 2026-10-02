@@ -1,8 +1,11 @@
 """Analyst node tools: inspect data, run scratch snippets, view figures, read artifacts."""
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from popper.harness.agent import Tool
 from popper.harness.context import ARTIFACT_CHARS, fence, head
@@ -10,6 +13,12 @@ from popper.harness.descriptive import describe_table, format_description, read_
 from popper.harness.session import Harness
 
 ARTIFACTS = {"results.json", "analysis.md", "changes.json", "framing.json", "hypotheses.json"}
+
+
+class ReadArtifactInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    path: str = Field(description="Artifact or diagnostic path relative to the run directory.")
+    offset: int = Field(default=0, ge=0, description="Character offset; use the next offset returned.")
 
 
 def _schema(**props: str) -> dict[str, Any]:
@@ -20,8 +29,20 @@ def _schema(**props: str) -> dict[str, Any]:
     }
 
 
-def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[Tool]:
+def node_tools(
+    h: Harness,
+    inputs: Mapping[str, Path],
+    node_dir: Path,
+    *,
+    execution_logs: bool = True,
+    diagnostic_tag: str | None = None,
+    artifact_roots: Mapping[str, Path] | None = None,
+) -> list[Tool]:
     root = h.run.root.resolve()
+    allowed_artifacts = (
+        {name: root for name in ARTIFACTS} if artifact_roots is None
+        else {name: folder.resolve() for name, folder in artifact_roots.items()}
+    )
     scratch = 0
 
     def inside(rel: str) -> Path:
@@ -59,6 +80,11 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
         )
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
+        logs = evidence.relative_to(root).as_posix()
+        output += (
+            f"\nFull logs: {logs}/stdout.txt and {logs}/stderr.txt. "
+            "Read with read_artifact using path and offset."
+        )
         if r.exit_code != 0 or r.timed_out:
             raise ValueError(
                 f"{output}\nFix the snippet and try again; submitted results are separate."
@@ -75,16 +101,42 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             raise ValueError("figure is larger than 3.75 MB")
         return path
 
-    def read_artifact(args: dict[str, Any]) -> str:
-        path = inside(str(args.get("path", "")))
-        if path.name not in ARTIFACTS:
-            raise ValueError(f"only these files can be read: {', '.join(sorted(ARTIFACTS))}")
+    def read_artifact(args: ReadArtifactInput) -> str:
+        path = inside(args.path)
+        diagnostic = (
+            path.name == "error.json" and path.parent.parent == root / "diagnostics"
+            and path.parent.name.startswith("attempt-")
+            and path.parent.name.removeprefix("attempt-").isdigit()
+        )
+        execution_log = (
+            execution_logs and path.name in {"stdout.txt", "stderr.txt"}
+            and (path.parent / "code.py").is_file()
+        )
+        artifact_root = allowed_artifacts.get(path.name)
+        artifact = artifact_root is not None and path.is_relative_to(artifact_root)
+        if not artifact and not diagnostic and not execution_log:
+            raise ValueError("artifact is not permitted for this session")
         if not path.is_file():
             raise ValueError("artifact does not exist")
         text = path.read_text(encoding="utf-8", errors="replace")
-        return fence(head(text, ARTIFACT_CHARS))
+        if diagnostic:
+            record = json.loads(text)
+            if diagnostic_tag is not None and record["tag"] != diagnostic_tag:
+                raise ValueError("diagnostic belongs to another session role")
+            text = record["text"]
+        end = min(args.offset + ARTIFACT_CHARS, len(text))
+        page = fence(text[args.offset:end])
+        if end < len(text):
+            page += f"\nMore: read_artifact({json.dumps({'path': args.path, 'offset': end})})."
+        return page
 
-    artifact_list = ", ".join(sorted(ARTIFACTS))
+    artifact_list = ", ".join(
+        f"{name} under {folder.relative_to(root).as_posix()}/"
+        for name, folder in sorted(allowed_artifacts.items())
+    )
+    readable = f"{artifact_list}, harness diagnostic reports"
+    if execution_logs:
+        readable += ", execution stdout/stderr logs"
     return [
         Tool(
             "inspect_data",
@@ -110,11 +162,11 @@ def node_tools(h: Harness, inputs: Mapping[str, Path], node_dir: Path) -> list[T
             _schema(path="PNG path relative to the run directory."),
             view_figure,
         ),
-        Tool(
+        Tool.from_model(
             "read_artifact",
-            f"Read an artifact of this run: {artifact_list}. Other files are refused. "
-            f"Output is cut at {ARTIFACT_CHARS} characters.",
-            _schema(path="File path relative to the run directory."),
+            f"Read an artifact of this run: {readable}. Returns up to {ARTIFACT_CHARS} characters; "
+            "use the returned next offset to read more.",
+            ReadArtifactInput,
             read_artifact,
         ),
         Tool(

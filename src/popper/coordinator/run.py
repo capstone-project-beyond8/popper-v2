@@ -64,7 +64,7 @@ def run(
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
     store = RunStore.create(runs_dir, research, data, config=config, auto=auto)
-    h = Harness(config, llm, store, researcher=researcher)
+    h = Harness(config, llm, store, researcher=None if auto else researcher)
     if progress is not None:
         h.progress = progress
     with store.lock():
@@ -92,11 +92,12 @@ def resume(
     *,
     llm: LLM,
     review: Path | None = None,
+    researcher: Callable[[str, str], str | None] | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
     store = RunStore(run_dir)
     with store.lock():
-        return _resume_locked(store, llm, review, progress)
+        return _resume_locked(store, llm, review, progress, researcher)
 
 
 def _commits(store: RunStore) -> list[str]:
@@ -127,7 +128,8 @@ def _answer(store: RunStore, review: Path | None) -> ReviewOutcome | None:
 
 
 def _resume_locked(
-    store: RunStore, llm: LLM, review: Path | None, progress: Callable[[str], None] | None
+    store: RunStore, llm: LLM, review: Path | None, progress: Callable[[str], None] | None,
+    researcher: Callable[[str, str], str | None] | None,
 ) -> RunOutcome:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
     if metadata.get("format_version") == 3:
@@ -141,7 +143,10 @@ def _resume_locked(
         return _outcome(store)
     outcome = _answer(store, review) if state["status"] == "awaiting_review" else None
     config = Config.model_validate(metadata["config"])
-    h = Harness(config, llm, store, spent_usd=recorded_spend(store))
+    h = Harness(
+        config, llm, store, spent_usd=recorded_spend(store),
+        researcher=None if metadata.get("auto") else researcher,
+    )
     if progress is not None:
         h.progress = progress
     h.journal.write("resume", spent_usd=h.spent_usd)

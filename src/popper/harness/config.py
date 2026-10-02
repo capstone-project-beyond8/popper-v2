@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Role = Literal["theorist", "analyst", "steward", "judge", "writer"]
+_NonnegativeFinite = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 class _Strict(BaseModel):
@@ -79,14 +80,14 @@ class Ground(_Strict):
 
 
 class Price(_Strict):
-    input: float  # USD per million tokens
-    output: float
-    cache_write: float = 1.25  # multiples of the input price
-    cache_read: float = 0.1
+    input: _NonnegativeFinite  # USD per million tokens
+    output: _NonnegativeFinite
+    cache_write: _NonnegativeFinite = 1.25  # multiples of the input price
+    cache_read: _NonnegativeFinite = 0.1
 
 
 class Budget(_Strict):
-    max_usd: float
+    max_usd: _NonnegativeFinite
     prices: dict[str, Price]
 
     def price(self, model: str) -> Price:

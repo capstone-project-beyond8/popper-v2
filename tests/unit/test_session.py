@@ -120,6 +120,32 @@ def test_ask_model_retries_once_on_schema_mismatch(tmp_path: Path) -> None:
     assert "a" in fake.calls[1].prompt
 
 
+def test_schema_retry_keeps_previous_reply_and_compact_error(tmp_path: Path) -> None:
+    previous = '{"a": "invalid_value", "note": "keep this detail"}'
+    replies = iter([previous, '{"a": 3}'])
+    fake = FakeLLM(lambda req: next(replies))
+    h = _harness(tmp_path, fake)
+    assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 3
+    prompt = fake.calls[1].prompt
+    assert previous in prompt
+    assert "input_value=" not in prompt and "errors.pydantic.dev" not in prompt
+
+
+def test_schema_retry_keeps_partial_reply_after_token_limit(tmp_path: Path) -> None:
+    class TruncatedReply(FakeLLM):
+        def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
+            self.calls.append(req)
+            if len(self.calls) == 1:
+                return Completion('{"a": 123', 1, 1, "max_tokens")
+            return Completion('{"a": 123}', 1, 1, "end_turn")
+
+    fake = TruncatedReply(lambda _: "")
+    h = _harness(tmp_path, fake)
+    assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 123
+    assert '{"a": 123' in fake.calls[1].prompt
+    assert "reply truncated at max_tokens" in fake.calls[1].prompt
+
+
 class _Flaky:
     def __init__(self, errors: list[Exception]) -> None:
         self.errors = errors

@@ -15,10 +15,10 @@ from popper.harness.research import (
     ResearchContext,
     Variable,
     check_columns,
-    format_errors,
 )
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.harness.validation import format_errors
 from popper.understand.frame import (
     Direction,
     Frame,

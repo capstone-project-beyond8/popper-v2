@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -22,7 +23,7 @@ def _setup(tmp_path: Path) -> tuple[Harness, dict[str, Tool], Path]:
     return h, tools, node_dir
 
 
-def _call(tools: dict[str, Tool], tool: str, /, **args: str) -> str | Path:
+def _call(tools: dict[str, Tool], tool: str, /, **args: Any) -> str | Path:
     handler = tools[tool].handler
     assert handler is not None
     return handler(args)
@@ -85,6 +86,33 @@ def test_read_artifact_reads_parent_results(tmp_path: Path) -> None:
     h.run.write_json("tree/data/data-000/results.json", {"m": {"value": 1}})
     out = str(_call(tools, "read_artifact", path="tree/data/data-000/results.json"))
     assert '"value": 1' in out
+
+
+def test_read_artifact_pages_without_losing_text(tmp_path: Path) -> None:
+    h, tools, _ = _setup(tmp_path)
+    h.run.write_text("tree/data/data-000/analysis.md", "a" * 8000 + "FINAL_DETAIL")
+    path = "tree/data/data-000/analysis.md"
+    first = str(_call(tools, "read_artifact", path=path))
+    assert "offset" in first and "8000" in first
+    assert "FINAL_DETAIL" not in first
+    last = str(_call(tools, "read_artifact", path=path, offset=8000))
+    assert "FINAL_DETAIL" in last
+    for offset in (-1, "0"):
+        with pytest.raises(ValueError):
+            _call(tools, "read_artifact", path=path, offset=offset)
+
+
+def test_failed_scratch_exposes_full_logs_through_reader(tmp_path: Path) -> None:
+    h, tools, node_dir = _setup(tmp_path)
+    code = "import sys\nsys.stderr.write('FIRST_DETAIL' + 'x' * 9000 + 'LAST_DETAIL')\nraise RuntimeError('broken')"
+    with pytest.raises(ValueError) as failure:
+        _call(tools, "run_python", code=code)
+    stderr = (node_dir / "scratch" / "00" / "stderr.txt").relative_to(h.run.root).as_posix()
+    assert stderr in str(failure.value) and "read_artifact" in str(failure.value)
+    out = str(_call(tools, "read_artifact", path=stderr))
+    assert "FIRST_DETAIL" in out
+    out = str(_call(tools, "read_artifact", path=stderr, offset=8000))
+    assert "LAST_DETAIL" in out
 
 
 def test_run_python_cannot_overwrite_run_inputs(tmp_path: Path) -> None:

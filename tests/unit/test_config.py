@@ -1,9 +1,35 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from popper.harness.config import load_config
+
+
+@pytest.mark.parametrize("field", ["max_usd", "input", "output", "cache_write", "cache_read"])
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf"), float("-inf")])
+def test_money_config_rejects_negative_and_nonfinite_values(
+    tmp_path: Path, field: str, value: float
+) -> None:
+    budget = (
+        {"max_usd": value} if field == "max_usd"
+        else {"prices": {"sonnet": {field: value}}}
+    )
+    user = tmp_path / "config.yaml"
+    user.write_text(yaml.safe_dump({"budget": budget}), encoding="utf-8")
+    with pytest.raises(ValidationError, match=field):
+        load_config(user, env={})
+
+
+def test_zero_budget_and_free_prices_are_valid(tmp_path: Path) -> None:
+    user = tmp_path / "config.yaml"
+    user.write_text(
+        "budget: {max_usd: 0, prices: {sonnet: {input: 0, output: 0, cache_write: 0, cache_read: 0}}}",
+        encoding="utf-8",
+    )
+    cfg = load_config(user, env={})
+    assert cfg.budget.max_usd == 0 and cfg.budget.price(cfg.models.theorist).input == 0
 
 
 def test_defaults_load() -> None:

@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from popper.harness.agent import Tool, agent_loop
-from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
+from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, fence, part
 from popper.harness.descriptive import DescriptiveReport, format_description
 from popper.harness.prompts import load_prompt
 from popper.harness.research import (
@@ -21,11 +21,11 @@ from popper.harness.research import (
     Entry,
     ResearchContext,
     Variable,
-    format_errors,
     render_research,
 )
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.harness.validation import format_errors
 from popper.treesearch.engine import StageFailed
 from popper.treesearch.tools import node_tools
 
@@ -77,9 +77,18 @@ class Framing(_Model):
 
 
 class FramePatch(_Model):
-    variables: dict[str, dict[str, Entry[Any]]] = {}
+    variables: dict[str, Variable] = {}
     concepts: list[Concept] = []
     assumptions: list[Assumption] = []
+
+
+class SubmitFrameInput(_Model):
+    patch: FramePatch = Field(
+        default_factory=FramePatch,
+        description="Only supplied fields are changed. Agent entries must be proposed or unknown; "
+        "proposed entries cite exact body quotes or descriptive result/column keys as evidence.",
+    )
+    framing: Framing
 
 
 @dataclass
@@ -115,7 +124,9 @@ def _merge[M: BaseModel](
 ) -> M:  # fmt: skip
     """The model with each changed entry replaced; confirmed entries never change."""
     merged = model.model_dump()
-    for attr, entry in changes.items():
+    errors: list[str] = []
+
+    def check(attr: str, entry: Entry[Any]) -> Entry[Any] | None:
         where = f"{label}.{attr}"
         current = getattr(model, attr, None)
         if not isinstance(current, Entry):
@@ -128,7 +139,7 @@ def _merge[M: BaseModel](
             )
         if current.status == "confirmed":
             if entry.value == current.value:
-                continue
+                return None
             raise ValueError(f"{where}: confirmed by the researcher and cannot be changed")
         if where in rejected and rejected[where] == entry.value:
             raise ValueError(f"{where}: this value was rejected by the researcher")
@@ -139,7 +150,17 @@ def _merge[M: BaseModel](
                     f"{where}: evidence {quote!r} is neither an exact quote of the research "
                     "body nor a descriptive result key"
                 )
-        merged[attr] = entry.model_dump()
+        return entry
+
+    for attr, entry in changes.items():
+        try:
+            checked = check(attr, entry)
+            if checked is not None:
+                merged[attr] = checked.model_dump()
+        except ValueError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise ValueError("\n".join(errors))
     try:
         return type(model).model_validate(merged)
     except ValidationError as exc:
@@ -178,7 +199,7 @@ def apply_patch(
         variables[column] = merge(
             variables.get(column, Variable()),
             f"variables.{column}",
-            changes,
+            _set(changes, *Variable.model_fields),
             None if column in columns else "column is not in the data",
         )
     concepts = {c.id: c for c in ctx.concepts}
@@ -299,7 +320,13 @@ def _tools(
     result: dict[str, Any],
 ) -> list[Tool]:
     columns = {c["name"] for c in ida.layout["columns"]}
-    reader = next(t for t in node_tools(h, {}, attempt) if t.name == "read_artifact")
+    reader = next(
+        t for t in node_tools(
+            h, {}, attempt, execution_logs=False, diagnostic_tag="theorist",
+            artifact_roots={"framing.json": h.run.path("understand")},
+        )
+        if t.name == "read_artifact"
+    )
 
     def ask_researcher(args: dict[str, Any]) -> str:
         if h.researcher is None:
@@ -316,14 +343,10 @@ def _tools(
                 "answer": answer,
             }
         )
-        return "The researcher does not know." if answer is None else f"Researcher: {answer}"
+        return "The researcher does not know." if answer is None else f"Researcher:\n{fence(answer)}"
 
-    def submit_frame(args: dict[str, Any]) -> str:
-        try:
-            patch = FramePatch.model_validate(args.get("patch") or {})
-            framing = Framing.model_validate(args.get("framing"))
-        except ValidationError as exc:
-            raise ValueError(str(exc)) from exc
+    def submit_frame(args: SubmitFrameInput) -> str:
+        patch, framing = args.patch, args.framing
         _check_framing(framing, columns, rejected)
         result["research"] = apply_patch(research, patch, research.body, ida, rejected)
         result["framing"] = framing
@@ -343,29 +366,11 @@ def _tools(
             ),
             ask_researcher,
         ),
-        Tool(
+        Tool.from_model(
             "submit_frame",
             "Submit the frame: `patch` (new or changed proposed or unknown research-context "
             "entries) and `framing`. Call it once, last. A rejected submit returns the reason.",
-            {
-                "type": "object",
-                "properties": {
-                    "patch": {
-                        "type": "object",
-                        "description": "{variables: {column: {attribute: {value, status, "
-                        "evidence}}}, concepts: [{id, name, definition}], assumptions: "
-                        "[{id, description, confounder}]}. Entries are {value, status: "
-                        "proposed|unknown, evidence: [exact quotes of the body or result keys]}.",
-                    },
-                    "framing": {
-                        "type": "object",
-                        "description": "{title, problem, questions: [{id, text, objective, "
-                        "outcome_candidate}], scope: {inside, outside}, unknowns, directions: "
-                        "[{id, text, origin, competing_explanations}]}",
-                    },
-                },
-                "required": ["framing"],
-            },
+            SubmitFrameInput,
             submit_frame,
             terminal=True,
         ),

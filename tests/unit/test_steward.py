@@ -13,8 +13,13 @@ from popper.ground.steward import (
     describe_submission,
     readiness,
 )
+from popper.harness.agent import _run as run_tool
+from popper.harness.config import load_config
 from popper.harness.descriptive import DescriptiveReport
+from popper.harness.llm import FakeLLM, ToolCall
 from popper.harness.research import ResearchContext
+from popper.harness.session import Harness
+from popper.harness.store import RunStore
 
 IDA = DescriptiveReport({"c000_mean": {"value": 1.0}}, {})
 MAPPING = [
@@ -186,3 +191,43 @@ def test_operationalization_strength_must_match_columns_and_concepts_be_unique(
     assert "needs columns" in str(_run(tmp_path, mapping=[item([], "proxy")]))
     assert "more than once" in str(_run(tmp_path, mapping=[MAPPING[0], MAPPING[0]]))
     assert _run(tmp_path, mapping=[item([], "none")]) is None
+
+
+def test_ground_validates_all_nested_input_before_execution(tmp_path: Path) -> None:
+    from popper.ground.steward import _tools
+
+    run = RunStore(tmp_path)
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
+    attempt = run.new_attempt("ground")
+    tools = {t.name: t for t in _tools(h, attempt, _research(), {}, IDA, {})}
+    payload = {
+        "code": "raise RuntimeError('must not run')",
+        "operationalization": [{"concept_id": "effort", "columns": [], "proxy_strength": "wrong"}],
+        "concerns": [{"type": "unit_mismatch", "kind": "data", "description": "d", "evidence": []}],
+    }
+    result = run_tool(h, "ground", 1, tools, ToolCall("a", "submit_ground", payload))
+    assert result.status == "error"
+    assert "operationalization.0.proxy_strength" in result.text
+    assert "operationalization.0.rationale" in result.text
+    assert "concerns.0" in result.text and "has kind frame" in result.text
+    assert not list(attempt.glob("submit-*"))
+    assert "exec_start" not in run.path("journal.jsonl").read_text("utf-8")
+    schema = tools["submit_ground"].schema
+    assert schema["$defs"]["Operationalization"]["properties"]["proxy_strength"]["enum"] == [
+        "direct", "proxy", "weak", "none"
+    ]
+
+
+@pytest.mark.parametrize("code", ["", " \n  "])
+def test_blank_ground_code_is_rejected_before_execution(tmp_path: Path, code: str) -> None:
+    from popper.ground.steward import _tools
+
+    run = RunStore(tmp_path)
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
+    attempt = run.new_attempt("ground")
+    tools = {t.name: t for t in _tools(h, attempt, _research(), {}, IDA, {})}
+    result = run_tool(h, "ground", 1, tools, ToolCall(
+        "a", "submit_ground", {"code": code, "operationalization": [], "concerns": []}
+    ))
+    assert result.status == "error" and "code" in result.text
+    assert not list(attempt.glob("submit-*"))

@@ -66,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_dir,
                 llm=BedrockLLM(region=os.environ.get("AWS_REGION", "us-east-1")),
                 review=args.review,
+                researcher=_ask_on_terminal if sys.stdin.isatty() else None,
                 progress=None
                 if args.quiet
                 else lambda line: print(line, file=sys.stderr, flush=True),

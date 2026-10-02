@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,54 @@ from popper.harness.recovery import read_events
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.treesearch.engine import StageSpec, run_stage
-from tests.integration.test_run import EXAMPLE, _config
+from tests.integration.test_run import EXAMPLE, FRAMING, _config
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.parametrize("auto", [False, True])
+def test_resume_restores_researcher_for_interactive_runs_only(tmp_path: Path, auto: bool) -> None:
+    def interrupt(req: LLMRequest) -> str:
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        run(
+            EXAMPLE / "research.md", EXAMPLE / "data.csv", config=_config(),
+            auto=auto, llm=FakeLLM(interrupt), runs_dir=tmp_path,
+        )
+    root = next(tmp_path.iterdir())
+    answers: list[tuple[str, str]] = []
+
+    def researcher(question: str, proposed: str) -> str:
+        answers.append((question, proposed))
+        return "hours"
+
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag == "steward":
+            raise KeyboardInterrupt()
+        if len(req.messages) == 1:
+            return (ToolCall("q", "ask_researcher", {
+                "question": "Unit?", "proposed_answer": "hrs", "item": "variables.sleep_hours.unit",
+            }),)
+        return (ToolCall("s", "submit_frame", {"framing": FRAMING}),)
+
+    llm = FakeLLM(respond)
+    if auto:
+        with pytest.raises(KeyboardInterrupt):
+            resume(root, llm=llm, researcher=researcher)
+    else:
+        assert resume(root, llm=llm, researcher=researcher).status == "awaiting_review"
+    assert answers == ([] if auto else [("Unit?", "hrs")])
+    feedback = llm.calls[1].messages[-1].tool_results[0].text
+    assert ("No researcher is available" in feedback) is auto
+    store = RunStore(root)
+    frame = store.committed("frame")
+    assert frame is not None
+    questions = json.loads((frame.parent / "questions.json").read_text("utf-8"))
+    assert questions == ([] if auto else [{
+        "question": "Unit?", "proposed_answer": "hrs",
+        "item": "variables.sleep_hours.unit", "answer": "hours",
+    }])
 
 
 def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(

@@ -7,6 +7,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from popper.harness.validation import format_errors
+
 Status = Literal["confirmed", "proposed", "unknown"]
 VariableType = Literal[
     "continuous", "binary", "categorical", "ordinal", "count", "id", "time", "text"
@@ -29,11 +31,6 @@ NoteKey = Literal["understand", "ground", "explore", "hypothesis", "experiment",
 
 class ResearchError(ValueError):
     pass
-
-
-def format_errors(exc: ValidationError) -> str:
-    """Validation errors as `location: message` pairs on one line."""
-    return "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors())
 
 
 class _Strict(BaseModel):
