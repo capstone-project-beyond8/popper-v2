@@ -2,9 +2,15 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from popper.harness.config import Discovery
+
+HistoricalMethod = Literal[
+    "difference_in_means", "linear_regression", "logistic_regression", "log_transform",
+    "bootstrap", "permutation_test", "imputation", "robust_standard_errors",
+    "cluster_robust_standard_errors", "robust_regression", "random_forest", "nonlinear_smooth",
+]
 
 
 @dataclass(frozen=True)

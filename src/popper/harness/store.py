@@ -211,10 +211,11 @@ class RunStore:
         )
 
     def artifact_ref(self, name: str) -> ArtifactRef:
-        event = next((e for e in reversed(read_events(self.root)) if e["event"] == "artifact_commit" and e.get("name") == name), None)
-        if event is None or "record_id" not in event:
+        match = next(((i, e) for i, e in reversed(list(enumerate(read_events(self.root)))) if e["event"] == "artifact_commit" and e.get("name") == name), None)
+        if match is None:
             raise ValueError(f"no reference-backed commit for {name!r}")
-        return ArtifactRef(path=event["path"], sha256=event["sha256"], producer=event.get("producer", name), record_id=event["record_id"])
+        index, event = match
+        return ArtifactRef(path=event["path"], sha256=event["sha256"], producer=event.get("producer", name), record_id=event.get("record_id", f"historical-{index:06d}"))
 
     def committed(self, name: str) -> Path | None:
         events = [

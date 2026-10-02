@@ -11,22 +11,10 @@ from pydantic import (
     model_validator,
 )
 
+from popper.discover.compatibility import HistoricalMethod
+
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Comparison = Literal["difference", "ratio"]
-Method = Literal[
-    "difference_in_means",
-    "linear_regression",
-    "logistic_regression",
-    "log_transform",
-    "bootstrap",
-    "permutation_test",
-    "imputation",
-    "robust_standard_errors",
-    "cluster_robust_standard_errors",
-    "robust_regression",
-    "random_forest",
-    "nonlinear_smooth",
-]
 MAX_LISTED_COLUMNS = 50
 
 
@@ -48,7 +36,7 @@ class HypothesisProposal(BaseModel):
     expected_direction: Literal["positive", "negative"]
     refuting_result: Text
     planned_test: Text
-    methods: list[Method] = Field(min_length=1)
+    methods: list[HistoricalMethod] = Field(min_length=1)
     assumptions: list[Text] = Field(default_factory=list)
 
     @model_validator(mode="after")

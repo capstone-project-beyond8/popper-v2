@@ -48,6 +48,13 @@ def read_artifact_tool(h: Harness, refs: list[ArtifactRef]) -> Tool:
             raise ValueError("artifact is private or unreachable from this snapshot")
         text = resolve_artifact(h.run, ref).read_text("utf-8", errors="replace")
         end = min(len(text), request.offset + ARTIFACT_CHARS)
-        return fence(text[request.offset:end]) + (f"\nNext offset: {end}" if end < len(text) else "")
+        return fence(text[request.offset : end]) + (
+            f"\nNext offset: {end}" if end < len(text) else ""
+        )
 
-    return Tool.from_model("read_artifact", "Read exact cited records; permitted paths: " + ", ".join(allowed), ReadRequest, read)
+    return Tool.from_model(
+        "read_artifact",
+        "Read exact cited records; permitted paths: " + ", ".join(allowed),
+        ReadRequest,
+        read,
+    )

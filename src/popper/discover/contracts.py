@@ -11,7 +11,16 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Standing = Literal["supported", "not_supported", "inconclusive", "unavailable", "post_hoc"]
 Fidelity = Literal["consistent", "defect", "unresolved"]
-Action = Literal["test", "technical_repair", "measurement_repair", "refine", "stop", "pivot", "reframe", "acquisition"]
+Action = Literal[
+    "test",
+    "technical_repair",
+    "measurement_repair",
+    "refine",
+    "stop",
+    "pivot",
+    "reframe",
+    "acquisition",
+]
 
 
 class MethodSpec(Record):
@@ -47,7 +56,9 @@ class SupportRule(Record):
     def valid_rule(self) -> Self:
         if self.kind == "directional_ci" and (self.null is None or self.direction is None):
             raise ValueError("directional rule requires null and direction")
-        if self.kind == "equivalence_ci" and (self.lower is None or self.upper is None or self.lower >= self.upper):
+        if self.kind == "equivalence_ci" and (
+            self.lower is None or self.upper is None or self.lower >= self.upper
+        ):
             raise ValueError("equivalence rule requires ordered finite bounds")
         if self.kind == "descriptive" and self.description is None:
             raise ValueError("descriptive rule requires description")
@@ -77,7 +88,10 @@ class CandidateProposal(Record):
     def checked_roles(self, info: ValidationInfo) -> Self:
         primary = self.primary_estimand
         columns = (info.context or {}).get("columns")
-        if primary.outcome == primary.exposure or (columns is not None and any(c not in columns for c in (primary.outcome, primary.exposure))):
+        if primary.outcome == primary.exposure or (
+            columns is not None
+            and any(c not in columns for c in (primary.outcome, primary.exposure))
+        ):
             raise ValueError("distinct outcome and exposure must identify processed columns")
         return self
 
@@ -103,7 +117,9 @@ class TestProposal(Record):
 
     @model_validator(mode="after")
     def valid_outputs(self) -> Self:
-        if "estimand.json" not in self.outputs or not any(k != "estimand.json" for k in self.outputs):
+        if "estimand.json" not in self.outputs or not any(
+            k != "estimand.json" for k in self.outputs
+        ):
             raise ValueError("test requires estimand manifest and named measurements")
         if self.support_rule and self.support_rule.result_key not in self.outputs:
             raise ValueError("support rule must name a declared output")
@@ -121,7 +137,11 @@ def classify_change(before: TestSpec, after: TestSpec) -> Literal["same_test", "
     if before.primary_estimand != after.primary_estimand:
         return "pivot"
     excluded = {"id", "version", "hypothesis_id", "parent_test", "sources"}
-    return "same_test" if before.model_dump(exclude=excluded) == after.model_dump(exclude=excluded) else "refine"
+    return (
+        "same_test"
+        if before.model_dump(exclude=excluded) == after.model_dump(exclude=excluded)
+        else "refine"
+    )
 
 
 class CheckObservation(Record):
@@ -187,8 +207,14 @@ class MoveProposal(Record):
     @model_validator(mode="after")
     def executable_fields(self) -> Self:
         if self.action not in {"stop", "pivot", "reframe", "acquisition"}:
-            if not self.hypothesis_id or not self.discriminating_outcomes or (self.test is None and self.test_proposal is None):
-                raise ValueError("executable move requires hypothesis, test and discriminating outcomes")
+            if (
+                not self.hypothesis_id
+                or not self.discriminating_outcomes
+                or (self.test is None and self.test_proposal is None)
+            ):
+                raise ValueError(
+                    "executable move requires hypothesis, test and discriminating outcomes"
+                )
         return self
 
 
@@ -255,7 +281,9 @@ class Invalidation(Record):
     superseded_by: ArtifactRef | None = None
 
 
-def commit_record(h: Harness, kind: str, record: Record | dict[str, Any], *, key: str | None = None) -> ArtifactRef:
+def commit_record(
+    h: Harness, kind: str, record: Record | dict[str, Any], *, key: str | None = None
+) -> ArtifactRef:
     name = f"science:{kind}" + (f":{key}" if key else "")
     if key and h.run.committed(name):
         return h.run.artifact_ref(name)

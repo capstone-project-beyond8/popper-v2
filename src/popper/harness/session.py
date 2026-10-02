@@ -1,6 +1,7 @@
 """Journal, budget and the single entry point for model calls."""
 
 import hashlib
+import json
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -20,7 +21,7 @@ from popper.harness.llm import (
     ToolSpec,
     TransientLLMError,
 )
-from popper.harness.records import ArtifactRef, resolve_artifact
+from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
 from popper.harness.recovery import Journal, read_events
 from popper.harness.store import RunStore, file_hash
 from popper.harness.validation import format_errors
@@ -61,7 +62,15 @@ class Harness:
         stage_instance: str | None = None,
     ) -> ExecResult:
         if test is not None:
-            resolve_artifact(self.run, test)
+            declaration = json.loads(resolve_artifact(self.run, test).read_text("utf-8"))
+            preparation = declaration.get("preparation")
+            if preparation:
+                source = json.loads(resolve_artifact(self.run, ArtifactRef.model_validate(preparation)).read_text("utf-8"))
+                if not isinstance(source, dict):
+                    raise IntegrityError("preparation must cite an input manifest")
+                for name, mounted in source.get("mounts", {}).items():
+                    if name in inputs and file_hash(inputs[name]) != mounted["sha256"]:
+                        raise IntegrityError("mounted source differs from committed preparation")
         execution_id = f"exec-{sum(e['event'] == 'exec_start' for e in read_events(self.run.root)):06d}"
         fields = {
             "node": node, "purpose": purpose, "path": str(workdir.resolve()),

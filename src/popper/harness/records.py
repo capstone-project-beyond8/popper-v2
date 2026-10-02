@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path, PureWindowsPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,6 +34,48 @@ class MeasurementRef(Record):
     execution_id: str
 
 
+class CandidateView(Record):
+    id: str
+    statement: str
+    rationale: str
+    source: ArtifactRef
+    warnings: list[str]
+    selected: bool
+    attempted: bool
+
+
+class MeasurementView(Record):
+    ref: MeasurementRef
+    role: str
+    source: ArtifactRef
+    fidelity: str
+    fidelity_reason: str
+    support: str
+    interval_level: float | None
+    active: bool
+
+
+class StudyOutput(Record):
+    version: Literal[1] = 1
+    adaptive: bool
+    frontier: list[ArtifactRef]
+    frame: ArtifactRef | None = None
+    foundation: ArtifactRef | None = None
+    exploration: ArtifactRef | None = None
+    candidates: list[CandidateView] = Field(default_factory=list)
+    attempts: list[ArtifactRef] = Field(default_factory=list)
+    usable_measurements: list[MeasurementView] = Field(default_factory=list)
+    measurement_history: list[MeasurementView] = Field(default_factory=list)
+    coverage: list[dict[str, Any]] = Field(default_factory=list)
+    sensitivity: list[dict[str, Any]] = Field(default_factory=list)
+    dispositions: list[dict[str, Any]] = Field(default_factory=list)
+    questions: list[dict[str, Any]] = Field(default_factory=list)
+    selections: list[ArtifactRef] = Field(default_factory=list)
+    stop_reason: str
+    operational_status: Literal["completed", "failed", "budget_exceeded"]
+    historical_evidence: ArtifactRef | None = None
+
+
 class IntegrityError(ValueError):
     """Reference, access or hash failure; never eligible for model override."""
 
@@ -59,10 +101,12 @@ def resolve_artifact(store: "RunStore", ref: ArtifactRef) -> Path:
             raise IntegrityError("artifact has no exact committed manifest backing")
     else:
         matches = [
-            e for e in read_events(store.root)
+            e
+            for index, e in enumerate(read_events(store.root))
             if e["event"] in {"artifact_commit", "node_commit"}
-            and e.get("path") == ref.path and e.get("sha256") == ref.sha256
-            and e.get("record_id") == ref.record_id
+            and e.get("path") == ref.path
+            and e.get("sha256") == ref.sha256
+            and e.get("record_id", f"historical-{index:06d}") == ref.record_id
             and e.get("producer", e.get("name", "node")) == ref.producer
         ]
         if not matches:
@@ -82,7 +126,9 @@ def resolve_measurement(store: "RunStore", ref: MeasurementRef) -> ResultEntry:
         if meta.get(field) != getattr(ref, field):
             raise IntegrityError(f"measurement {field} mismatch")
     if meta.get("test_ref"):
-        test = json.loads(resolve_artifact(store, ArtifactRef.model_validate(meta["test_ref"])).read_text("utf-8"))
+        test = json.loads(
+            resolve_artifact(store, ArtifactRef.model_validate(meta["test_ref"])).read_text("utf-8")
+        )
         if test["id"] != ref.test_id or test["hypothesis_id"] != ref.hypothesis_id:
             raise IntegrityError("measurement does not belong to its committed test")
     results = json.loads(path.read_text("utf-8"))
@@ -95,14 +141,29 @@ def node_measurement(store: "RunStore", meta_path: Path, result_key: str) -> Mea
     from popper.harness.store import file_hash
 
     rel = meta_path.relative_to(store.root).as_posix()
-    event = next(e for e in reversed(read_events(store.root)) if e["event"] == "node_commit" and e.get("path") == rel)
+    event = next(
+        e
+        for e in reversed(read_events(store.root))
+        if e["event"] == "node_commit" and e.get("path") == rel
+    )
     meta = json.loads(meta_path.read_text("utf-8"))
-    backing = ArtifactRef(path=rel, sha256=event["sha256"], producer="node", record_id=event["record_id"])
+    backing = ArtifactRef(
+        path=rel, sha256=event["sha256"], producer="node", record_id=event["record_id"]
+    )
     result = meta_path.parent / "execution" / "results.json"
     ref = MeasurementRef(
-        artifact=ArtifactRef(path=result.relative_to(store.root).as_posix(), sha256=file_hash(result), producer="node", record_id=backing.record_id, backing=backing),
+        artifact=ArtifactRef(
+            path=result.relative_to(store.root).as_posix(),
+            sha256=file_hash(result),
+            producer="node",
+            record_id=backing.record_id,
+            backing=backing,
+        ),
         result_key=result_key,
-        **{key: meta[key] for key in ("hypothesis_id", "test_id", "implementation_id", "execution_id")},
+        **{
+            key: meta[key]
+            for key in ("hypothesis_id", "test_id", "implementation_id", "execution_id")
+        },
     )
     resolve_measurement(store, ref)
     return ref

@@ -8,14 +8,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from popper.communicate.paper import write_paper
+from popper.communicate.paper import write_paper, write_study
+from popper.coordinator.discovery import advance_discovery, commit_study
 from popper.coordinator.limitations import limitations
-from popper.discover.experiment import experiment
-from popper.discover.explore import explore, propose_hypothesis
+from popper.discover.compatibility import decode_policy
+from popper.discover.explore import explore
 from popper.ground.steward import Concern, Foundation, ground, load_foundation
 from popper.harness.config import Config
 from popper.harness.descriptive import DescriptiveReport, describe_table, read_table
 from popper.harness.llm import LLM
+from popper.harness.records import StudyOutput
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.research import ResearchContext, parse_research, render_fields
 from popper.harness.session import BudgetExceeded, Harness
@@ -140,8 +142,7 @@ def _resume_locked(
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
     if metadata.get("format_version") == 3:
         raise ValueError("run format 3 is no longer supported; start a new run")
-    if metadata.get("format_version") != 4:
-        raise ValueError("unsupported run format; older runs cannot reserve unseen data or resume")
+    decode_policy(metadata)
     state = load_state(store)
     config = Config.model_validate(metadata["config"])
     # The journal is authoritative; checkpoints project the latest explicit raise.
@@ -163,7 +164,10 @@ def _resume_locked(
         return _outcome(store)
     outcome = _answer(store, review) if state["status"] == "awaiting_review" else None
     h = Harness(
-        config, llm, store, spent_usd=spent,
+        config,
+        llm,
+        store,
+        spent_usd=spent,
         researcher=None if metadata.get("auto") else researcher,
     )
     if max_usd is not None:
@@ -265,52 +269,64 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
         notes = frame.research.notes
         _phase(h, "explore")
         explore_node = explore(h, frame.research, framing, facts)
-        raw_columns = [c["name"] for c in report.layout["columns"]]
-        hypothesis = propose_hypothesis(
-            h, frame.research, framing, facts, explore_node, raw_columns
-        )
         _phase(h, "experiment")
-        evidence = experiment(
-            h,
-            framing,
-            hypothesis,
-            foundation.preparation,
-            notes.get("experiment", ""),
-            render_fields(frame.research, "design"),
-        )
-        _phase(h, "publication")
-        changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))
-        committed = store.committed("hypothesis")
-        assert committed is not None
-        warnings = json.loads((committed.parent / "warnings.json").read_text("utf-8"))
         reviewed = store.committed("frame_reviewed")
-        assert reviewed is not None
-        names = {c.id: c.name.value for c in frame.research.concepts}
-        tex, pdf, missing = write_paper(
-            h,
-            framing,
-            changes,
-            explore_node,
-            hypothesis,
-            evidence,
-            foundation.preparation,
-            limitations=limitations(facts, warnings),
-            operationalization=[
-                {**o, "concept": names.get(o["concept_id"]) or o["concept_id"]}
-                for o in facts["operationalization"]
-            ],
-            steered=(reviewed.parent / "provenance.json").exists(),
-            notes=notes.get("writing", ""),
-            research=render_fields(frame.research, "domain", "objectives", "assumptions"),
+        foundation_path = store.committed("foundation")
+        assert reviewed is not None and foundation_path is not None
+        study = advance_discovery(
+            h, frame=reviewed, foundation=foundation_path, exploration=explore_node
         )
-        status = "completed"
+        output = StudyOutput.model_validate_json(study.read_text("utf-8"))
+        _phase(h, "publication")
+        if output.adaptive:
+            tex, pdf, missing = write_study(
+                h,
+                study,
+                notes=notes.get("writing", ""),
+                research=render_fields(frame.research, "domain", "objectives", "assumptions"),
+            )
+            status = output.operational_status
+            message = output.stop_reason if status != "completed" else ""
+            if any(e["event"] == "publication_budget_stop" for e in read_events(store.root)):
+                status = "budget_exceeded"
+        else:
+            changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))
+            committed = store.committed("hypothesis")
+            assert committed is not None and output.historical_evidence is not None
+            hypothesis = json.loads(committed.read_text("utf-8"))[0]
+            warnings = json.loads((committed.parent / "warnings.json").read_text("utf-8"))
+            names = {c.id: c.name.value for c in frame.research.concepts}
+            tex, pdf, missing = write_paper(
+                h,
+                framing,
+                changes,
+                explore_node,
+                hypothesis,
+                store.path(output.historical_evidence.path),
+                foundation.preparation,
+                limitations=limitations(facts, warnings),
+                operationalization=[
+                    {**o, "concept": names.get(o["concept_id"]) or o["concept_id"]}
+                    for o in facts["operationalization"]
+                ],
+                steered=(reviewed.parent / "provenance.json").exists(),
+                notes=notes.get("writing", ""),
+                research=render_fields(frame.research, "domain", "objectives", "assumptions"),
+            )
+            status = "completed"
     except _AwaitingReview as waiting:
         status, review_path = "awaiting_review", waiting.review
     except StageFailed as exc:
         failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
+        if decode_policy(json.loads(store.path("run.json").read_text("utf-8"))).adaptive:
+            study = commit_study(h, message, status)
+            tex, pdf, missing = write_study(h, study)
     except BudgetExceeded as exc:
         status, message = "budget_exceeded", str(exc)
+        if decode_policy(json.loads(store.path("run.json").read_text("utf-8"))).adaptive:
+            study = commit_study(h, message, status)
+            tex, pdf, missing = write_study(h, study)
     except Exception as exc:
         message = repr(exc)
         raise

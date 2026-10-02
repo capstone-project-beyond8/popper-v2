@@ -61,6 +61,7 @@ class Node:
     execution_id: str | None = None
     outputs: dict[str, str] = field(default_factory=dict)
     fidelity: dict[str, Any] = field(default_factory=dict)
+    check_observations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def execution_dir(self) -> Path:
@@ -73,7 +74,7 @@ class AttemptSpec:
     kind: Literal["variant", "adversarial"]
     goal: str
     context: str
-    check: Callable[[Path], str | None] | None = None
+    check: Callable[[Path], str | Mapping[str, Any] | None] | None = None
     judge_reference: JudgeReference | None = None
     test: ArtifactRef | None = None
 
@@ -87,7 +88,7 @@ class StageSpec:
     required_outputs: tuple[str, ...]
     seed_code: str | None = None
     min_figures: int = 0
-    check: Callable[[Path], str | None] | None = None
+    check: Callable[[Path], str | Mapping[str, Any] | None] | None = None
     describe: Callable[[Path], str] | None = None
     blind_estimates: bool = False
     steps: int | None = None
@@ -346,6 +347,8 @@ def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> li
         metadata.setdefault("stage_instance", metadata["stage"])
         if event.get("sha256") and file_hash(node_dir / "meta.json") != event["sha256"]:
             raise ValueError("committed node metadata hash mismatch")
+        if any(file_hash(h.run.path(path)) != expected for path, expected in metadata.get("outputs", {}).items()):
+            raise ValueError("committed node output hash mismatch")
         if metadata.get("test_ref"):
             metadata["test_ref"] = ArtifactRef.model_validate(metadata["test_ref"])
         code_file = node_dir / "execution" / "code.py"
@@ -378,7 +381,11 @@ def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out:
         node.results = _read_results(node.execution_dir)
     except ValueError as exc:
         return f"invalid results.json: {exc}"
-    return (spec.check(node.execution_dir) if spec.check else None) or ""
+    observed = spec.check(node.execution_dir) if spec.check else None
+    if isinstance(observed, Mapping):
+        node.check_observations.append(dict(observed))
+        return "" if observed["passed"] else str(observed["reason"])
+    return observed or ""
 
 
 def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
