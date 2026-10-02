@@ -12,3 +12,6 @@ dist/
 docs/specs/
 docs/superpowers/
 .worktrees/
+.agents/
+.claude/
+skills-lock.json

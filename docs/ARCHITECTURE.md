@@ -1,70 +1,135 @@
 # Popper Architecture
 
-Target design of Popper, an AI scientist for quantitative tabular data. Specs and plans take their components, contracts, invariants and defaults from this document; [ROADMAP.md](ROADMAP.md) orders the build. A spec may refine a contract here but not contradict it. A change of contract changes this document first. Sources are numbered in §15; the design decisions behind each component are in §14.
+Target architecture for Popper, an AI scientist for quantitative tabular research. This document defines vision, boundaries, responsibilities, contracts, invariants, state and evidence semantics, dependency rules, major flows, and architectural decisions. [ROADMAP.md](ROADMAP.md) describes product outcomes and capability sequencing. File changes, migrations, test cases, and task ordering are implementation details documented separately when needed.
 
-![Popper architecture](images/architecture.svg)
+The design distinguishes capabilities already present from target commitments where that distinction affects a contract. It does not prescribe implementation order. Optional orchestration strategies, including the earlier [graph-based diagram](images/architecture.svg), do not define the core architecture.
 
 ## 1. Scope
 
 - **Input:** a research context (a narrative brief with optional structured front matter: domain, objectives, variable meanings and roles, design, constraints; §4.1) and one tabular dataset. **Output:** a run folder with a LaTeX paper, a claims file, and every attempt, execution and decision that produced them.
 - **In scope:** understanding the research problem with the researcher, grounding it in the data (preparation and assessment), exploration, hypothesis generation, analysis by generated code, write-up, review, optional verification on held-back rows.
-- **Out of scope:** data collection, multiple datasets per run, non-tabular data, shared multi-user deployment.
+- **Out of scope:** automatic procurement or collection of new data, multiple datasets in one run, non-tabular data, shared multi-user deployment. Optional acquisition may locate and assess candidate inputs; researcher selection and a single tabular dataset remain the boundary of a run.
 - **Quality attributes, in priority order:**
-  1. _Traceability_: every number and claim resolves to executed code.
-  2. _Honest labelling_: the standing of a result is computed, never asserted.
-  3. _Recoverability_: a run resumes and every node re-runs.
-  4. _Simplicity_: the smallest mechanism that meets 1–3.
+  1. _Scientific usefulness_: find relevant, testable hypotheses and findings with enough sourced evidence and explicit uncertainty to justify further testing. Investigate alternatives, accumulate knowledge, and choose discriminating follow-ups; candidate count and favorable estimates alone are not useful discovery.
+  2. _Recoverability_: learn from execution and scientific obstacles, preserve committed history, and continue justified research. Reproduce an execution where its environment permits; exact numerical reproduction is not guaranteed.
+  3. _Traceability_: every empirical claim resolves to its measurement, execution and sources; execution alone does not establish scientific validity.
+  4. _Honest labelling_: deterministic status and rule-based outcomes are computed from declared contracts; scientific assessments remain attributed and qualified.
+  5. _Simplicity_: the smallest mechanism that meets these outcomes. Configurable LLM budgets govern resource allocation; a small default budget does not define the capability boundary.
+
+### Design overview
+
+```mermaid
+flowchart TD
+    U[Researcher brief and selected dataset] --> A[Understand]
+    X[Optional acquisition<br/>datasets · benchmarks · literature] --> U
+    A --> G[Ground]
+    G --> D[Active research state<br/>optional derived graph]
+    D <--> S[Adaptive research search<br/>hypotheses · specifications · branches]
+    S --> E[Experiment specification]
+    E --> R[Pluggable executor<br/>local · container · remote · domain-specific]
+    R --> M[Measurements and execution records]
+    R --> F
+    M --> F[Recovery and adaptation<br/>repair · refine · pivot · reframe]
+    F --> D
+    F --> S
+    S --> X
+    X --> D
+    M --> V
+    V --> D
+    M --> C[Communication]
+    C --> V[Claim and evidence verification]
+    V --> P[Paper]
+    L[Cross-run lessons] -. informs proposals, never evidence .-> D
+    H[Targeted human collaboration] -. intent · scope · validation decisions .-> D
+    I[Integrity · provenance · budgets] -. constrains .-> A
+    I -. constrains .-> R
+    I -. constrains .-> V
+```
+
+The diagram shows capabilities and information flow, not required agent topology or build sequence. Committed records are authoritative; working views and any derived graph support research decisions. Adaptive research search is a core capability; trees, tournaments, agent roles, and executor backends are replaceable strategies. Acquisition can supply resolved literature before framing and during discovery; candidate datasets still pass researcher selection and Ground.
+
+These capabilities extend Popper's artifact-backed, evidence-qualified research loop; they do not replace its scientific identity, integrity, or researcher-intent commitments.
+
+Mechanisms from AIDE, AI Scientist-v2, Co-Scientist, Kosmos, and ARC motivate these responsibilities [1, 3, 4, 8, 32]. Their results support adaptation, not a claim that the combined Popper design has already been validated:
+
+- **Adaptive research search** manages hypothesis and specification candidates, branch selection, follow-ups, and resource allocation with retained lineage and exposure (§4.6). It reuses code search within each experiment rather than treating code optimization as the whole research process.
+- **Active research state** makes findings, failures, contradictions, unresolved questions, and next opportunities available through sourced working views (§4.6, §9).
+- **Recovery and adaptation** diagnoses observations and proposes bounded repair, refinement, pivot, or reframe transitions with identity and provenance (§4.6).
+- **Evidence and claim verification** traces claims, numbers, and figures to measurements, executions, code, inputs, and assumptions; this audit does not itself establish scientific validity or validation standing (§4.7, §10, §11).
+- **Pluggable execution** runs a committed experiment specification against declared inputs through a backend contract. Local, container, remote, and domain-specific executors must preserve the same identity, access, logging, and result contracts (§5, §7.4).
+- **Acquisition** is an optional upstream capability that finds and assesses candidate datasets, benchmarks, and literature with source provenance and limitations. It may inform research framing; it does not silently make an acquired source eligible evidence (§4.1, §11, §12).
+- **Cross-run learning** may turn prior failures, repairs, and recurring patterns into attributed lessons or reusable skills. Such lessons can inform proposals, but are not observations or evidence for a new run (§9).
+- **Targeted human collaboration** asks for input when a decision can change intent, scope, operationalization, or a validation commitment. Routine execution and same-specification repair remain bounded autonomous work (§7.8).
 
 ## 2. Principles
 
-1. **Output first.** Every increment ends in a run that produces a readable paper. Infrastructure is added only when a run needs it.
-2. **Reproduce, then improve.** A mechanism taken from a published system is first built as published. An addition is a hypothesis tested at equal model and budget (§13).
-3. **Agents work, the harness records.** Recording is a side effect of the harness, never a duty of an agent.
-4. **Agents drive a phase; trees serve where attempts must be compared.** Phase order is code. Inside Understand and Ground one agent session decides its own steps; in Discover an agent chooses moves over a research graph, and tree search runs inside the moves that compare attempts (§4.6) [31].
-5. **Ground truth from execution.** A result is what a script produced when the harness re-ran it from scratch [31].
-6. **Labels, not locks.** Everything outside Verify is `exploratory`. Labels are computed by code and no model can raise them.
-7. **Numbers come from artifacts.** Paper numbers are rendered from result files, never typed by a model [6].
-8. **Try to break it.** Every main result meets robustness variants and at least one adversarial check [7, 17].
-9. **Executable rules over prose rules.** A rule that matters is a check, a label or a renderer [36, 37].
-10. **Measured restriction.** A new gate, reviewer or topology change needs an observed failure and an evaluation comparison [37].
-11. **Append, never rewrite.** Run files are written once.
-12. **One owner per concept.** Each concept has one module and one section here.
-13. **The harness records, re-runs and labels; it does not steer.** A rule without an observed failure is a computed warning printed in the paper, not a gate (principle 10 applied to existing rules).
+The core vision is a scientist that finds useful, evidence-grounded candidates for further testing through repeated attempts, observations and adaptation. Integrity safeguards this discovery process and its evidence standing. Architectural completeness is not a prerequisite for useful exploration. These are commitments; §2.2 lists replaceable strategies; the hard invariants in §2.1 apply regardless of quality-attribute priority.
 
-Agents get scientific freedom; the harness keeps integrity hard where it truly matters.
+1. **Useful discovery first.** Every increment preserves a runnable end-to-end path and improves the researcher's ability to find, test, understand or pursue a scientifically useful result. A candidate should state its question, rationale, evidence, uncertainty and a discriminating next test. Negative or inconclusive studies can close unproductive directions or motivate useful follow-ups.
+2. **Active research state.** Keep what is known, attempted, failed, hypothesized and unresolved across sessions, and expose it for candidate generation and next-action selection (§4.6). Working views and any derived graph resolve to committed records.
+3. **Adaptive research search.** Use `attempt → execute → observe → diagnose → next move`, with candidate hypotheses, specification branches, recovery, follow-ups, bounded transitions and explicit stopping. Never retry until a result looks favorable. Sequential and parallel execution obey the same identity and evidence contracts.
+4. **Scientific identity and adaptation provenance.** Distinguish question, hypothesis, intended test, specification version, code and execution. Record the trigger, reason and changes (§4.6). Scientific changes cannot hide inside technical debugging.
+5. **Separate evidence dimensions.** Provenance identifies an observation's sources; measurement fidelity checks the intended test; scientific validity concerns the inference (§4.7). Fresh execution does not establish all three.
+6. **Independent challenge.** Separate generation from challenge. A fresh context can be sufficient to start; Critic and debate are strategies (§6). Challenge remains an attributed assessment, not independent empirical validation.
+7. **Adaptive discovery, locked validation.** Discovery can learn from failures and results. Final validation uses a locked protocol and suitable unexposed evidence independent of adaptive selection under its stated design; discovery cannot assign its own validation standing (§11). This is a chosen conservative product boundary, not a claim that sample splitting is the only valid statistical approach [17, 26, 27].
+8. **Integrity stays hard.** Record every execution, preserve write-once artifacts, enforce access/sealed-data boundaries, compute labels in code and render paper numbers from committed named results. Scientific advice ordinarily supplies feedback rather than preventing an attempt. Protect researcher-confirmed intent explicitly.
+9. **One source and owner.** Reuse phase artifacts, journal and run store; no parallel research-memory authority. Phases diagnose evidence, propose transitions and own scientific semantics. Harness validates artifact contracts, identity and integrity. Coordinator authorizes bounded routes and executes cross-phase transitions; it does not duplicate phase-level scientific policy.
+10. **Adapt established mechanisms.** Use primary papers and implementations to identify useful search, state, recovery, acquisition and learning mechanisms [1, 3, 4, 8, 32]. Adapt them to Popper's contracts before inventing replacements. Local benchmarking is not an adoption prerequisite during development; contract checks establish operational behavior, and later evaluation measures scientific usefulness and transfer.
+11. **Simplicity and directness.** Prefer one authoritative path for each responsibility. Correct or retire restrictive and opaque paths instead of layering workarounds over them. Preserve integrity and the meaning of existing evidence; unmeasured preferences alone do not justify a wholesale redesign.
+12. **Harness quality is part of scientific capability.** Explicit artifact contracts, checkpoints, bounded recovery, environment diagnosis, deterministic integrity checks and targeted human escalation matter alongside agent reasoning [32]. Compose them from current mechanisms before adding agents, services or infrastructure. Graceful degradation preserves useful output with honest standing.
 
 ### 2.1 Invariants
 
-Hold in every configuration; each is enforced by code and covered by a test.
+These baseline protections are implemented. Target commitments below the table become executable checks as their capabilities ship; they are not a claim that future capability exists today.
 
-| Invariant                                                             | Enforced by                                           |
-| --------------------------------------------------------------------- | ----------------------------------------------------- |
-| Every model call, tool call, execution and decision is journaled      | Harness (§7.5)                                        |
-| Run files are write-once; a fix is a new node, attempt or assessment  | Run store (§9)                                        |
-| A result is what the harness produced by re-running the submitted script from scratch | Search engine and Ground submit (§4.3, §5.1) |
-| `exploratory`, `stable`/`fragile`, prediction verdicts, `confirmed` are computed | Label functions; the template prints them (§4.6, §5.5, §11) |
-| Research-graph nodes are append-only and cite their source nodes and artifacts | Discover graph store (§4.6) |
-| Paper numbers resolve to named results; unknown names are flagged     | Renderer and audit (§10)                              |
-| Research context, researcher answers, dataset strings, outputs and retrieved text are untrusted data | Context assembly (§7.3) |
-| No credentials in the run folder or script environments               | Sandbox and run store (§7.4, §7.5)                    |
-| Holdout rows never reach a node, session or tool before the locked run | Run store at ingest; Verify (§11)                    |
-| The Theorist never sees a relation between columns or holdout rows    | Understand inputs (§4.1)                              |
-| Agents never set the status `confirmed`; only researcher input does   | Research-context schema (§4.1)                        |
-| The Judge never sees effect estimates when scoring                    | Judge input redaction (§5.3)                          |
-| Descriptive statistics are computed by code; a model never reports them | Initial data analysis (§4.2)                        |
-| The dependency rules of §3 hold                                       | Import contract test (§3)                             |
+| Baseline invariant | Enforced by |
+| --- | --- |
+| Every model call, tool call, execution and decision is journaled | Harness (§7.5) |
+| Run files are write-once; a fix is a new node, attempt or assessment | Run store (§9) |
+| Accepted evidence comes from a fresh execution of the submitted script | Search engine and Ground submit (§4.3, §5.1) |
+| Evidence labels are computed from declared rules | Search and publication responsibilities (§5.5, §10) |
+| Paper numbers resolve to named results; unknown names are flagged | Renderer (§10) |
+| Research context, answers, dataset strings, outputs and retrieved text are untrusted data | Context assembly (§7.3) |
+| No credentials in run files or script environments | Sandbox and run store (§7.4, §7.5) |
+| Holdout rows never reach discovery nodes, sessions or tools | Run store at ingest (§11) |
+| Code-supplied initial framing data omit computed between-column relations and holdout rows | Understand inputs (§4.1); researcher text and later Ground feedback may describe relations |
+| Only researcher input confirms research-context metadata | Research-context schema (§4.1) |
+| Descriptive statistics are computed by code | Initial data analysis (§4.2) |
+| Dependency rules of §3 hold | Production components obey the dependency contract |
 
-**Computed warnings** (code computes them, the paper prints them, nothing blocks): outcome or exposure role and type conflicts, an exposure measured after the outcome, an excluded or protected column in use, few clusters for the planned inference, Ground readiness facts, and every `proposed` or `unknown` entry a result relies on (§4.4, §4.5, §10).
+**Target invariants:** accepted artifacts satisfy declared read/write contracts and cite their producer/input versions; state entries and transitions cite committed sources; repairs preserve declared scientific identity; specification changes create versions; corrected measurements do not erase prior ones; validation authority cannot be exercised by the adaptive discovery loop. Prediction verdicts and validation labels are computed once their evidence/protocol contracts exist. Research-context metadata status `confirmed` means researcher-approved metadata, not empirical truth or validation support. These are integrity/product commitments; they do not make assumption truth or scientific validity mechanically decidable.
 
-## 3. Decomposition
+**Warnings versus boundaries.** Role/type conflicts, temporal-order concerns, few clusters, weak operationalization and unconfirmed assumptions supply scientific feedback and printed limitations. Access prohibitions, credentials, fabricated/missing evidence, sealed data and unauthorized edits of researcher-confirmed intent are integrity boundaries. A protected/excluded-column warning is not a substitute for enforcing an explicit access restriction. Future method or robustness advice does not automatically become a code gate (§4.4–4.5).
+
+### 2.2 Replaceable strategies
+
+| Strategy | Current position | Reason to extend or change |
+| --- | --- | --- |
+| Sequential coordinator playbook | Baseline routing strategy | Adopt richer orchestration only when fixed routing blocks a needed capability |
+| Draft/debug/improve trees | Implemented within Discover; reuse | Compare completion, fidelity, selection and cost with bounded linear scheduling |
+| Research Graph | Optional future state/lineage representation | Committed records become difficult to query or explain; no second authority |
+| Fresh-context challenge, Critic, debate | Separate Judge context today; scientific challenge later | External evidence or observed self-confirmation supports adoption; local comparisons refine defaults |
+| Discover or PI agent | Optional orchestration of the same contracts | Fixed routing limits useful discovery/recovery |
+| Parallel branches, tournaments, hierarchical planners | Target search strategies; topology is replaceable | Existing systems motivate wider search and challenge; concurrency preserves branch ownership, checkpoints and exposure |
+| Judge blinding, method/robustness schedules | Implemented policies, open to refinement | Reduce selection bias while retaining necessary diagnostic information |
+
+Strategies do not substitute for core commitments. Added complexity must buy end-to-end value; local ablation can follow implementation rather than block it.
+
+## 3. Components and dependencies
 
 | Subsystem       | Package                                                          | Owns                                                                                                             | Section    |
 | --------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
-| Coordinator     | `coordinator/`                                                   | The playbook: phase order, transitions, run status                                                               | §4         |
-| Research phases | `understand/`, `ground/`, `discover/`, `communicate/`, `verify/` | Stage goals, role prompts, phase outputs                                                                         | §4, §10–12 |
+| Coordinator     | `coordinator/`                                                   | Phase order, scheduling selected moves, global budget limits, bounded transitions, run status and sourced research-state view; no scientific ranking policy | §4 |
+| Research phases | `understand/`, `ground/`, `discover/`, `communicate/`, `verify/` | Stage goals, role prompts, phase outputs and phase-owned scientific specifications, feedback and evidence semantics                                                                         | §4, §10–12 |
 | Search engine   | `treesearch/`                                                    | Nodes, step policy, node evaluation, selection, the Analyst's tools                                              | §5         |
+| Adaptive research search | `discover/` | ResearchMove contract, candidate generation and scientific next-move policy; replaceable BudgetAllocator strategy | §4.6 |
 | Harness         | `harness/`                                                       | Model client, agent loop, tools mechanism, context, sandbox, journal, run store, budgets, config, decision layer, research-context schema, role-free descriptive statistics | §4.1, §4.2, §7, §8 |
-| Evaluation      | `evals/`                                                         | Suites, metrics, comparisons, adoption records                                                                   | §13        |
+| Execution boundary | Harness contract; replaceable backends | Runs committed experiment specifications while preserving identity, access controls, provenance, and result semantics | §5, §7.4 |
+| Acquisition (optional) | External source boundary | Finds and assesses candidate datasets, benchmarks, and literature; returns sourced candidates for researcher/context use | §4.1, §11, §12 |
+| Evidence and claim verification | Research phases and publication | Checks claim, number, and figure lineage against committed measurements and executions; distinct from locked statistical validation | §4.7, §10, §11 |
+| Cross-run learning (optional) | Sourced lesson store | Produces attributed lessons or reusable skills from prior run patterns; lessons inform proposals but never count as evidence | §9 |
+| Human collaboration | Coordinator, phases, harness | Escalates only decisions that can materially change intent, scope, operationalization, or validation commitment | §7.8 |
+| Evaluation      | Evaluation subsystem                                              | Suites, metrics, comparisons, adoption records                                                                   | —          |
 
 ```text
 cli ──► coordinator ──► understand · ground · discover · communicate · (verify)
@@ -78,239 +143,203 @@ Dependency rules:
 - `harness` imports nothing else in Popper and holds no research logic.
 - `treesearch` imports only `harness`; it knows no stage goals.
 - Phase packages import only `harness` and `treesearch`, never each other.
-- Only `coordinator` knows the playbook.
-- `evals/` may import anything; production code never imports `evals/`.
-- These rules are an import contract checked in CI, not a convention [36].
-- Prompts live in `<package>/prompts/`. Default config ships in `harness/`; `--config` overrides key by key; `POPPER_MODEL` overrides every model route.
+- Only `coordinator` knows cross-phase routing. Its research-state view references phase-owned records rather than duplicating scientific logic or mutable memory. `verify/` is a future package.
+- Evaluation may depend on production components; production components never depend on evaluation.
+- These rules are an import contract checked in CI, not a convention [30].
+- Prompts and model configuration belong to the harness and the phase that owns the relevant interaction. Configuration can be overridden without changing phase ownership or architectural contracts.
+
+Acquisition and execution backends sit behind source and executor contracts; they do not introduce research logic into the harness. Cross-run lessons are advisory context, not measurements or validation evidence. A claim audit checks traceability and report fidelity; locked validation evaluates a claim under an independent statistical protocol (§11).
 
 ## 4. Run lifecycle
 
-| #   | Phase                    | Package        | Contract                                                                                                                                 | Output                                           |
-| --- | ------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| 1   | Understand               | `understand/`  | Theorist session: research context + initial data analysis → Research Frame (cleaned research context with concepts, framing) steered by researcher signals (§4.1) | Research Frame |
-| 2   | Ground                   | `ground/`      | Data Steward session: understand, repair, interrogate and assess the data against the frame; frame concerns return to 1 (§4.3) | prepared data, change log, operationalization, concerns, readiness |
-| 3   | Exploration & hypothesis | `discover/`    | Search stage `explore` (explore rows when the confirm partition is on); observations, Research Frame and foundation → hypotheses in the contract below; computed warnings (§4.4); Critic challenge; selection by researcher or PI. Target: the Discover agent runs 3 and 4 as moves over the research graph (§4.6) | hypotheses                                       |
-| 4   | Experiment               | `discover/`    | Per chosen hypothesis (confirm rows when the partition is on): pre-test description, then stages `baseline` → `main` → `robustness`, then a computed verdict per prediction (§4.6) | best nodes, estimates, figures, stability labels, verdicts |
-| 5   | Publication              | `communicate/` | Pipeline of §10                                                                                                                          | paper, claims file, review                       |
-| —   | Verify (optional)        | `verify/`      | Contract of §11                                                                                                                          | verification records                             |
+The principal flow moves from researcher framing through data grounding, exploration, analysis, and communication. Optional validation follows discovery under a separate authority.
 
-- **Hypothesis contract** [7, 41]: one primary estimand (outcome, exposure, contrast, population, unit), expected direction, the result that would refute it, rival explanations, planned test, source nodes and `supplied_by`. Target (§4.6): an `origin` with the graph nodes it derives from, and the expected direction and refuting result stated as structured predictions whose verdict code computes. Measured additions (§14 D17): a smallest effect size of interest (`sesoi`, in outcome units [42], recorded `post_exploration` when first stated after exploration), typed rival checks (§4.4), an `adjustment_set`, a planned test in the layered vocabulary (§4.5) and the computed `tested_on` (§11). A `mechanism` with `auxiliary_predictions` is optional; each auxiliary prediction is tested as a secondary estimand, never as a robustness variant. Interactions and moderators are secondary estimands of a hypothesis, never its primary one.
-- Phases exchange data only as files in the run folder. A phase never edits another phase's output.
-- The PI runs the phases. Form 1 is a fixed playbook; it already goes back once from Ground to Understand when the data cannot represent the frame (2 → 1, bounded by `max_reframes`). Form 2 (agent) keeps the same default order and may also go back with a journaled reason: experiment → hypothesis (4 → 3), or a late data problem opens a new Ground attempt (3/4 → 2).
-- Run status: `running`, `awaiting_review`, `completed`, `budget_exceeded`, `failed:<stage>`.
+### 4.0 Current-path reconciliation
+
+The implemented M0–M2-optimize path is `cli.main(run/resume) → coordinator.run/resume → _continue`: create or load a format-4 run and acquire its lock; parse the research context and compute raw descriptive statistics; Understand writes a frame, pauses for review when interactive, and resumes from the reviewed artifact; Ground prepares data and may route a bounded frame concern back to Understand; the coordinator promotes the final prepared data; Discover runs `explore`, proposes and commits one hypothesis, then runs `baseline → main → robustness`; Communication resolves named results from `results.json`, renders the paper, and commits the report. Each search stage owns a journaled `tree/<stage>/` of draft/debug/improve nodes. Resume rebuilds incomplete stages from node and stage events, while committed phase artifacts and output files remain write-once.
+
+| Existing mechanism and owner | Disposition for the M0–M2 path | M3 boundary |
+| --- | --- | --- |
+| CLI, coordinator phase order, frame review, Ground preparation/reframe | Keep | Keep the upstream path; replace only the single-pass Discover block with the ResearchMove loop. |
+| RunStore format 4, append-only journal, artifact hashes, resume lock, spend accounting and sealed holdout | Keep | New candidate work must cite the same committed sources and share exposure. Preserve the format-4 reader and its refusal of unsupported legacy runs; introduce an explicit format change only if new persisted contracts require it. |
+| `treesearch.run_stage` draft/debug/improve, deterministic replay and Judge node scores | Keep as the inner search over analysis scripts | Keep stage scores local to code execution quality. Add candidate and next-move selection at the Discover boundary; never interpret node scores as hypothesis quality or evidence standing. |
+| Single `HypothesisProposal`, hard-coded `hypothesis-001`, closed `Method` literal, and `_continue`'s one-hypothesis route | Adapt in the owning Discover/coordinator path | Generate stable candidate identities, support extensible `MethodSpec`, and iterate the same research loop. Read old format-4 hypothesis payloads under their existing semantics; do not run a parallel old and new pipeline. |
+| Global `baseline`, `main`, `robustness`, `robustness_plan`, and `evidence` identities | Adapt before executing multiple candidates | Scope new attempts, plans and evidence to hypothesis/specification identity so retries and resume cannot reuse another candidate's artifacts. Keep old unscoped format-4 artifacts readable and unchanged. |
+| Fixed baseline/main/robustness analysis and computed legacy stability label | Keep for current runs; adapt as an inner per-candidate test policy | Preserve each old label's original rule and report. New candidate selection records all branches; a legacy stability score is not the outer search objective. |
+| `communicate.numbers`, manifest-backed evidence references and compiled paper | Keep | Continue rendering values from committed results. Extend publication to selected candidates and lineage without letting prose or Judge scores create results. |
+
+No current mechanism needs wholesale replacement or deletion to establish M3. The restriction to one hypothesis and the closed method schema conflict with M3's expanded contract and therefore require targeted adaptation; the rest remain useful foundations. Remove a mechanism only if the traced caller and persisted-state scan show it has no remaining role after that adaptation.
+
+| # | Phase | Package | Current contract | Output |
+| --- | --- | --- | --- | --- |
+| 1 | Understand | `understand/` | Theorist session: research context and initial data analysis → reviewed Research Frame (§4.1) | Research Frame |
+| 2 | Ground | `ground/` | Data Steward prepares/assesses data; frame concerns return to 1 within the existing limit (§4.3) | Prepared data, changes, operationalization, concerns, readiness |
+| 3 | Exploration & hypothesis | `discover/` | Exploration and generation of a sourced hypothesis with warnings | Hypothesis |
+| 4 | Experiment | `discover/` | Baseline analysis, planned alternatives, repair, and explicit evidence standing | Attempts, estimates, figures, evidence standings |
+| 5 | Publication | `communicate/` | Template paper from artifacts and named results; extensions in §10 | Paper and run trace |
+| — | Verify (future, optional) | `verify/` | Locked independent validation (§11) | Verification record |
+
+- **Current hypothesis contract** [6, 22]: one primary estimand (outcome, exposure, contrast, population, unit), expected direction, a refuting result, planned test, assumptions, source nodes and attribution. Its current method/reference identifiers are not a complete frozen scientific specification; §4.6 makes that identity explicit.
+- **Later extensions:** rival explanations, origin and test-data exposure, structured predictions/verdicts, pre-test sample description, optional smallest effect of interest, typed rival checks and auxiliary predictions. None requires graph nodes. A secondary estimand or changed target population is its own test, not automatically a robustness replicate.
+- Phases exchange files/references and never edit another phase's output. Revisits create new attempts with reason and lineage.
+- The coordinator owns phase order and bounds cross-phase transitions. The target discovery loop selects among hypotheses and specifications and can schedule independent branches concurrently. A revisit or branch preserves prior attempts, scientific identity, selection history and exposure (§4.6).
+- Operational run status is separate from scientific outcome. Negative evidence is not a failed execution.
 
 ### 4.1 Research context and Understand
 
-**Research context** is the researcher's single input besides the dataset: `research.md`, a narrative brief in the Markdown body with optional structured front matter. It is the metadata that initial data analysis starts from [39, 40] and the configuration later phases read, as a research goal is parsed into a plan configuration in [4]. A body-only file is valid. The name is always written in full, never shortened to "context", which means context assembly (§7.3).
+**Research context** is the researcher's input besides the dataset: a narrative brief with optional structured metadata. It supplies the goals, domain, variable meanings, design, assumptions, and constraints that phases interpret and carry forward [3, 5, 33, 34].
 
-| Front-matter field | Holds                                                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| `domain`           | Background, known findings, terminology                                                                 |
-| `objectives`       | Research questions in priority order, audience, the decision the results inform [6]                     |
-| `variables`        | Per column: meaning, unit, `type`, `role`, valid range or levels, relative measurement `order`          |
-| `design`           | Unit of observation, sampling, collection period, observational or experimental, cluster, id and time columns |
-| `assumptions`      | Known confounders and other causal assumptions                                                          |
-| `constraints`      | Excluded or protected columns, ethical limits                                                           |
-| `concepts`         | Research concepts: id, name, definition; never a column (the mapping to columns belongs to Ground)      |
-| `notes`            | Guidance per phase (`understand`, `ground`, `explore`, `hypothesis`, `experiment`, `writing`) [8]       |
+- Research context covers domain, objectives, variable meanings and roles, study design, assumptions, constraints, and concepts. Ground owns the mapping from concepts to observed data.
+- Researcher-confirmed metadata is distinct from agent-proposed and unknown information. Only researcher input confirms intent; models and downstream checks preserve that distinction and expose relevant uncertainty in the report.
+- Guidance can shape an agent's interpretation, but cannot change deterministic integrity checks or computed labels.
+- The harness validates supplied metadata against the dataset and treats all researcher-provided text as untrusted data (§7.3).
 
-- `type`: `continuous`, `binary`, `categorical`, `ordinal`, `count`, `id`, `time`, `text`.
-- `role`: `outcome`, `exposure`, `covariate`, `id`, `cluster`, `time`, `post_outcome` (measured after or derived from an outcome), `protected`, `ignore`, `unknown`.
-- Every entry carries a provenance `status`: `confirmed` (written or approved by the researcher), `proposed` (written by an agent, with its `evidence`: an initial-data-analysis result name or an exact quote of the body), or `unknown`. A bare researcher value is `confirmed`; agents can never set `confirmed`.
-- Models see `proposed` entries marked as proposals. Checks never loosen on a proposal: only a `confirmed` role can block a submission (§4.3). The paper lists every `proposed` and `unknown` entry a result relied on [2].
-- `notes` steer prompts only; they never change a check, a warning or a label.
-- The harness validates the front matter at ingest: a named column missing from the dataset (exact match), an unknown key, or an invalid type, role or status fails ingest with every mismatch listed, before any model call. Body and front-matter strings are untrusted data (§7.3).
-
-**Understand** turns the research context into a **Research Frame**: shared research meaning the researcher can recognize and correct. It is one Theorist session (§6) that sees the research context and the role-free initial data analysis of discovery rows, and never a relation between columns or holdout rows [40].
+**Understand** turns the research context into a **Research Frame**: shared research meaning the researcher can recognize and correct. It is one Theorist session (§6) that sees the research context and role-free initial data analysis of discovery rows, without code-supplied empirical between-column relations or holdout rows [34]. Researcher text and later Ground concerns may mention relations; this input policy is not a guarantee of total non-exposure.
 
 - **Explore, critique, synthesize.** The agent chooses its own order and may repeat: restate and widen the problem, sharpen questions, find ambiguities, implicit assumptions and competing explanations, propose meaning, unit, type, role and order for undeclared attributes with evidence; critique its own framing (what is missing, alternative framings, the weakest assumption); then submit.
-- **`ask_researcher`** asks one question with a proposed answer and an `unknown` option; an answer becomes `confirmed`. Under `--auto` or without an interactive researcher the tool says so and the item stays `proposed` or `unknown`.
-- **`submit_frame`** carries a research-context patch (`proposed`/`unknown` entries and concepts) and a framing: title, problem, questions (id, objective served, outcome candidate), scope, important unknowns, and directions (id, origin, competing explanations). Code checks schema, columns, ids and evidence, refuses any change to a `confirmed` entry, and returns failures to the agent to fix (§7.1). Framing never restates a role or an assumption.
-- **Review.** The run writes `review.yaml` and stops with status `awaiting_review`. Items are keyed by stable ids (`variables.<column>.<attribute>`, `assumptions.<id>`, `concepts.<id>`, `questions.<id>`, `directions.<id>`). The researcher marks each `approve`, `edit` (with a value), `reject` or `unknown`, with optional notes; `popper resume` applies them in code (approve and edit confirm; reject records the value so it cannot be proposed again). Edits, rejections or notes start one short Theorist revision session; there is no second review. `--auto` skips the stop and keeps proposals `proposed`; evaluation runs use it, and the planted suite scores both paths (§13).
+- **Researcher input and frame submission** allow questions, proposed or unknown metadata, and a structured framing with objectives, scope, uncertainties, and directions. Code checks schema and evidence, refuses changes to confirmed intent, and returns correctable failures to the agent (§7.1). Framing does not redefine metadata owned by the research context.
+- **Review.** The researcher can confirm, revise, reject, or leave proposals unresolved. Only researcher input confirms intent. Automated runs preserve proposals as unconfirmed. A revision produces a new sourced framing attempt rather than silently changing confirmed metadata.
 - **Computed framing warnings:** a question whose outcome candidate has role `id`, `cluster`, `post_outcome`, `protected` or `ignore`, a question needing an excluded column, duplicate directions.
 
-The reviewed research context is the single source for what variables and concepts mean; the framing holds only agent output. Later phases read it: Ground takes concepts, valid ranges, codings and excluded columns; `explore` and the hypothesis take objectives, directions, roles, confounders and the foundation (§4.3); experiments take design and clusters (§4.5); the Writer takes domain, audience, objectives and the assumption list. Revising it after Ground or after results writes a new attempt with a journaled reason, as a scientist refines a research goal in [4].
+The reviewed research context is the single source for what variables and concepts mean; the framing holds only agent output. Later phases read it: Ground takes concepts, valid ranges, codings and excluded columns; `explore` and the hypothesis take objectives, directions, roles, confounders and the foundation (§4.3); experiments take design and clusters (§4.5); the Writer takes domain, audience, objectives and the assumption list. Revising it after Ground or after results writes a new attempt with a journaled reason, as a scientist refines a research goal in [3].
+
+**Optional acquisition.** A source-acquisition capability may identify candidate datasets, benchmarks, and literature relevant to the research context. It returns source identity, retrieval provenance, suitability signals, and known limitations for researcher or phase review. It does not silently replace researcher intent, bypass Ground, or grant a source empirical standing. A run still uses one selected tabular dataset.
 
 ### 4.2 Initial data analysis
 
-Descriptive statistics are computed by code, never by a model [39, 40]. One harness module computes the role-free groups and backs every describer: the ingest profile, the data summary the Judge reads and the Analyst's `inspect_data`. It runs twice, on discovery raw rows at ingest and on `processed.parquet` after `data`, each as a write-once artifact in the `results.json` schema so the renderer and audit read it unchanged. The harness computes numbers only. Groups that need roles are computed in `discover/` from the same primitives, and the rules that act on any group live in phase packages.
+**Current foundation.** Descriptive statistics are computed by code, not a model [33, 34]. One harness module backs the ingest profile and data inspection/summary, before and after accepted preparation. It preserves named numerical artifacts and layouts; phase packages own scientific interpretation. The framing view contains no outcome–exposure relations.
 
-| Group                   | Needs roles | Contents                                                                                                        |
-| ----------------------- | ----------- | --------------------------------------------------------------------------------------------------------------- |
-| Structure               | No          | Rows, columns, types, duplicate rows and keys, constant columns, id uniqueness                                  |
-| Data quality            | No          | Missing share per column, co-missing patterns, missing share by cluster, out-of-range values, inconsistent codings, heaping, outliers by a fixed rule |
-| Univariate distribution | No          | Location, spread, shape (skewness, share of zeros, floor and ceiling share), quantiles; level counts, rare levels |
-| Design structure        | No          | Cluster count and sizes, panel balance, time range and gaps                                                     |
-| Sample flow             | No          | Rows at ingest, in the holdout, explore and confirm partitions, and after each `data` rule                      |
-| Sample characteristics  | No          | Table 1: each column summarized over the analysed rows, overall, without tests                                  |
-| Balance and overlap     | Exposure    | Binary or categorical exposure: standardized mean difference of covariates across levels [43]; continuous exposure: correlation of each covariate with it; exposure support within strata |
-| Precision               | Exposure, outcome | Rows per exposure level or cell, events per variable for binary outcomes, minimum detectable effect        |
+Current primitives cover structure (rows, columns, duplicates and keys), quality (missingness, codings/ranges and unusual values), univariate distributions (location, spread, shape, quantiles and levels) and design descriptors (cluster/time structure where available). A statistic needs data/metadata support; missing or undefined measures stay explicit rather than invented.
 
-The groups that need roles also run per hypothesis, restricted to its estimand and population, as the pre-test description (§4.6). None of these groups relates the outcome to an exposure: initial data analysis does not touch the research question [40]. Relations involving the outcome are exploration, and so are associations among predictors until a rule reads them; the Analyst computes them in `explore`. The outcome ICC is not computed: with few clusters it is unstable, and the cluster rule reads cluster counts (§4.5). An outcome whose floor or ceiling share exceeds `bound_share` is **bounded**: the paper states the bound as a limitation (§10) and method fit reads it (§4.5). Sample tables and balance checks carry no significance tests [43]; assumption checks use descriptive measures with fixed thresholds, not normality or variance tests. The 0.1 default for `smd_threshold` is a convention, not a consensus [43].
+Further descriptive evidence such as sample flow, characteristics, covariate balance, and design-based precision can help audit intended tests. Compute such evidence in its owning phase without duplicating descriptive logic. Sample characteristics and balance do not require significance tests [24]; a proposed threshold such as 0.1 standardized mean difference is a convention, not a universal scientific gate. Precision or an `underpowered` label needs an explicitly stated magnitude and design. Pre-test descriptions carry timing and exposure, especially when their rows are later called confirmatory or validation data (§11).
 
 ### 4.3 Ground
 
 **Ground** connects the Research Frame to what the data actually observe and produces an **empirical foundation**: what the data measure, how far they can be trusted, how each concept is represented, what is missing, and whether discovery can start. It is one Data Steward session (§6) on discovery raw rows; there is no tree and no Judge.
 
 - **Responsibilities**, in the order the agent chooses: understand (semantics, observation unit, structure, provenance, which columns or proxies measure each concept), repair (cleaning, restructuring, transformation, derived variables), interrogate (anomalies, distributions, missingness by group, figures), assess (what the data cannot support). Enrichment from other sources is out of scope (§1).
-- **`submit_ground`** carries a script and two judgments. The harness re-runs the script from scratch; only that run's `processed.parquet`, `changes.json` and `results.json` count. The judgments are an **operationalization** (concept → columns, proxy strength `direct`, `proxy`, `weak` or `none`, rationale) and **concerns** (`frame`: unmeasured concept, weak proxy, unit mismatch, missing variable, scope conflict; `data`: quality, sample, structure, other), each with evidence that resolves to a result, a change or a descriptive key.
-- **Code checks** return failures to the agent to fix: row counts match, every change names a counted result and a nonempty validity reason, at least one row remains, every outcome with a `confirmed` role remains, every concept has an operationalization item, named columns and evidence exist. A `proposed` role never blocks.
+- **Ground submissions** combine a preparation proposal with an operationalization of concepts and evidence-backed concerns. The harness executes the proposed preparation freshly and checks declared data invariants and evidence references before accepting its outputs.
 - **After acceptance** code writes initial data analysis on the prepared data and **readiness facts**: each outcome and exposure exists and varies, its missing share, cluster count, floor and ceiling share. Readiness is printed, never blocking.
 - **Operationalization is a proposal.** It stays `proposed`; Discover reads it as such, and the paper prints it as proposed by the data agent.
-- **Frame concerns go back.** Ground never edits the research context. A `frame` concern opens a Theorist revision with the concerns as input, a review stop, and a new Ground attempt from raw rows, at most `max_reframes` times (default 1); what remains goes to Limitations.
-- **Forbidden to use, not forbidden to see.** The Steward needs the outcome to prepare data, so code cannot stop it from seeing an outcome–exposure relation. No preparation decision may be justified by the relation it produces [24]: the prompt forbids computing such relations, every change states a validity reason, every snippet is journaled, and the paper discloses that preparation had raw-data access. Scratch runs on a copy with the outcome shuffled across rows are an evaluation challenger (§13).
+- **Frame concerns go back.** Ground never edits the research context. A material framing concern may open a researcher-visible revision and a new Ground attempt from the original data; unresolved concerns remain visible in the report.
+- **Forbidden to use, not forbidden to see.** The Steward needs the outcome to prepare data, so it may see outcome–exposure relations. Preparation decisions must not be justified by the relation they produce [16]. Record the reason for each change and disclose raw-data access in the report.
 
 ### 4.4 Hypothesis quality
 
-| Criterion                          | Enforced by                                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Refutable                          | Schema: `refuting_result`; target: structured predictions with a computed verdict (§4.6); stated against `sesoi` once that addition is measured (D17) |
-| One specific primary estimand      | Schema (§4)                                                                                                         |
-| Explains, not only associates      | Schema: optional `mechanism`, `auxiliary_predictions` tested as secondary estimands; Critic rubric                  |
-| Faces its rivals [41]              | Schema: rival explanations; target: each with a typed check, `adjustment` (a robustness variant of the same estimand), `negative_control` (an adversarial check) or `sensitivity` (a reported bound) (§5.5); Critic rubric |
-| Testable with these data           | Computed warnings; pre-test description (§4.6); `underpowered` label (§4.2 precision)                                           |
-| Origin stated                      | Target: `origin` and `derived_from` (§4.6); `suggested_by_test_data` computed                                       |
-| Independent of the confirming rows | Confirm partition when on (§11); `tested_on` printed either way                                                     |
-| Relevant and informative           | Critic rubric against `objectives`; prior-work coverage (§12)                                                       |
+**Current contract.** Code requires one primary estimand with distinct named outcome/exposure columns, a contrast, comparison (`difference` or `ratio`), population and unit; statement/rationale, expected direction, refuting result, planned test and a nonempty list from the current closed method vocabulary. These schema checks protect executable meaning; the closed vocabulary is a baseline implementation restriction, not a commitment that only these scientific methods are legitimate. The target `MethodSpec` is extensible (§4.5).
 
-**Computed warnings** on every hypothesis, stored beside it and printed in the paper, never blocking:
+**Ownership.** Discover owns hypothesis generation, its contract, scientific warnings and the cross-phase scientific next-move policy. Understand owns framing. The coordinator schedules selected moves, enforces run-wide resource limits and routes committed outputs; it does not rank scientific candidates or revise move intent. The harness enforces integrity and artifact contracts, not scientific policy.
 
-- outcome or exposure with role `id`, `cluster`, `post_outcome`, `protected` or `ignore`, or type `id`, under any status;
-- an exposure whose `order` follows the outcome's;
-- an excluded or protected column in use;
-- a cluster column with fewer clusters than the inference needs (§4.5);
-- an outcome or exposure mapped only by `weak` or `none` operationalization items (§4.3);
-- every `proposed` or `unknown` entry the hypothesis relies on.
+**Current feedback.** Nonblocking warnings identify unusable roles/types, exposure measured after outcome, excluded/protected columns, missing/proposed variable meaning, weak/absent proxies, unconfirmed/undeclared assumptions and few clusters. They are stored beside the hypothesis and printed in the paper. An explicit access restriction remains a separate hard boundary (§2.1).
 
-A **code gate** on roles, order, the adjustment set, clusters and level sizes is a target item: it becomes a gate only when the planted suite shows the warning missed failures that changed conclusions (§13, D4). When precision gives a minimum detectable effect above a `sesoi` set before exploration, the hypothesis is labelled `underpowered`; the label is printed and the run continues.
+Further hypothesis quality mechanisms can record rivals, origin, structured predictions, pre-test support, and an optional effect-size threshold. Independent challenge checks relevance, assumptions and discriminating tests (§6); no mandatory Critic rubric. A low-precision or underpowered label requires a defensible magnitude/design contract, not a blanket reason to block exploratory work. Method-fit advice starts as feedback. Any scientific gate must name the concrete failure it prevents and why permitting an attempt would be inappropriate; external evidence can justify adoption and local evaluation refines scope.
 
 ### 4.5 Analysis methods
 
-The method vocabulary is layered. One module owns it and replaces any flat method list; it classifies plans rather than limiting what an agent may do; the hypothesis schema, method fit, the warnings and the Judge's method reference read it.
+**Current reality.** The current method vocabulary is a baseline implementation restriction, not a claim that only listed scientific methods are legitimate. Method declarations require an explicit scientific specification and visible assessment standing; accepting a declaration does not certify its validity.
 
-| Layer         | Values                                                                                                                                                                            |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Preprocessing | log transform, rank transform, winsorize, standardize, imputation                                                                                                                 |
-| Estimator     | difference in means, OLS, logistic, Poisson, negative binomial, fixed effects, mixed effects, Mann–Whitney/Hodges–Lehmann, Kruskal–Wallis, chi-square, Fisher exact, Pearson, Spearman, Kendall, partial correlation, random forest, smooth (spline/GAM) |
-| Inference     | analytic, bootstrap, permutation, robust SE, cluster-robust SE, wild cluster bootstrap                                                                                            |
+**Open `MethodSpec`.** Before expanding multi-hypothesis search, represent a method as a structured but extensible declaration: method family or `custom`, description/implementation reference, intended inputs and outputs, estimand/effect scale where applicable, assumptions and diagnostics. Known methods may use typed fields and reusable implementations; custom or generated methods state the same contract and undergo the same code, execution, fidelity and evidence checks. Unknown vocabulary alone does not make a method ineligible. A declaration enables an attempt; it does not certify suitability or validity.
 
-Primary estimators by outcome and exposure type; correlation coefficients serve exploration and diagnostics, never a primary estimand:
+Method-fit feedback uses outcome/exposure type, design, population, contrast, effect scale and inference assumptions. A categorical mismatch or diagnostic is evidence to diagnose or try a justified alternative, not an automatic scientific prohibition.
 
-| Outcome \ Exposure | Binary                                                        | Categorical (> 2 levels)                                 | Continuous                                             |
-| ------------------ | ------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------ |
-| Continuous         | Difference in means, OLS; Mann–Whitney as a variant           | OLS with planned contrasts; Kruskal–Wallis as a variant  | OLS contrast at two stated values; smooth as a variant |
-| Binary             | Risk difference or ratio, logistic; Fisher when cells are small | Logistic                                               | Logistic with a marginal contrast                      |
-| Count              | Poisson or negative binomial rate ratio                       | Poisson or negative binomial                             | Poisson or negative binomial                           |
+Useful extensions include sample support, balance, few-cluster inference advice, bounded/count-outcome methods and diagnostic-triggered variants [34, 24, 25]. Record when/why a diagnostic was used; it cannot silently alter the primary method inside a repair. A changed planned test is refinement. Thresholds and any enforced method policy require an explicit scope/rationale; avoid a universal rule that cluster fixed effects solves all few-cluster inference, or that normality tests should choose the estimator. Build supported remedies for observed failures, then refine their defaults locally rather than await a complete method benchmark.
 
-- **Method fit**, computed from the table and the variable types: `ok`, `mismatch`, or `unchecked` for outcomes with no row (ordinal, bounded). It is printed in Data and Methods; whether a `mismatch` blocks the hypothesis is a measured decision (D22).
-- **Bounded outcomes** keep the continuous row; linear estimates near the bound are attenuated, and the paper says so. A censored-outcome estimator joins the vocabulary only after the planted suite measures the need.
-- **Clusters** (a computed warning now; a hard rule once measured, D22): cluster-robust SE over-reject with few clusters, and the wild cluster bootstrap-t holds down to about five, less well when clusters are unbalanced [44]. With at least `min_clusters` (default 30) clusters, inference uses cluster-robust SE or mixed effects; from `min_wild_clusters` (default 5) up to that, the wild cluster bootstrap; below `min_wild_clusters`, cluster fixed effects, and the paper states that the result describes the observed clusters only; an exposure constant within clusters is then not estimable and fails the gate. The rule reads any cluster column that is `confirmed` or `proposed`; until it is measured, a plan that departs from it is printed as a limitation of inference.
-- **Diagnostics** from §4.2 add required robustness variants and never change the primary method: skewness above `skew_threshold` in an unbounded outcome adds a log or rank variant; a count variance-to-mean ratio above `overdispersion_ratio` adds negative binomial; a level below `rare_level_share` adds a merged-level variant; a standardized mean difference above `smd_threshold` adds an adjusted variant.
-- Thresholds live in config under `analysis`, including `bound_share` (default 0.1).
+### 4.6 Research state and scientific feedback
 
-### 4.6 Discover
+**Current reality.** Discover runs exploration, one hypothesis and three experiment stages. Local debugging, fresh execution, robustness schedules, evidence manifests and journal provide foundations for state and feedback, but do not yet provide a general scientific transition model.
 
-**Discover** turns the open questions of the Research Frame and the foundation into evidence, and lets evidence open the next questions. A **Discover agent** chooses one move at a time over a shared, append-only **research graph**; each move adds nodes that resolve to executed artifacts. The graph is the global scientific state; a tree (§5) is the local mechanism inside a move that compares attempts. The agent coordinates and never writes scientific content itself: roles write nodes, code computes verdicts. The phase-3/4 playbook of §4 is the fixed form of the same moves.
+**Research state.** An artifact-backed view keeps question/scope and confirmed intent; hypothesis/specification versions; attempts and executions; observations/evidence; failures/diagnoses; attributed interpretations, contradictions and open questions; exposure and budget allocations. Distinguish facts, proposals and assessments, and unresolved questions from answers. Every entry cites sources. Rebuild the view from committed phase records/events on resume, without a second mutable memory authority or mandatory Research Graph. Start with the state required to run a small adaptive loop; extend it when a research move needs information the current view cannot supply.
 
-```text
-Research Frame + foundation ──seed──► RESEARCH GRAPH ◄── every move appends nodes
-                                            │ view built by code (open questions, latest results, budget)
-                                            ▼
-                                     Discover agent ── one move + reason (journaled)
-         ┌─────────────┬───────────────┬─────┴──────────┬──────────────┐
-      explore      hypothesize        test           interpret       finish
-     (tree)        (Theorist)   (pre-test → tree      (Theorist;     (candidate
-                                 → verdict)            Critic later)   claims)
-```
+**Working representation.** Agents can query what has been tried, which findings remain usable, which assessments conflict, which questions remain open, and which candidates are eligible for further work. Proposed opportunities cite their motivating records and remain proposals until selected. A derived Research Graph may index these relations; its entries and summaries are rebuildable projections. Parallel sessions receive a recorded state version, and their outputs identify the inputs they actually read.
 
-**Graph.** Files under `discover/graph/`, written once (§9). Every node has `id`, `kind`, `derived_from` (node ids), `branch` (a lineage label), `artifact` (the tree node, `results.json` or attempt it rests on), `by` (role) and `reason`.
+**Scientific next-move ownership.** `discover/` owns one scientific next-move policy across phases. It reads the sourced research state, consumes phase-owned diagnoses and proposes a `ResearchMove`; phases retain authority over diagnosis and the meaning of their artifacts. The coordinator schedules the selected move and enforces run-wide limits. The harness checks access, identity, artifact and execution integrity. Neither coordinator nor harness duplicates or overrides scientific ranking policy.
 
-| Node kind     | Written by           | Holds                                                                                         |
-| ------------- | -------------------- | --------------------------------------------------------------------------------------------- |
-| `question`    | Code, at seeding     | Frame questions, directions and unknowns, and foundation concerns and weak operationalizations, keeping their stable ids |
-| `observation` | `explore`            | Named results and figures of the best `explore` node for one focus question                    |
-| `hypothesis`  | `hypothesize`        | A hypothesis in the contract of §4 with `origin` and predictions; candidates not pursued stay as nodes |
-| `result`      | `test`               | Pre-test description, test specification, evidence manifest, stability label and verdicts     |
-| `assessment`  | `interpret`, Critic  | What a result changes: questions closed, questions opened, rivals raised; an attributed opinion, never a label |
+**ResearchMove contract.** Every proposed scientific move records: objective; evidence trigger and source references; candidate action and affected or proposed hypothesis/specification when applicable; expected discriminating value (what possible observation would distinguish); estimated resource cost; and stopping condition. It also records assumptions, provenance/exposure, and whether the move is exploratory, technical repair, measurement repair, refinement, pivot, reframe, acquisition or stop. Reject incomplete proposals with actionable feedback; retain the proposal and disposition. A move is a proposal until the coordinator schedules it under run-wide limits; scheduling does not change its scientific meaning.
 
-A question is closed by an `assessment` that cites it, never by editing it. Dead ends and null results stay in the graph and in the paper.
+**Budget allocation.** A replaceable `BudgetAllocator` strategy owned by adaptive search recommends allocate, continue, pause, stop or reallocate for eligible candidates under the run's configured limits. It considers expected discrimination, unresolved uncertainty, relevance, feasibility, diversity and estimated cost. It may not optimize significance, favorable direction or agreement with prior expectations. Record allocation, rationale, observations and displaced alternatives. The coordinator applies the global caps and schedules the recommendation; it does not invent scientific value scores. Reallocation preserves prior spend, work and exposure.
 
-**Moves.** The agent's tools; each returns the new node ids, and each choice is journaled with its target node and reason.
+**Scientific identity.** Distinguish question, hypothesis, intended test/specification version, measurement implementation/code revision and execution. Record the primary estimand, effect scale/null, population/data selection, estimator/inference and adjustment choices needed to detect scientific changes. Existing operations and opaque Judge references are inputs to this refactor, not proof of a frozen specification. Each execution cites the test it actually implements. Changed preprocessing, sample selection, planned seeds/replications or inference effort is a scientific change when it changes that test or its measurement precision; check a proposed repair against the specification before accepting it as same-test repair.
 
-| Move                    | Does                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `explore(question)`     | Runs stage `explore` with the question as focus                                                                           |
-| `hypothesize(question)` | Theorist session: two or three candidates with origins and predictions, one chosen with a reason; code computes the hypothesis warnings (§4.4) and flags a primary estimand that repeats an existing hypothesis |
-| `test(hypothesis)`      | Pre-test description, test specification, stages `baseline` → `main` → `robustness`, verdicts                            |
-| `interpret(result)`     | Reads verdicts, stability and warnings; writes an `assessment` that closes or opens questions                            |
-| `finish`                | Names the `result` nodes offered to Communicate as candidate claims                                                       |
+**Typed transitions.** Diagnosis (§7.6) and adaptation are separate. Record trigger artifacts, diagnosis, author, reason, before/after identities and changed fields. Agents propose scientific changes; code enforces identity/access boundaries rather than judging scientific promise.
 
-Discover ends on `finish`, when no question is open, or at its budget. Later moves (`challenge` by the Critic, a new Ground attempt, merging branches) add a row here and change no node kind.
+For computed hypothesis-support standing, the specification/hypothesis must commit the null, direction, comparison or decision rule, and any margin before the execution that produces the evaluated evidence. A rule declared or changed after seeing that result is post-hoc: retain the measurement and provenance, but report support as exploratory/post-hoc rather than computed under a prespecified rule. A later refinement cannot retroactively make an earlier result prespecified.
 
-**Hypothesis origin.** Every hypothesis states how it was generated and derives from the nodes that produced it.
+| Transition | What stays the same | What changes and must be recorded |
+| --- | --- | --- |
+| Technical repair | Scientific specification | Code/execution to fix runtime or implementation failure |
+| Measurement repair | Intended scientific test | Measurement implementation to correct units, estimator, contrast or data-slice bugs; append invalidation of affected measurements, preserving old records |
+| Scientific refinement (`refine`) | Question and substantive hypothesis/primary estimand | New specification/version: changed method, adjustment or operational test; retain prior evidence |
+| Hypothesis pivot (`pivot`) | Scope, unless explicitly reframed | New hypothesis identity; retain prior hypotheses and negative/failed tests |
+| Reframing (`reframe`) | Provenance of prior study | New question/scope/frame; changes to researcher-confirmed intent require researcher input |
 
-| `origin`      | Method                                                                                          | `derived_from`                       |
-| ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `frame`       | Deduction from a question, direction or researcher hypothesis                                   | `question`                           |
-| `observation` | Induction or abduction from what exploration showed                                             | `observation`                        |
-| `rival`       | Strong inference [41]: an alternative explanation of an existing result (confounding, reverse direction, selection, measurement) | `result` and the challenged hypothesis |
-| `followup`    | A moderator, mechanism or anomaly an assessment opened                                          | `assessment`                         |
+Measurement repair restores the recorded intended test; a change to the intended test requires a scientific transition, not repair. Separate semantic specification changes from measurement/code revisions. Negative estimates, lost significance or contradiction are not technical defects. Corrections cannot erase exposure to earlier results. Resource pressure is a trigger, not an exemption: reducing sample size, dropping seeds, switching estimator or weakening an intended uncertainty calculation must be recorded as a scientific change. A faster implementation is technical repair only when the intended test and numerical fidelity remain unchanged.
 
-Code computes `suggested_by_test_data`: true when the hypothesis derives from an observation on the rows its test reads. It is printed beside the result; with the confirm partition on it is false by construction (§11).
+Refinement may change the analyzed slice while retaining the declared target estimand and disclosing any new generalization assumptions. A change to the target population, substantive contrast or primary estimand creates a new hypothesis/test (`pivot`), or a `reframe` when the question/scope changes. Restoring the already-declared contrast is measurement repair; deliberately changing the operational procedure while retaining the substantive estimand is a versioned refinement. A faithful faster implementation is technical repair. When the prior specification does not resolve that distinction, record uncertainty and propose a scientific change rather than infer a convenient repair identity after seeing results. Technical repair addresses runnable implementation; measurement repair corrects an affected empirical measurement, even if it also fixes runtime code.
 
-**Predictions.** A hypothesis states what must happen if it holds, written before its test:
+**Recovery and next moves.** `attempt → execute → observe → diagnose → ResearchMove → schedule`. Reuse tree debugging for technical repair; the Discover-owned policy composes phase diagnoses into a move. Do not create a second recovery policy in the coordinator. Bound total spend, local repairs and scientific revisits separately; preserve counts on resume; prevent unchanged retry cycles; preserve a path to communicate partial/negative results. Completion or negative/inconclusive evidence can close one test while motivating a sourced follow-up. Stop the run when its objectives are met, no justified next move remains, required routes are unavailable or configured resources are exhausted. Every attempt and unresolved failure stays visible.
 
-- `id`; `role`: `primary` (the primary estimand), `rival` (what a rival explanation predicts instead) or `auxiliary` (a secondary estimand);
-- the estimand it reads, `direction` (`positive`, `negative`, or `none` for a placebo or negative control), and an optional `threshold` in outcome units (the `sesoi` once measured, D17).
+**Risk: a closed epistemic loop.** Better self-healing can produce better execution and worse inference if the agent repeatedly changes the test, selectively retains favorable measurements or treats its own critique as final proof. Keep all attempts and their exposure/changes visible; distinguish repair from a new test; bound adaptation; and reserve validation standing for eligible locked validation (§11). Provenance makes this risk inspectable but does not statistically eliminate it.
 
-A rival prediction is tested where its type puts it (§4.4): an adjustment as a robustness variant, a negative control as an adversarial check.
+Choose revisit eligibility, limits and stopping rules before the revisit; require a sourced defect, unresolved scientific question or declared diagnostic trigger. Effect sign, significance, `stable` status, agreement with the expected direction and a flattering narrative are not completion/selection objectives. Discovery can respond to unexpected evidence with an attributed question or change; that remains adaptive exploratory work. Preserve initial and subsequent measurements with the reason and timing of selection. Blinding a Judge cannot prevent result-driven choices elsewhere in generation, preparation or routing.
 
-**Pre-test description.** Computed by code at the start of `test` from the estimand, from the primitives of §4.2, before any estimate exists, and written in the `results.json` schema: rows in the population and complete cases over the estimand's columns; exposure levels with rows per level, or exposure spread and support; outcome distribution in the population (skewness, zero, floor and ceiling share); co-missingness of the estimand's columns and missing share by exposure level; cluster count and sizes in the population; and, once that group is built, covariate balance across exposure levels. It never relates the outcome to the exposure: that relation is the test. Code reads it to compute method fit and the cluster warning (§4.5); the Theorist may revise the planned test once after reading it; the Analyst receives it as stage input; the paper renders the sample table from it.
+**Checkpoint, resume and fork semantics.** A checkpoint references committed input/output artifacts, identities and pending work; it never promotes scratch or an incomplete execution into evidence. Resume continues the same specification unless an explicit transition changes it. Fork means a new lineage from a committed checkpoint: same intended specification with code/measurement correction is repair, changed specification is refinement, changed hypothesis is pivot, changed question is reframe. A fork retains parent references, prior results, exposure and recorded resource allocations; it never gets a fresh validation entitlement or unjournaled reset. The first implementation uses append-only child attempts and existing resume, not a new branch manager, CLI fork command or copied run directories. Broader fork UX is optional later.
 
-**Test specification.** Frozen after the pre-test description and before `baseline`: estimand, estimator, inference, adjustment set, population. Its hash is the specification identity the Judge reference already carries (§5.3); every node of the test carries it.
+Transitions are bounded and typed. A route that is unavailable is recorded as deferred with its reason; it is not silently substituted or treated as completed. Start with a thin slice: generate two or three hypotheses, propose comparable ResearchMoves, select one next move, execute it and update sourced state. Repeat with the new state and retain the other candidates. This exercises the adaptive loop before parallel infrastructure. Additional agent roles are replaceable strategies.
 
-**Verdict.** Computed per prediction from the 95% interval of the selected `main` estimate (or the adversarial estimate for a `none` prediction); never written by a model.
+**Adaptive discovery (target).** Manage multiple hypothesis and specification candidates, their origins, selection reasons, allocated resources, dispositions and follow-ups. Origins can include frame, observation, rival, literature and follow-up [22]; cite artifacts and record whether test data suggested the hypothesis. Select for relevance, discriminating value, unresolved uncertainty and feasibility under declared objectives, without rewarding significance or agreement with an expected result. Add structured predictions/pre-test descriptions where they improve fidelity. Primary, rival and auxiliary tests have separate standing. Non-detection of a rival does not establish the preferred hypothesis; a control interval covering its null does not prove equivalence. Locked validation is optional and separately authorized (§11).
 
-| Interval                                                               | Verdict        |
-| ---------------------------------------------------------------------- | -------------- |
-| Excludes zero on the predicted side, and clears `threshold` when set   | `supported`    |
-| Excludes zero on the other side                                        | `contradicted` |
-| Within ±`threshold` (only when set)                                    | `negligible`   |
-| Otherwise                                                              | `inconclusive` |
-| `direction: none`: contains zero / excludes zero                       | `passed` / `failed` |
+Build incrementally around a small sequential multi-hypothesis loop and open MethodSpec, then strengthen recovery and evidence resolution, add lesson capture, and scale search to parallel branches with budget allocation. Minimal literature retrieval can join adaptive search; richer literature grounding and dataset/benchmark acquisition are separate extensions. Keep the scientist's feedback loop usable at each step.
 
-The verdict answers whether the result matches what the hypothesis predicted; the stability label (§5.5) answers whether it survives other analyses. Both are printed; neither sets the other. A hypothesis stands when its primary prediction is `supported` and its rival predictions are not. In observational designs `supported` is worded as an association consistent with the hypothesis (§10).
+**Concurrent branches (target).** Each branch owns its attempts and execution directories and cites its parent checkpoint and hypothesis/specification identities. Scheduling records allocations and selection decisions; shared commit and resource accounting must handle concurrent writers. Resume retains pending, completed and abandoned work without accepting incomplete evidence or duplicating an accepted execution. Shared findings enter the state through committed records; record which findings informed each subsequent choice. Parallelism never resets exposure or validation entitlement. Trees, tournaments, debate and PI/Discover agents implement these contracts as replaceable strategies (§2.2).
 
-**Evidence.** The `result` node is the unit Communicate cites: hypothesis and prediction ids, `origin`, specification hash, the evidence manifest of every attempt (§5.5), verdicts, stability and reasons, and two computed facts, `predicted_before_result` (the prediction precedes every execution of its test in the journal) and `suggested_by_test_data`.
+### 4.7 Evidence semantics and backward chain
+
+The target chain is `claim → measurement → specification → execution → code → data slice → assumptions/provenance`. It links records, not necessarily graph nodes. Every reported number resolves to a named measurement and execution. Each figure resolves to its generating code and source measurements. Provenance identifies origin; it does not establish fidelity, validity, or validation standing.
+
+| Dimension | Question | What it cannot establish alone |
+| --- | --- | --- |
+| Execution and coverage | Did execution finish and which requested samples/seeds/conditions/outputs were completed? | Fidelity, sensitivity or support; failed coverage is not negative evidence |
+| Provenance | Which code, inputs, slice, specification and execution produced this result? | That implementation measured the intended quantity |
+| Measurement fidelity | Are units, contrast, estimator, selection and implementation faithful to the intended test? | That assumptions hold or adaptive inference is valid |
+| Hypothesis support | What does the pre-execution declared comparison/decision rule say about this prediction? | Truth, equivalence from non-rejection, or valid post-selection inference |
+| Robustness sensitivity | How do comparable completed estimates change across declared variants? | Execution coverage or support; consistent null estimates can be insensitive |
+| Validation standing | What did an eligible locked protocol on suitable unexposed evidence conclude? | Universal truth, causal identification or transport to other populations |
+| Scientific validity | Does design/evidence justify the claim given assumptions, selection, multiplicity and exposure? | Broader generalization or causal identification without supporting design |
+
+Execution status, measurement validity, hypothesis support, robustness sensitivity and validation standing are separate concepts. Compute support only when its rule predates the evaluated execution; otherwise mark it exploratory/post-hoc. Model interpretation cannot promote evidence status. A corrected measurement appends a superseding record and invalidates dependent claims without deleting history. Refinement creates new evidence rather than replacing an unfavorable test.
+
+The research process maintains identity and feedback semantics. Claim verification checks that the paper faithfully reports committed evidence and flags unresolved, superseded, or invalidated lineage. It is separate from scientific assessment and the locked validation protocol in §11. Scientific validity may remain limited or unknown even with complete provenance and successful execution.
+
+**Evidence registry and claim resolver.** A derived index resolves claim and figure references through the chain above, using committed artifacts and named results as the single source. It exposes missing, invalidated and superseded links during research and publication. Domain owners define fidelity checks; the resolver checks references and standing without creating duplicate measurements or granting scientific validity. Start with the existing evidence manifests and result contracts.
 
 ## 5. Search engine
 
-One engine runs every Discover stage; a stage supplies only its goal, inputs and required outputs. Understand and Ground are agent sessions, not search stages (§4.1, §4.3). In Discover the stages run inside the `explore` and `test` moves (§4.6); the engine knows no graph.
+One engine runs every Discover stage; a stage supplies only its goal, inputs and required outputs. Understand and Ground are agent sessions, not search stages (§4.1, §4.3). Discover currently calls stages from the playbook; later feedback routing can reuse them. The engine knows neither a graph nor scientific transition policy.
 
 ### 5.1 Node
 
 - One attempt at the stage goal, built by one Analyst session (§6), which ends by submitting one self-contained script.
 - The harness re-runs the submitted script from scratch in the sandbox. Only that run's results file, figures and log count.
-- **Results file** `results.json`: named results `{name: {value, ci?, n?, note?}}`, names matching `[A-Za-z][A-Za-z0-9_]*`. A stage or Ground declares the names it requires (e.g. `rows_before`, `rows_after` in Ground); a missing one fails the code checks. Rendering, audits, specification curves and Verify read only this file.
-- Metadata: `id`, `parent`, `stage`, `kind` (`draft`, `debug`, `improve`, `variant`, `adversarial`), `status` (`ok`, `buggy`), `score`, `debug_depth`, `reason` (one line).
+- **Named results:** each execution records result names with values and any associated uncertainty, sample size, or note. A phase declares required results; missing required evidence fails its contract. Rendering, audits, robustness summaries, and validation read committed results rather than reconstructing numbers from prose.
+- An attempt records its stage, ancestry, type, outcome, assessment, and reason.
+
+### Execution boundary
+
+An experiment specification declares the intended test independently of its execution backend. An executor consumes that specification and its committed inputs, then returns an execution record with the produced code, environment identity, logs, outputs, and completion/resource observations. Local, container, remote, and domain-specific backends are interchangeable only when they preserve the same scientific identity, access controls, fresh-execution rule, provenance, and named-result contract. Executor failures are diagnosed separately from scientific outcomes. Executors cannot revise a specification or promote evidence standing.
+
+The target boundary is `ExperimentSpec → Executor → ExecutionArtifact`: semantic contracts, not a requirement to introduce new classes or a service. Concurrent executions use exclusive output locations and shared resource accounting. Cancellation, timeout and partial completion leave recorded status and diagnostics; only committed, accepted outputs enter the evidence chain.
 
 ### 5.2 Step policy
 
-Each step starts one Analyst with a task chosen by:
-
-1. fewer than `min(num_drafts, steps − 1)` drafts (at least one) → **draft**, so every stage keeps a step to debug or improve; the Analyst sees summaries of earlier drafts and must take a different approach;
-2. else with probability `debug_prob` → **debug** a `buggy` leaf with `debug_depth < max_debug_depth`;
-3. else → **improve** the best `ok` node.
-
-Defaults: `num_drafts = 3`, `debug_prob = 0.5`, `max_debug_depth = 3` [1]. A stage ends at its step budget, when an `ok` node meets the goal, or after `patience` steps without a better score.
+The Discover-owned policy compares ResearchMoves across candidate hypotheses/specifications; it balances new candidates, follow-ups, and recovery without duplicating stage-level code selection. `BudgetAllocator` is a replaceable strategy within that policy. It recommends allocation and stopping under explicit run-wide caps; all recommendations, decisions and abandoned alternatives are recorded. Search and allocation must preserve failed and superseded attempts and must not reward favorable estimates or significance [1].
 
 ### 5.3 Node evaluation
 
-1. **Code checks.** Non-zero exit, timeout, missing required output, invalid results file or out-of-range declared value → `buggy`, no model call.
-2. **Judge.** A separate session reads projected code, results and figures, writes an analysis, and returns the typed answers of §8. It scores validity, completeness and fidelity, never effect size, sign or significance [24]. Experiment input masks source literals, including signed numbers, except validated outcome/exposure column names projected to role aliases. A code-owned reference supplies closed method vocabulary and specification identity, never raw hypothesis prose or expected direction. Robustness references follow each attempt's recorded operations, including its transforms. Free-form logs/notes/context and result values/intervals are withheld. Only code-generated sample-count diagnostics are attached; unblinded result figures are publication artifacts. Non-experiment stages attach validated PNGs normally. `figure_issues` records presentation reasons, including on schema correction.
-3. **Selection.** Highest-scoring `ok` node; ties go to the earlier node. The best node seeds the next stage. Every `ok` node's estimate is still reported (§5.5), so selection cannot hide the spread of attempts.
+1. **Integrity checks.** Deterministic checks determine whether an execution completed and produced its required evidence. Invalid or incomplete outputs are not accepted as empirical results.
+2. **Independent assessment.** A separate assessment evaluates validity, completeness, and fidelity without rewarding effect size, direction, or significance [16]. It may receive the information needed to diagnose fidelity, while its assessment cannot establish scientific validity.
+3. **Selection.** The stage selects among eligible attempts under its declared goal and policy. All attempts and their estimates remain visible so selection cannot hide the spread of outcomes.
 
-Each check has a test that it fires on a bad fixture and stays silent on a good one [37].
+Current execution assessment is coarse: execution and measurement concerns can share a status. Typed feedback distinguishes them (§7.6). Judge blinding is a baseline policy, not a core invariant. Assessments may use declared contrast, units, or implementation details needed to identify fidelity defects, but must not rank work by effect size or significance. Neither a score nor successful execution establishes scientific validity.
 
 ### 5.4 Stages
 
@@ -318,23 +347,28 @@ Each check has a test that it fires on a bad fixture and stays silent on a good 
 | ------------ | ----------- | ------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------- |
 | `explore`    | Exploration | Relations involving the outcome, group differences relevant to the questions; flag surprises | prepared data (explore rows when the confirm partition is on), initial data analysis, foundation | observations with figures |
 | `baseline`   | Experiment  | Simple, transparent model or test for the hypothesis                                  | clean data (confirm rows when the partition is on), hypothesis | key estimate with interval, figure |
-| `main`       | Experiment  | Planned analysis and the follow-ups results call for                                  | best `baseline`        | estimates with intervals, figures     |
+| `main`       | Experiment  | Planned analysis under an identified specification; follow-ups need explicit transitions                                  | best `baseline`        | estimates with intervals, figures     |
 | `robustness` | Experiment  | Multiverse and adversarial checks (§5.5)                                              | best `main`            | main estimate under every variant     |
 
-Experiment stages are separate; default step budgets are baseline 3, main 6, robustness 6. `search.stage_steps` overrides individual stages. New robustness schedules reserve a step for repair; recorded schedules remain replayable. Scheduled attempts run before repairs and do not stop on goal/plateau; repairs retain specification identity and consume the same budget. Failed execution feedback includes stdout and stderr so repairs can see the underlying fit failure as well as the final exception.
+Experiment stages have separate budgets and stopping conditions. Robustness schedules are committed before execution and remain replayable; repairs consume the declared stage budget. Same-test repairs retain scientific identity, while changes to the intended test require a version and transition (§4.6). Execution feedback preserves enough diagnostic evidence to explain failures.
 
 ### 5.5 Robustness and stability
 
-- **Variants** [21, 22], each re-estimating the main effect: data choices (exclusions, outlier rules, missing-value handling, codings); model choices (covariates, functional form, estimator); resampling (bootstrap, subgroups). Diagnostic-triggered variants (§4.5) and rival checks of type `adjustment` (§4.4) are required variants. Every variant re-estimates the same estimand; anything else stays out of the stability denominator.
-- **Adversarial checks**, at least one [7, 17]: placebo outcome, negative-control exposure or outcome, or permutation of the key variable; rival checks of type `negative_control` are added here. Confounding sensitivity bounds such as the E-value [27], including rival checks of type `sensitivity`, are reported beside the label and do not set it.
-- **Specification curve** of sorted estimates with intervals across variants and across every `ok` node of the experiment stages [23].
-- **Stability label**, computed: `stable` iff the estimate keeps its sign with an interval excluding zero in ≥ `stability_share` (default 0.8) of variants and no adversarial check fails; else `fragile`. When a run tests k hypotheses, the intervals the label reads are at level 1 − α/k. The label is independent of the prediction verdict (§4.6).
+**Implemented baseline.** A recorded schedule runs ordinary variants plus one seeded exposure permutation with the same contrast/estimator. This permutation is a diagnostic, not a calibrated permutation test. Table/curve and evidence manifest retain successful baseline/main/robustness attempts, repairs and placebo estimates; failed/missing attempts remain visible. A repaired specification's representative is its highest-scoring successful node, earliest on ties.
 
-The current executable adversary is one seeded exposure permutation using the same contrast/estimator; its `placebo_estimate` interval must contain zero (endpoints included). This is a diagnostic, not a calibrated permutation test. Require at least `min_variants=3` successful ordinary specifications. Failed/missing planned variants stay in the denominator; failed/missing adversaries force `fragile`. Ordinary intervals touching zero do not support stability. Main sign, not expected hypothesis direction, is the reference; no extra main-significance gate is imposed. All successful baseline/main/robustness attempts, including repairs and placebo estimates, remain in the table/curve. A repaired specification's representative is its highest-scoring successful node, earliest on ties.
+Current code requires at least `min_variants=3` successful ordinary specifications. It computes `stable` when at least `stability_share` (default 0.8) of scheduled variants have intervals excluding zero with the main sign and the adversary's interval contains zero (endpoints included). Failed/missing variants stay in the denominator; failed/missing adversaries force `fragile`. This label mixes directional support, execution completeness and sensitivity; it is not confirmation or a general validity verdict.
+
+**Semantics to refactor.** The zero-centered rule needs explicit effect scale/null: a ratio's null is 1. Same-estimand comparisons require comparable contrasts, scales and populations; a changed subgroup can be a secondary estimand. A null-consistent result is scientific evidence, not implementation failure. Keep existing artifacts and rendering, but make label reasons and unsupported/comparison cases explicit; never silently reinterpret old runs.
+
+Separate (1) requested/completed coverage and failures, (2) observed sensitivity among completed comparable variants, and (3) support under the declared null/direction rule. Missing or non-comparable evidence makes sensitivity unavailable/limited, not automatically high; consistent intervals spanning the null may show little sensitivity with inconclusive support. No declared rule means unknown support. A placebo interval containing the null is only a diagnostic observation, not proof of a valid design or absence of bias.
+
+`stable`/`fragile` may remain a compatibility summary of the legacy rule, with its rule/version and reasons explicit. Old runs retain their original zero-centered computation; a corrected scale-aware rule needs a new version. New reports must display the separate dimensions beside any compatibility label and keep standing exploratory. Neither label is general scientific standing, and `fragile` alone does not make an unsupported positive claim acceptable. The minimum-variant count, 0.8 share and seeded placebo are replaceable defaults without established error calibration.
+
+**Later extensions.** Robustness [14, 15] tests sensitivity to justified processing, specifications and resampling, with adversarial checks [6, 11]. Rival/auxiliary tests and confounding sensitivity bounds  have separate semantics rather than being indiscriminately put in a stability denominator. Separate support, sensitivity and measurement completeness. Diagnostic-triggered variants and prediction verdicts are later scope. Multiplicity/adaptive selection require a defined family and protocol; `1 − α/k` over only the final reported hypotheses does not account for all adaptive attempts.
 
 ### 5.6 Analysis checklist
 
-Carried in the Analyst and Critic prompts [24, 26, 28]; enforcement is by checks and labels, not the prompt:
+Guidance for Analyst and later challenge prompts [16, 18, 19]. Integrity checks are enforced in code; methodological advice supplies diagnosis/refinement rather than pretending a prompt guarantees validity:
 
 - justify a processing choice by validity, never by the relation it produces;
 - flag derived variables that use the outcome;
@@ -343,29 +377,26 @@ Carried in the Analyst and Critic prompts [24, 26, 28]; enforcement is by checks
 - choose assumption handling from descriptive measures, not normality or variance tests;
 - keep association distinct from causation in observational designs.
 
-## 6. Roles
+## 6. Roles and independent challenge
 
-A role is a prompt, a tool set and a model route. A role gets its own session only when it needs different tools or an independent context.
+A role is a prompt, tool set and model route. A separate session is useful for different access or independent challenge; a large multi-agent topology is not required.
 
-| Role         | Responsibility                                                                                      | Tools                                                         | Session reason                 |
-| ------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------ |
-| **PI**       | Runs phases; in agent form, chooses next work, goes back, asks the researcher | playbook; later stage, hypothesis, memory, ask-researcher     | Only writer of run-level files |
-| **Discover agent** | The PI's form inside Discover: chooses one move at a time over the research graph and names candidate claims; never writes hypotheses, results or assessments (§4.6) | read artifact; moves `explore`, `hypothesize`, `test`, `interpret`, `finish` | Reads the graph, not role sessions |
-| **Theorist** | Understand: explores, critiques and synthesizes the Research Frame, asks the researcher, revises from review signals and Ground concerns; Discover: hypotheses with origin, predictions, rivals and planned tests, and interpretation of results (§4.6) | read artifact, ask researcher, submit frame; later literature search | No code tools                  |
-| **Data Steward** | Ground: understands, repairs, interrogates and assesses the data; proposes the operationalization and concerns | inspect data, run snippet, view figure, read artifact, submit ground | Runs code; never edits the research context |
-| **Analyst**  | Builds one node                                                                                     | inspect data, run snippet, view figure, read artifact, submit | Only role that runs code       |
-| **Judge**    | Scores one node with typed answers                                                                  | none                                                          | Independent of the author      |
-| **Critic**   | Tries to break hypotheses and main results; scores hypotheses on the §4.4 rubric; proposes adversarial checks; rubric review of the draft | read artifact, view figure                                    | Independent of the author      |
-| **Writer**   | Writes and revises the paper from artifacts, checks and critique                                    | read artifact, view figure, literature search                 | Long-form output, own template |
+| Role/function | Current responsibility | Target extension or strategy |
+| --- | --- | --- |
+| Coordinator / PI playbook | Phase order, bounded reframe, review/resume, status | Explicit feedback routing; optional agent PI later |
+| Theorist model route | Understand's framing session; reused by Discover for hypothesis and robustness-plan calls | Richer generation/interpretation in the owning phase with sourced state |
+| Data Steward | Code-checked preparation, operationalization, concerns, readiness | Late new Ground attempts when recovery routes support them |
+| Analyst | Builds/tests one node | Same-specification repair and explicit scientific change proposals |
+| Judge | Separate-context typed node assessment | Refine fidelity assessment; not final validation |
+| Writer | Template publication from artifacts | Claim audit and bounded revisions from challenge |
+| Independent scientific challenger | Not implemented as a baseline scientific role | Fresh context, Critic, debate or another bounded mechanism |
+| Discover agent | Not implemented | Optional research-move selection using the same contracts |
 
-Topology constraints:
+**Generation versus challenge.** Start a challenger from committed hypotheses/interpretations/drafts and evidence, without inheriting the generator's conversation as unquestioned premises. It can raise rivals, contradictions and discriminating checks. Assessments are attributed; they cannot edit evidence, labels or confirmed intent. Self-reflection can help but does not satisfy separation by itself. Fresh context reduces conversational self-confirmation, yet the same model can share biases; debate agreement is not independent validation.
 
-- one PI per run, and the Discover agent is its form inside Discover; role sessions and moves run one at a time and communicate only through artifacts and graph nodes;
-- at most two hand-offs per node (Analyst → Judge) [37]; Understand and Ground are single sessions with code-checked submits;
-- no role writes another role's outputs;
-- parallel Analysts, hypothesis tournaments and hierarchical planners are evaluation challengers, not defaults (§14).
+Sequential sessions and artifact hand-offs describe the current baseline. Target search can use generate → critique → revise, independent review, debate and tournaments, with attributable selection reasons and branch contracts. No topology is mandatory, and LLM scarcity is not a reason to exclude these strategies from the design. Existing systems motivate adoption; later local comparisons refine effectiveness and defaults (§13). No role writes another role's outputs.
 
-Researcher input (research-context answers and review, hypothesis choice, framing edits, notes) is recorded with `supplied_by: researcher` and shown in the paper as `researcher_steered` [6, 8].
+Researcher answers, review and later hypothesis/scope choices are attributed. Autonomous routes cannot silently revise confirmed intent.
 
 ## 7. Harness
 
@@ -373,38 +404,18 @@ Makes agent work recorded, bounded and recoverable. Holds no research logic.
 
 ### 7.1 Agent loop
 
-- A session is a tool-use loop on the configured model route.
-- A tool is a name, a JSON schema and a handler returning text or an image.
-- Tools with structured inputs derive their JSON schema and validation from the same typed input model. Input validation completes before the handler runs; phase-specific checks remain in the phase.
-- A session ends on its terminal tool (`submit`, `submit_frame`, `submit_ground`, `finish`, `answer`) or its turn limit. A terminal tool may carry a code check: a failure returns to the model as a tool error and the session continues, up to its submit limit.
-  Calls in a batch run in order. The first accepted terminal submission ends dispatch; each rejected submission consumes one rejection allowance. Calls received after acceptance or exhaustion of that allowance are journaled as skipped without invoking their handlers.
-- Transient provider errors (throttling, timeouts, 5xx) are retried with backoff inside the model client and journaled; they are never research steps.
+An agent session uses a configured model route and a bounded set of phase-appropriate tools. Structured submissions are validated before their effects are accepted; phase-owned checks define domain semantics. A rejected submission returns actionable feedback within the session budget. Provider transport recovery is journaled but is not itself a research attempt.
 
 ### 7.2 Tools
 
-| Tool                | Contract                                                          | Limits                                    |
-| ------------------- | ----------------------------------------------------------------- | ----------------------------------------- |
-| `inspect_data`      | Schema, head, summary, missing counts of a stage input            | Stage inputs only                         |
-| `run_python`        | Runs scratch code in the node's scratch folder, returns output    | Sandbox of §7.4; recorded, never a result |
-| `view_figure`       | Sends a figure to the model                                       | Run folder only                           |
-| `read_artifact`     | Reads results, analyses, change logs, framing, hypotheses, memory | Run folder only; no raw rows              |
-| `submit`            | Terminal; the script run as the node                              | Once per Analyst session                  |
-| `submit_frame`      | Terminal; research-context patch and framing, checked by code; a failure returns to the Theorist | `understand.max_submits`     |
-| `submit_ground`     | Terminal; script re-run from scratch plus operationalization and concerns, checked by code; a failure returns to the Steward | `ground.max_submits` |
-| Discover moves      | `explore`, `hypothesize`, `test`, `interpret`, `finish` (terminal); each runs its stage or role session and returns new graph node ids (§4.6) | Discover agent only; Discover budget |
-| `search_literature` | Metadata and abstracts of prior work                              | Concepts only, never data values          |
-| `ask_researcher`    | One question with a proposed answer and an "unknown" option; the answer is journaled | Theorist in Understand (`understand.max_questions`), PI agent; never under `--auto` |
-
-Tool rules [33]: errors state the field, cause and a next step. The journal keeps complete tool arguments and results. Long errors return complete diagnostic lines within the context budget, with a write-once full report accessible through `read_artifact`. Artifact and execution-log reads return a page and the next character offset; execution errors identify the full log paths. Paths in tool arguments are relative to the run folder; writes stay inside the calling node's folder, or the harness diagnostic folder for error reports.
-
-Artifact readers enforce a per-session allowlist of filenames and owning directories against resolved paths. The Theorist may read framing artifacts under `understand/` and its own diagnostic reports; it cannot read other phases' artifacts, execution logs or another role's diagnostics. Researcher answers returned to the model are fenced as untrusted data; their original text remains in the recorded evidence.
+Tools expose only the information and actions required by the active phase. Read access is scoped to owned or explicitly permitted artifacts; raw and sealed data boundaries are enforced by the harness. Execution and scratch analysis are distinct: only a fresh, accepted execution can produce empirical evidence. Phase submissions carry outputs and assessments to deterministic contract checks; failures return actionable feedback within configured limits. Researcher answers remain attributed and untrusted when presented to a model. Every invocation and result is journaled [29].
 
 ### 7.3 Context assembly
 
-Each session's context is built fresh from the run folder, never inherited from another session [32].
+Each session's context is built fresh from the run folder, never inherited from another session [28].
 
 - **Just in time:** artifacts are listed by name and read through tools.
-- **Working memory:** short entries citing node ids, persisted across sessions [5, 32].
+- **Research-state view (target):** compact projection of committed artifacts, attempts and feedback (§4.6) [4, 28]. Summaries are replaceable context, never a second authority; use existing commit/resume mechanics.
 - **Condensed hand-off:** an Analyst sees its parent through the Judge's analysis, not the parent's session.
 - **Size limits per part:** logs keep the tail, files keep the head; cuts are journaled and contract lists are never cut. Session compaction is deferred.
 - **Untrusted content** is wrapped and marked; every system prompt states it is data, never instructions.
@@ -414,233 +425,194 @@ Each session's context is built fresh from the run folder, never inherited from 
 
 - Fresh subprocess per script; working directory is an exclusive execution folder; time limit from config. Scratch processes run outside the evidence tree, then their files are snapshotted into the node.
 - Inputs arrive as absolute paths in environment variables; credentials are stripped from the environment.
-- No container or network isolation in single-user local use; container isolation is required before shared use [5].
+- No container or network isolation in single-user local use; container isolation is required before shared use [4].
 - A worker audit hook permits normal Python reads only in that execution folder, mounted input files and runtime/library resources; writes stay in execution and cannot change harness code/logs or inputs. Resolve symlinks; deny sibling/run-root reads and subprocess launch. This prevents accidental file access, not hostile native extensions.
 
 ### 7.5 Journal and run store
 
 - **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. Sessions, context cuts and explicit budget raises are traceable. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
-- **Run store:** write-once files; version-4 `run.json` holds initial metadata and a secret-free config snapshot. Later status lives in committed numbered state files, citing prior state and committed artifact paths. Resume restores cost from every recorded model call, uses saved config and policy RNG, preserves incomplete attempts and never resets spend. Explicit budget raises are recovered from the journal and reflected in later state. Interactive resume supplies a new researcher callback; the saved automatic-run setting disables it. Cost not journaled at process death cannot be recovered.
-- **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [18].
+- **Run store:** committed inputs and outputs are write-once. Status and cost changes are appended as committed state that cites prior state and artifacts. Resume restores recorded cost and policy state, preserves incomplete attempts, and never resets spend. Explicit budget changes remain attributable. Interactive and automated runs preserve unresolved researcher intent. Unrecorded cost at process death cannot be recovered.
+- **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [12].
 
 ### 7.6 Budgets and failures
 
-Money caps, token prices and cache-price multipliers must be finite and nonnegative. Zero is valid for a zero-spend cap or free usage.
+Resource caps are finite and nonnegative. Limits apply separately to run cost, agent sessions, analysis attempts, local repairs, and scientific revisits. Validation exposure accounting follows §11.
 
-| Budget   | Examples                                  | Effect                       |
-| -------- | ----------------------------------------- | ---------------------------- |
-| Resource | money, turns per session, steps per stage | Hard stop; shown as progress |
-| Search   | drafts, debug depth                       | Shapes the step policy       |
-| Error    | looks per result                          | Verify only (§11)            |
+LLM capacity is expandable. Configurable budgets cap and allocate work among candidates, challenge and executions. `BudgetAllocator` recommends how the adaptive-search budget is distributed; coordinator enforces the total cap and schedules. Budgets provide explicit stopping and are not a fixed product capability limit. Concurrency limits also protect executor capacity and consistent accounting. Increasing resources permits more work under the same contracts, without relaxing integrity or exposure rules.
 
-| Failure class | Example                                 | Handling                               |
-| ------------- | --------------------------------------- | -------------------------------------- |
-| Technical     | throttling, timeout, 5xx                | Retry with backoff; journaled          |
-| Research      | script error, missing output, no submit | Node is `buggy`; informs the next step |
-| Budget        | money cap reached                       | Clean stop; status `budget_exceeded`   |
-| Terminal      | stage ends with no `ok` node            | Clean stop; status `failed:<stage>`    |
+Provider transport errors currently use backoff. Many node runtime/output/assessment problems share `buggy`; stages without an `ok` node stop. Preserve these paths while separating feedback semantics. This is the target taxonomy, not a claim that every class exists today:
 
-No failure path edits a recorded artifact. Resume restarts from the last completed node, using the run folder and journal as the progress record [34].
+| Failure/outcome class | Example | Handling |
+| --- | --- | --- |
+| Provider transport | Throttling, request timeout, 5xx | Bounded backoff; not a scientific attempt |
+| Execution/technical | Script timeout, dependency/runtime error | Technical repair if specification can be retained |
+| Implementation | Wrong API or code logic | Same-test technical repair; diagnose measurement impact before accepting results |
+| Measurement | Wrong units, contrast, slice or estimator implementation despite successful exit | Measurement repair; append invalidation. A changed intended test is refine/pivot/reframe according to identity (§4.6) |
+| Scientific | Negative/contradictory evidence, low precision, unsupported assumption | Report, refine, pivot or reframe with proper identities; not `buggy` merely for unfavorable evidence |
+| Validation | Not supported/inconclusive under a locked protocol; protocol violation | Record outcome separately from execution failure or invalid validation; no adaptive retry on exposed evidence |
+| Integrity/access | Untraceable/fabricated evidence, unauthorized inputs/writes, sealed access | Hard-block action; preserve diagnostics; no scientific override |
+| Resource/terminal | Money/turn/revisit cap, no executable result | Clean stop and explicit reason; best available partial output where possible |
 
-Only an explicit, journaled researcher action may raise a stopped run's money cap; agents and config reloads cannot. Raising the cap never resets recorded spend.
+Class diagnoses the problem; transition chooses the change (§4.6). Provider retry, tree debug, measurement correction and hypothesis pivot are not one retry counter or success metric. Bound each inside the total budget; preserve spend/counters and observations informing changes on resume.
+
+No failure path edits artifacts. Resume uses committed attempts and journal . Only an explicit journaled researcher action may raise the money cap; agents/config reloads cannot. Raising it does not reset spend or evidence exposure. Record requested versus completed sample/seed/condition coverage and relevant environment constraints; unknown termination is not automatically OOM. A runtime timeout is observed feedback, while its scientific diagnosis is an attributed assessment. Environment/package changes stay explicit and generated scripts do not install undeclared dependencies or receive credentials.
 
 ### 7.7 Progress
 
 One terminal line per phase and per node, e.g. `[data] data-002 debug → ok score 7 · $0.41`; `--quiet` disables it.
 
+### 7.8 Artifact contracts, integrity sentinel and human escalation
+
+These primitives strengthen the existing harness/phase boundary [32]. Current `StageSpec` inputs/required outputs, typed submit handlers, execution logs, access allowlists, journal, run-store commits and researcher review are foundations. Generalized contracts, enriched diagnosis and graceful finalization are target refactors/extensions, not fully shipped capability.
+
+**Artifact contracts.** Each existing step declares permitted input artifacts/versions, required or optional outputs, structural checks, owning producer and completion conditions. An output identifies its sources and, when scientific, hypothesis/specification/execution. Pass committed paths/references in hand-offs rather than unsupported context assertions. Optional figures or a PDF cannot invalidate an otherwise faithful measurement; missing required empirical evidence cannot be replaced by prose. Start with current typed models and stage checks; no universal artifact ontology, new registry service or duplicate evidence copies.
+
+**Deterministic sentinel/watchdog.** A logical layer checks allowed access/writes, artifact/schema/reference integrity, execution completion, resource limits and evidence backing before release. Phase-declared validators own domain semantics. The sentinel returns machine-readable observations and enforces integrity boundaries, while scientists diagnose/refine and the coordinator routes. It does not judge novelty, whether a hypothesis should be pursued, or statistical truth. Suspicious-but-possible scientific observations create warnings/challenge, not automatic rejection. Independent monitoring/heartbeat services are optional strategies if hung work or deployment requires them; no sentinel agent or daemon is required.
+
+**Targeted HITL.** Ask at unresolved decisions that materially change researcher intent, operationalization, scope or a validation commitment. Routine same-specification repair and harmless execution scheduling do not need approval. Reuse existing research-context questions and review first, then add decision-specific escalation with trigger, options, consequences and recorded resolution. A proxy with materially weaker meaning needs explicit provenance and escalation when it changes confirmed meaning; other proposals may proceed with limitations. Under `--auto`, unresolved decisions retain proposed/unknown standing or defer; silence never confirms intent. Targeting future escalation does not remove the current initial review/resume contract by stealth. Resource cap raises remain explicit researcher actions (§7.6).
+
+Human collaboration is therefore a targeted decision boundary rather than an approval step at every phase. The system presents the decision, alternatives, likely consequences, and relevant evidence; the researcher's response is attributed and committed. Unresolved decisions remain proposed or deferred.
+
+**Graceful degradation.** Partial, inconclusive and exploratory-only reports are valid products when their standing, missing coverage and stop reasons are visible. Distinguish coverage (partial/complete), scientific outcome and validation standing from operational run status. Keep accepted measurements, invalidate affected ones by appended record and block unsupported claims, not the diagnostic report as a whole. With no accepted empirical measurement, emit a failure/diagnostic report with no empirical findings; do not manufacture a completed study. Preserve a cheap deterministic report path when no model budget remains; PDF failure preserves source/logs. Start by making committed outcomes and reasons readable, then extend publication fallback without adding a parallel writer.
+
 ## 8. Decision layer
 
-Judge verdicts are typed answers; code reads the fields, prose goes to the node analysis.
+Current Judge verdicts are typed assessments. Decision-model substitution, shadow/on modes and hypothesis ranking below are future strategies, not requirements of the current pipeline.
 
 | Question          | Asked by        | Type             |
 | ----------------- | --------------- | ---------------- |
 | `node_buggy`      | Judge           | bool             |
 | `goal_met`        | Judge           | bool             |
-| `node_score`      | Judge           | int 1–10         |
-| `hypothesis_rank` | PI (agent form) | score per option |
+| `node_score`      | Judge           | float 1–10       |
+| `hypothesis_rank` (future) | Optional PI agent strategy | score per option |
 
-- **Answerers:** the LLM Judge (default, reference) or a decision model returning typed choices, probabilities and scores with confidence [38]. Adding one changes no interface.
+- **Answerers:** the LLM Judge (default, reference) or a decision model returning typed choices, probabilities and scores with confidence [31]. Adding one changes no interface.
 - **Modes per question:** `off` (Judge only); `shadow` (both answer, Judge used); `on` (decision model used above a confidence threshold, else Judge).
-- **Shadow records:** both answers and their inputs are journaled; evaluation computes agreement, calibration and cost, and a question moves to `on` only if the decision model matches or beats the Judge.
+- **Shadow records (future):** retain both answers and their inputs for comparison with independent assessment. Agreement with the Judge is a diagnostic, not correctness ground truth. Authority can change only within the evaluated scope; a confidence threshold alone does not establish scientific reliability.
 - **Limits:** chooses among given options or scores given facts; never writes code or prose; never computes what code can; never overrides a code check or label.
 - **Fallback:** provider unavailable or malformed answer → Judge's answer, reason journaled.
 
-## 9. Data model
+## 9. Research records and state
 
-```text
-runs/<run_id>/
-  run.json                 immutable config/inputs/hashes, initial status, format_version
-  journal*.jsonl           append-only event segments and authoritative commits
-  state/<sequence>.json    committed status/cost snapshots with artifact references
-  research.md              research context as given (validated)
-  data/                    discovery raw.csv, holdout.sealed, split.json (holdout rows; confirm rows when on),
-                           processed.parquet, ida-raw.json, ida.json (one per accepted Ground attempt)
-  understand/attempt-*/    research.json/.md (cleaned research context), framing.json, questions.json, warnings.json,
-                           review.yaml; then the researcher-reviewed attempt
-  ground/attempt-*/        submit-*/execution/ (script, processed.parquet, changes.json, results.json),
-                           operationalization.json, concerns.json, readiness.json
-  hypotheses/attempt-*/   one primary estimand, rival explanations, refuting result, warnings, method fit,
-                           tested_on, sources/attribution
-  discover/graph/          append-only research-graph nodes (question, observation, hypothesis, result, assessment)
-  discover/pretest/        pre-test description and frozen test specification per tested hypothesis
-  discover/robustness/     versioned validated schedule before executions
-  discover/evidence/      versioned evidence manifest and numerical summary results.json
-  tree/<stage>/<node_id>/  execution/, scratch/, judge_figures/, meta.json, analysis.md
-  memory.md                working memory citing node ids
-  critiques/               Critic assessments citing node ids
-  report/attempt-*/        Writer replies, curve inputs/execution, paper.tex, report.json
-    build-*/               immutable PDF/compiler snapshots from temporary scratch
-```
+The authoritative record is the append-only history of committed inputs, phase outputs, executions, results, assessments, and decisions. A record identifies its owner, sources, and relevant research and specification identities. Corrections and new interpretations append records; they do not overwrite the evidence that prompted them.
 
-| Content kind    | Examples                                                           | Changed by                                 |
-| --------------- | ------------------------------------------------------------------ | ------------------------------------------ |
-| Source artifact | data versions, code, results, figures, logs                        | Never; a new node or version               |
-| Assessment      | Judge analyses, critiques, figure reviews, paper review, decisions | A new attributed assessment beside the old |
-| Working memory  | memory entries                                                     | Appended by the PI, each citing artifacts  |
+The research-state view is a sourced projection of these records. It distinguishes researcher-confirmed intent, agent proposals, observations, attributed assessments, unresolved questions, and computed statuses. It can be rebuilt from committed history and is not a second mutable authority. A graph or index may accelerate queries, but cannot become a competing source of scientific truth.
 
-Every assessment and memory entry cites the artifacts it rests on.
+Scientific identity links the research question, hypothesis, intended test and its versions, measurement implementation, and executions. Exposure and selection history travel with the evidence. Assessments and transitions cite their sources; they cannot change results, labels, or confirmed intent.
+
+**Lesson capture and cross-run learning.** Capture sourced lessons from diagnoses, recovery outcomes and recurring workflow failures as they arise. Capture is append-only and does not require a retrieval system. A later capability may retrieve reusable lessons or skills for new-run proposals or execution strategy. Each lesson retains source runs, context, applicability conditions and limits; it is not a measurement, prior empirical support, or validation evidence for a new run. It cannot override current data, researcher-confirmed intent, or integrity checks.
+
+Lessons retain applicability conditions, source data identity and relevant exposure. Record their retrieval and use in subsequent runs. Dataset-specific observations transferred through a lesson count as exposure to that information; marking a lesson advisory does not restore independence. Begin with execution and workflow lessons, then extend scientific strategy learning under these same attribution and exposure contracts.
 
 ## 10. Publication
 
-1. **Collect** cleaned research context, initial data analysis, framing, change log, exploration figures, hypotheses, best nodes, specification curves, labels.
-2. **Aggregate figures** in one plotting script over best nodes' saved outputs [1].
-3. **Write** a fixed LaTeX template: Abstract; Introduction; Data and Methods with the change table, the operationalization table (proposed by the data agent), the hypothesis with its rival explanations (and mechanism when stated); target additions are sample flow, a sample characteristics table without significance tests, method fit and the `tested_on` sentence; Results with Exploratory, Main, Robustness subsections; Discussion with generated limitations: `proposed` and `unknown` entries relied on, unresolved frame concerns, data concerns, readiness and hypothesis warnings, a bounded outcome, and the fixed sentence that data preparation had raw-data access; Conclusion [28]. Numbers appear only as named-result references. Code renders all successful experiment attempts and computed stability/reasons, plus a status list of failed/missing attempts. Every number is resolved from `results.json` with canonical node keys and selected-stage aliases. Reserve one of at most four figures for the specification curve, place every figure next to a generated textual reference, and render caption macros too.
-4. **Render** named results from result files [6]; an unknown name renders `??` and warns.
-5. **Check:** build errors fed back to the Writer for up to `latex_rounds` rounds [1]; vision check of each figure against its caption [1]; number audit of literals not from named results; consistency checks on reported relations (means with n, tests with statistics) [29, 30]; Critic rubric review [2] and one Writer revision.
-6. **Claims file** beside the PDF: each claim with its named results, nodes and label [20]. With the Discover agent, claims come from the `result` nodes named at `finish`, each with its origin, verdicts, stability and computed facts (§4.6); a research-path section generated from the graph lists every move, including dead ends and null results.
-7. **Claim language:** negative and inconclusive results, and `contradicted`, `negligible` and `inconclusive` verdicts, reported with equal standing; observational designs described as association; `fragile` results described as fragile; `underpowered` hypotheses described as unable to detect the stated smallest effect.
-8. **Appendix** generated by code: experiment scripts only, attributed by stage/node; data code and the change table are not duplicated. Broader publication audits, reviews, claims files and figure aggregation remain target extensions, not part of the current local writer.
-9. **Disclosure** that the paper was generated by an AI system.
+Communication turns committed research records into a readable paper and supporting claims view. Each empirical number resolves to a named result and its measurement lineage. The report presents the research question, data and operationalizations, methods, results, limitations, and study status; it preserves negative, inconclusive, superseded, and partial outcomes.
 
-LaTeX engine: first found of `tectonic`, `latexmk`, `pdflatex`; build in scratch then preserve each fresh build snapshot. Without an engine the run writes source; `popper pdf` resolves the committed report (or old `report/paper.tex`) and builds later. `popper resume` continues only version-4 runs; completed runs reuse the existing outcome without model calls.
+Publication checks numerical and claim references against committed evidence. Missing or invalidated links are reported rather than inferred. Build and review outcomes are recorded as assessments; they cannot upgrade scientific standing. Provenance and successful compilation do not establish measurement fidelity or scientific validity. Claims of contradiction, equivalence, or validation require their declared evidence and decision rules.
 
-## 11. Verify
+## 11. Discovery and orthogonal validation
 
-- **Holdout:** at ingest, before profiling, `holdout_fraction` (default 0.2; 0 disables) of rows is set aside, grouped by an id column when given. These rows never reach a node or tool. The split ships before Verify because exposure cannot be undone: a run without a holdout can never be verified. Holdout rows are sealed with a per-run key kept outside the run directory; scripts never receive it.
-- **Confirm partition:** after the holdout, `confirm_fraction` (default 0, off; the comparison of §13 decides the default) of discovery rows is marked confirm, grouped the same way, and recorded in `split.json`. When on, the Ground script fits its rules on explore rows and is replayed unchanged on confirm rows; `explore` reads only explore rows; experiment stages read only confirm rows. Initial data analysis (§4.2) uses all discovery rows. Each hypothesis records the computed `tested_on` (`all_discovery` or `confirm`), printed in Data and Methods; no new label is added, since every result outside Verify is already `exploratory`. Off, a weak effect keeps its power; on, about half the rows test it.
-- **Verify a result:** lock the data and analysis scripts that produced it and a margin chosen before looking (the hypothesis `sesoi` when it was set before exploration); run once on the holdout; compute `confirmed`, `not_confirmed` or `inconclusive`. A failed run is `inconclusive` and is not repeated.
-- One look per result [25]; assumptions are stated [7]. Exposure and error budgets exist only in `verify/`.
+**Current protection.** At ingest, before profiling, `holdout_fraction` (default 0.2; 0 disables) of rows is set aside, grouped by `data.group_column` when configured (not automatically inferred from research metadata). Holdout rows are sealed with a per-run key outside the run directory; scripts receive neither key nor rows. Verify is not implemented. Discovery rows cannot retroactively become independent validation evidence.
+
+This holdout is a **candidate validation resource**, not a guarantee of suitable independence. Random row splitting or grouping by one id may fail for time ordering, shared groups, repeated measures, spatial/network dependence or preprocessing leakage. Before access, the validation protocol must justify its sampling/dependence boundary for the claim; otherwise validation stays unavailable. Sealing prevents this run's discovery access, not prior researcher/model exposure, external dataset reuse or statistical dependence. A protocol may require a different split or newly collected evidence; automatic procurement is outside current scope.
+
+**Discovery partitions (future strategy).** Explore/confirm partitioning may reduce discovery reuse; it is not final independent validation when its results/descriptives inform adaptive choices. Preprocessing, summaries and repeated tests count toward exposure. Record actual exposure and `tested_on`; partition names do not establish independence. External evidence/observed selection problems can justify building, with local power/leakage comparisons afterward.
+
+**Locked validation (target).** Before validation access, commit hypothesis/specification, preprocessing/analysis procedure and code, eligible source/split, slice protocol, intended measurements, decision rule, any required margin and multiplicity/exposure policy. Lock the procedure, including all permitted data-dependent steps, before any validation summary or row is seen. A discovery-fitted transform is frozen; fitting on validation data is allowed only when the locked procedure explicitly requires it (for example its prespecified estimator/nuisance fit), with its leakage/dependence assumptions stated. No feedback-driven feature, estimator, tuning or threshold choice is allowed after access.
+
+A non-adaptive path computes `supported_on_validation`, `not_supported_on_validation` or `inconclusive` under that declared rule, with assumptions/limits visible. Missing/invalid evidence produces execution/protocol status and unavailable validation standing, never scientific non-support by default. `not_supported_on_validation` means the support criterion was not met; it is not proof of the null. Separate access/outcome authority from adaptive discovery. Another agent, process or Critic alone does not provide statistical independence, and a locked protocol does not cure invalid assumptions.
+
+**Exposure accounting.** Track validation access across hypotheses, specifications, resumes and runs sharing a source. A new result id does not grant a look. Start with one locked attempt per designated held-back source/test family; additional allocation or reusable-holdout mechanisms need a protocol [17]. Reusing the same dataset in a new run does not reset knowledge of exposed rows.
+
+**Failure and adaptation.** Negative/inconclusive validation is an outcome, not permission to refine/retry against the same evidence. Failure after access consumes exposure and cannot trigger adaptive repair there. Strictly pre-access infrastructure failure can resume under the unchanged lock only if recorded state establishes non-exposure; otherwise consume exposure. Further discovery may use disclosed feedback, but a revised claim needs suitable new independent evidence and a new locked protocol. Never relabel adaptive discovery evidence as supported on validation. The one-attempt/no-post-access-repair rule is a conservative initial policy, not a statistical theorem forbidding prespecified sequential or reusable-holdout procedures [17, 26, 27].
 
 ## 12. Knowledge
 
-- `search_literature` returns metadata and abstracts for the Theorist and Writer; in Understand it supplies `proposed` research-context entries with the retrieved work as evidence (§4.1).
+Acquisition is an optional external source capability available before framing and during the research loop. A hypothesis, contradiction or open question can trigger literature retrieval; the request and returned sources are attributed in research state.
+
+- Literature retrieval can return source metadata and abstracts for framing, hypothesis generation, and writing; Understand can cite retrieved work as evidence for proposed research-context entries (§4.1).
 - Queries carry concepts, never data values.
 - Prior work shapes directions and related work; it is never evidence for this run's results.
-- Hypotheses record `replicates`, `extends` or `contradicts` against retrieved work, as coverage, never a novelty claim [3].
+- Hypotheses may record whether they replicate, extend, or contradict retrieved work, as coverage rather than a novelty claim.
 - Only retrieved records are cited.
+- Resolved sources retain identity, retrieval provenance, the supporting passage or artifact, and suitability/limitations. Dataset and benchmark candidates require researcher selection and Ground assessment; retrieval does not silently expand a run to multiple datasets or procure validation evidence.
 
-## 13. Evaluation
+## 13. Design decisions
 
-`evals/` compares configurations at equal model and budget.
+**Core** means an architectural commitment. **Baseline strategy** describes the current approach. **Future strategy** is optional and can change without changing the core contracts. Sources motivate choices, not every Popper default.
 
-| Suite     | Contains                                                                     | Measures                                              |
-| --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Planted   | Synthetic data with known effects, planted data issues, a reference research context, an outcome-derived leak column, a few-cluster design and a bounded outcome | Effect recovery, data-issue fix rate, role-proposal accuracy, estimand recovery, method fit, cluster-rule adherence, leak pick rate |
-| Null      | Synthetic data with no effect                                                | Rate of findings written up; share labelled `fragile` |
-| Reference | Public datasets with known findings; BLADE and DiscoveryBench tasks [15, 16] | Agreement with expert analyses                        |
+| Decision | Standing | Evidence or rationale |
+| --- | --- | --- |
+| Artifact-backed state, scientific identity, typed bounded transitions | Core | Current artifacts/resume are foundations; bounded scientific adaptation is a reasonable inference from repair systems [1, 2, 8, 9, 32] |
+| Fresh execution, immutable provenance, named numbers and computed labels | Core; baseline mechanisms implemented | Current code and traceability practice [5, 12, 20, 21, 30] |
+| Separate provenance, measurement fidelity and scientific validity | Core; deep chain later | Execution does not prove a valid test; adaptive-analysis risks [14, 15, 16, 17, 18] |
+| Independent challenge and discovery/locked-validation separation | Core; full capabilities later | Review systems [3, 6, 7] and selective inference/holdouts [16, 17, 18] |
+| Sequential playbook, Understand/Ground sessions, bounded reframe | Baseline strategy | Current implementation; extend incrementally  |
+| Draft/debug/improve trees and typed Judge | Baseline strategy | Implemented; existing search agents [1, 2, 8, 9]; scheduling/blinding remain hypotheses |
+| Recorded robustness/adversary and stability rendering | Baseline strategy; semantics to refactor | Implemented; multiverse motivation [11, 14, 15]; not validation |
+| Research context, provenance/review and code descriptives | Baseline strategy | Implemented; initial data analysis [33, 34] |
+| Structured predictions, pre-test description, rivals and effect-size threshold | Future capability/strategy | Strong inference/equivalence [6, 18, 22, 23]; non-rejection does not refute a rival |
+| Method vocabulary, diagnostics and cluster advice | Current vocabulary plus future extensions | Feedback/classification; rigid scientific gates are not core [34, 24, 25] |
+| Adaptive hypothesis/specification search and active working state | Core target capabilities | AIDE and AI Scientist-v2 motivate candidate search [1, 8]; Co-Scientist motivates hypothesis evolution [3]; Kosmos motivates accumulated, sourced working knowledge [4] |
+| Graph, PI/Discover agents, Critic/debate, parallel branches/tournaments | Replaceable target strategies | Existing systems motivate adoption [1, 3, 4, 7, 32]; LLM capacity can expand; preserve branch ownership and coherence |
+| Deep claim audit, figure review and locked Verify | Future capabilities | User-checkable evidence and validation [5, 13, 16, 17, 18, 20, 21] |
+| Decision-model substitution, confirm partition, diagnostic variants | Future strategies | Refine cost, selection, fidelity [17, 31, 24, 25] |
+| Adapt established mechanisms; evaluate transfer later | Product practice | Papers and implementations justify initial adoption; contract checks verify operation; benchmarking later measures completion, recovery, hypothesis quality, fidelity, traceability, usefulness and cost [10, 12] |
+| Recovery and adaptation as a first-class capability | Core | ARC demonstrates bounded diagnosis, repair, and continuation patterns [32]; Popper keeps scientific identity, evidence standing, and transition limits authoritative |
+| Pluggable execution backends | Core contract; backend choice is replaceable | Experiment meaning is independent of runtime; every backend must satisfy shared provenance, access, and result contracts |
+| Evidence and claim verification | Core | Claim, number, and figure lineage is auditable; this does not substitute for scientific review or locked validation [5, 13, 17, 20, 21] |
+| Optional acquisition of datasets, benchmarks, and literature | Optional capability | Sourced candidates can reduce input burden while researcher intent, suitability review, and evidence standing remain explicit |
+| Cross-run lessons and reusable skills | Optional capability | Prior runs can inform strategy when lessons retain attribution and are never treated as new-run evidence |
+| Explicit artifact contracts, semantic recovery/forks, environment feedback and deterministic integrity layer | Core primitives; reuse existing checks, minimal refactor first | Current Popper stage/store/interpreter contracts; AutoResearchClaw implementation [32]. Individual benefits are not all isolated measurements |
+| Targeted HITL and honest partial/exploratory finalization | Core escalation/output principles; routes extend incrementally | Current questions/review/limitations plus external scripted-HITL/failure evidence [32]; exact Popper triggers/defaults need local learning |
+| Early removal of concrete semantic/context bottlenecks | Core workflow | Correct or retire restrictive paths in the same increment; avoid layers compensating for known defects |
 
-- **Headline metrics:** false-finding rate on the null suite and share of paper numbers traced to named results.
-- **Per-run metrics:** node failure rate, audit and consistency warnings, holdout gap (evaluation re-runs the reported script on the unsealed holdout after the run; the run never sees it), Critic rubric score, draft diversity, cost, wall time.
-- **Comparisons:** research-context body only vs with front matter; agent-cleaned research context with vs without researcher review; confirm partition on vs off; agentic vs single-shot nodes (`max_turns = 1`); one vs three drafts; diverse vs free drafts; vision feedback on vs off; Ground agent vs `data` tree stage; shuffled-outcome scratch for the Steward on vs off; warnings vs gates on roles and clusters; Discover agent vs the phase-3/4 playbook; PI agent vs playbook; Critic on vs off; multiverse vs single robustness check; decision model vs Judge per question.
-- A mechanism whose default is _measured_ (§14) is compared once the suite exists and before the next mechanism is added.
-- **Adoption record:** each comparison ends in an entry in `evals/decisions.md` (change, result, default kept).
-- **Contamination:** public-data suites also run on perturbed copies; a gap is reported as memorization.
-- Evaluation never changes a run's results.
-
-## 14. Design decisions
-
-Each decision names its sources and the alternative it rejects. Decisions marked _measured_ stay open to the comparisons of §13.
-
-| #   | Decision                                                                                     | Sources                 | Rejected alternative                                         | Status   |
-| --- | -------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------ | -------- |
-| D1  | Staged best-first search over code with draft/debug/improve                                  | [1, 2, 13]              | Linear pipeline with one attempt per step                    | fixed    |
-| D2  | Node built by a tool-using agent that tests before submitting                                | [3, 14]                 | One generated program per node                               | measured |
-| D3  | Ground before exploration, run by one agent session with code-checked submits; analytic choices recorded and measurable | [15, 16, 21] | Question-first pipeline with fixed preprocessing; best-of-N cleaning chosen by a Judge | measured |
-| D4  | Hypotheses grounded in the Research Frame, foundation and explored data, with computed warnings, challenged by a Critic, chosen by the researcher or PI | [4, 7, 8, 9, 41] | Hypotheses from literature alone; tournament ranking; code gates before an observed failure | measured |
-| D5  | Diverse drafts                                                                               | [19]                    | Unconstrained drafts                                         | measured |
-| D6  | Robustness as a multiverse with adversarial checks and a computed stability label            | [17, 21, 22, 23, 27]    | A single robustness check; model-judged robustness           | measured |
-| D7  | Code checks before the Judge; typed Judge answers                                            | [31, 36, 37]            | Free-text verdicts parsed by code                            | fixed    |
-| D8  | Numbers rendered from named results; audit, consistency checks, claims file                  | [6, 20, 29, 30]         | Model-written numbers with post-hoc review                   | fixed    |
-| D9  | Computed labels; strict one-look Verify on held-back rows                                    | [7, 24, 25, 26]         | Model-assessed confidence; repeated holdout looks            | fixed    |
-| D10 | One PI, sequential roles, ≤ 2 hand-offs per node                                             | [5, 10, 11, 12, 35, 37] | Parallel agents or hierarchical planners by default          | measured |
-| D11 | Fresh, just-in-time context with working memory and condensed hand-offs                      | [5, 32]                 | Carrying full conversations between sessions                 | fixed    |
-| D12 | Small consolidated tool set with actionable errors                                           | [33]                    | Many fine-grained tools                                      | fixed    |
-| D13 | Journal and write-once run folder as the progress and release record                         | [18, 34]                | Database or mutable state                                    | fixed    |
-| D14 | Pluggable decision model behind typed questions, `shadow` before `on`                        | [38]                    | Replacing the Judge outright                                 | measured |
-| D15 | Evaluation suites with contamination checks decide every _measured_ default                  | [15, 16, 18]            | Adopting mechanisms because a reference system reports gains | fixed    |
-| D16 | Judge blind to effect estimates; every `ok` node reported                                    | [3, 24]                 | Best-first selection on a score that sees the result         | fixed    |
-| D17 | Hypothesis with one primary estimand, rival explanations and a refuting result; typed rival checks and a magnitude set before exploration are measured additions; optional mechanism with tested auxiliary predictions | [7, 26, 41, 42] | Free-text hypotheses of any complexity; rival checks mixed into the stability denominator | measured |
-| D18 | Holdout split at ingest, before Verify exists                                                | [25]                    | Holdout created only when verification is requested          | fixed    |
-| D19 | One research context (narrative body, optional front matter with per-entry provenance and concepts), framed by a Theorist session and steered by item-level researcher signals before analysis | [4, 6, 8, 39, 40] | Free-text brief only; separate brief and study files; agent-inferred meanings used as facts; researcher filling a form | measured |
-| D20 | Descriptive statistics computed by one code module behind every describer, before and after `data` | [39, 40]       | Model-computed descriptives; several describers               | fixed    |
-| D21 | Optional explore and confirm partitions within discovery rows, off by default until measured; `tested_on` always printed | [24, 25] | Testing on the suggesting rows without saying so; a partition that `data` still fits on | measured |
-| D22 | Layered method vocabulary that classifies plans; computed method fit and few-cluster advice as warnings (gates only if measured); diagnostic-triggered variants | [40, 43, 44] | Flat method list; normality tests choosing the method; cluster-robust SE with few clusters unflagged | measured |
-| D23 | Understand and Ground as agent sessions; tree search kept where attempts are compared (Discover); a bounded return from Ground to Understand | [3, 4, 31, 37] | Tree search in every phase; Ground silently changing research intent | measured |
-| D24 | Discover as one agent choosing moves over an append-only research graph; trees inside moves; hypotheses with a stated origin and structured predictions; a pre-test description per estimand; verdicts computed from predictions | [4, 5, 7, 40, 41] | A linear explore → hypothesis → experiment pipeline; parallel branch agents by default; model-asserted support or contradiction; free-text refuting results | measured |
-
-## 15. References
-
+## 14. References
 **AI research systems**
 
 1. Yamada, Y., et al. (2025). [The AI Scientist-v2: workshop-level automated scientific discovery via agentic tree search](https://arxiv.org/abs/2504.08066). arXiv. Code: [SakanaAI/AI-Scientist-v2](https://github.com/SakanaAI/AI-Scientist-v2).
 2. Lu, C., et al. (2024). [The AI Scientist: towards fully automated open-ended scientific discovery](https://arxiv.org/abs/2408.06292). arXiv.
-3. Beel, J., et al. (2025). [Evaluating Sakana's AI Scientist](https://arxiv.org/abs/2502.14297). arXiv.
-4. Gottweis, J., et al. (2025). [Towards an AI co-scientist](https://arxiv.org/abs/2502.18864). arXiv.
-5. Mitchener, L., et al. (2025). [Kosmos: an AI scientist for autonomous discovery](https://arxiv.org/abs/2511.02824). arXiv. Engineering notes: [How we built Kosmos](https://advances.edisonscientific.com/research/how-we-built-kosmos/).
-6. Ifargan, T., et al. (2024). [Autonomous LLM-driven research — from data to human-verifiable research papers (data-to-paper)](https://arxiv.org/abs/2404.17605). arXiv.
-7. Huang, K., et al. (2025). [Automated hypothesis validation with agentic sequential falsifications (POPPER)](https://arxiv.org/abs/2502.09858). arXiv.
-8. Schmidgall, S., et al. (2025). [Agent Laboratory: using LLM agents as research assistants](https://arxiv.org/abs/2501.04227). arXiv.
-9. Ghareeb, A. E., et al. (2025). [Robin: a multi-agent system for automating scientific discovery](https://arxiv.org/abs/2505.13400). arXiv.
-10. Tang, Q., et al. (2026). [FARS: a fully automated research system deployed at scale](https://arxiv.org/abs/2606.31651). arXiv.
-11. Nam, J., et al. (2026). [ScientistTwo](https://arxiv.org/abs/2609.19644). arXiv.
-12. Bianchi, F., et al. (2025). [Agents4Science: AI authors and reviewers](https://arxiv.org/abs/2511.15534). arXiv.
+3. Gottweis, J., et al. (2025). [Towards an AI co-scientist](https://arxiv.org/abs/2502.18864). arXiv.
+4. Mitchener, L., et al. (2025). [Kosmos: an AI scientist for autonomous discovery](https://arxiv.org/abs/2511.02824). arXiv. Engineering notes: [How we built Kosmos](https://advances.edisonscientific.com/research/how-we-built-kosmos/).
+5. Ifargan, T., et al. (2024). [Autonomous LLM-driven research — from data to human-verifiable research papers (data-to-paper)](https://arxiv.org/abs/2404.17605). arXiv.
+6. Huang, K., et al. (2025). [Automated hypothesis validation with agentic sequential falsifications (POPPER)](https://arxiv.org/abs/2502.09858). arXiv.
+7. Schmidgall, S., et al. (2025). [Agent Laboratory: using LLM agents as research assistants](https://arxiv.org/abs/2501.04227). arXiv.
 
-**Data-science agents and benchmarks**
+**Data-science agents and critiques**
 
-13. Jiang, Z., et al. (2025). [AIDE: AI-driven exploration in the space of code](https://arxiv.org/abs/2502.13138). arXiv.
-14. Hong, S., et al. (2024). [Data Interpreter: an LLM agent for data science](https://arxiv.org/abs/2402.18679). arXiv.
-15. Gu, K., et al. (2024). [BLADE: benchmarking language model agents for data-driven science](https://arxiv.org/abs/2408.09667). _EMNLP Findings_.
-16. Majumder, B. P., et al. (2025). [DiscoveryBench: towards data-driven discovery with large language models](https://proceedings.iclr.cc/paper_files/paper/2025/file/0d70af566e69f1dfb687791ecf955e28-Paper-Conference.pdf). _ICLR_.
-
-**Critiques of AI scientists**
-
-17. Fa, D., & Culjak, M. (2026). [Sound agentic science requires adversarial experiments](https://arxiv.org/abs/2604.22080). arXiv.
-18. Ding, T., et al. (2026). [Autonomous research agents: a survey of AI scientists and the verification gap](https://arxiv.org/abs/2608.05179). arXiv.
-19. Tang, Y., & Yang, Y. (2026). [AI research agents narrow scientific exploration](https://arxiv.org/abs/2605.27905). arXiv.
-20. Yu, G., & Wang, X. (2026). [Knows: agent-native structured research representations](https://arxiv.org/abs/2604.17309). arXiv.
+8. Jiang, Z., et al. (2025). [AIDE: AI-driven exploration in the space of code](https://arxiv.org/abs/2502.13138). arXiv.
+9. Hong, S., et al. (2024). [Data Interpreter: an LLM agent for data science](https://arxiv.org/abs/2402.18679). arXiv.
+10. Majumder, B. P., et al. (2025). [DiscoveryBench: towards data-driven discovery with large language models](https://proceedings.iclr.cc/paper_files/paper/2025/file/0d70af566e69f1dfb687791ecf955e28-Paper-Conference.pdf). _ICLR_.
+11. Fa, D., & Culjak, M. (2026). [Sound agentic science requires adversarial experiments](https://arxiv.org/abs/2604.22080). arXiv.
+12. Ding, T., et al. (2026). [Autonomous research agents: a survey of AI scientists and the verification gap](https://arxiv.org/abs/2608.05179). arXiv.
+13. Yu, G., & Wang, X. (2026). [Knows: agent-native structured research representations](https://arxiv.org/abs/2604.17309). arXiv.
 
 **Research methodology**
 
-21. Silberzahn, R., et al. (2018). [Many analysts, one data set: making transparent how variations in analytic choices affect results](https://journals.sagepub.com/doi/10.1177/2515245917747646). _Advances in Methods and Practices in Psychological Science_.
-22. Steegen, S., Tuerlinckx, F., Gelman, A., & Vanpaemel, W. (2016). [Increasing transparency through a multiverse analysis](https://journals.sagepub.com/doi/10.1177/1745691616658637). _Perspectives on Psychological Science_.
-23. Simonsohn, U., Simmons, J. P., & Nelson, L. D. (2020). [Specification curve analysis](https://www.nature.com/articles/s41562-020-0912-z). _Nature Human Behaviour_.
-24. Gelman, A., & Loken, E. (2013). _The garden of forking paths._ Columbia University working paper.
-25. Dwork, C., et al. (2015). [The reusable holdout: preserving validity in adaptive data analysis](https://www.science.org/doi/10.1126/science.aaa9375). _Science_.
-26. Mayo, D. G. (2018). _Statistical Inference as Severe Testing._ Cambridge University Press.
-27. VanderWeele, T. J., & Ding, P. (2017). Sensitivity analysis in observational research: introducing the E-value. _Annals of Internal Medicine_.
-28. von Elm, E., et al. (2007). The Strengthening the Reporting of Observational Studies in Epidemiology (STROBE) statement. _The Lancet_.
-29. Brown, N. J. L., & Heathers, J. A. J. (2017). The GRIM test: a simple technique detects numerous anomalies in the reporting of results in psychology. _Social Psychological and Personality Science_.
-30. Nuijten, M. B., et al. (2016). The prevalence of statistical reporting errors in psychology (1985–2013). _Behavior Research Methods_.
+14. Silberzahn, R., et al. (2018). [Many analysts, one data set: making transparent how variations in analytic choices affect results](https://journals.sagepub.com/doi/10.1177/2515245917747646). _Advances in Methods and Practices in Psychological Science_.
+15. Simonsohn, U., Simmons, J. P., & Nelson, L. D. (2020). [Specification curve analysis](https://www.nature.com/articles/s41562-020-0912-z). _Nature Human Behaviour_.
+16. Gelman, A., & Loken, E. (2013). _The garden of forking paths._ Columbia University working paper.
+17. Dwork, C., et al. (2015). [The reusable holdout: preserving validity in adaptive data analysis](https://www.science.org/doi/10.1126/science.aaa9375). _Science_.
+18. Mayo, D. G. (2018). _Statistical Inference as Severe Testing._ Cambridge University Press.
+19. von Elm, E., et al. (2007). The Strengthening the Reporting of Observational Studies in Epidemiology (STROBE) statement. _The Lancet_.
+20. Brown, N. J. L., & Heathers, J. A. J. (2017). The GRIM test: a simple technique detects numerous anomalies in the reporting of results in psychology. _Social Psychological and Personality Science_.
+21. Nuijten, M. B., et al. (2016). The prevalence of statistical reporting errors in psychology (1985–2013). _Behavior Research Methods_.
+22. Platt, J. R. (1964). [Strong inference](https://doi.org/10.1126/science.146.3642.347). _Science_.
+23. Lakens, D., Scheel, A. M., & Isager, P. M. (2018). [Equivalence testing for psychological research: a tutorial](https://doi.org/10.1177/2515245918770963). _Advances in Methods and Practices in Psychological Science_.
+24. Austin, P. C. (2009). [Balance diagnostics for comparing the distribution of baseline covariates between treatment groups in propensity-score matched samples](https://doi.org/10.1002/sim.3697). _Statistics in Medicine_.
+25. Cameron, A. C., Gelbach, J. B., & Miller, D. L. (2008). [Bootstrap-based improvements for inference with clustered errors](https://doi.org/10.1162/rest.90.3.414). _Review of Economics and Statistics_.
+26. Dwork, C., Feldman, V., Hardt, M., Pitassi, T., Reingold, O., & Roth, A. (2015). [Preserving statistical validity in adaptive data analysis](https://arxiv.org/abs/1411.2664). _STOC_. Guarantees require specified mechanisms/assumptions; ordinary repeated holdout access is not the reusable-holdout method.
+27. Fithian, W., Sun, D., & Taylor, J. (2014; revised 2017). [Optimal inference after model selection](https://arxiv.org/abs/1410.2597). Selective inference conditions on selection under specified statistical models; counting only final reported tests does not account for arbitrary adaptive search.
 
-**Harness engineering**
+**Harness and decision systems**
 
-31. Anthropic (2024). [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents).
-32. Anthropic (2025). [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents).
-33. Anthropic (2025). [Writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents).
-34. Anthropic (2025). [Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-35. Anthropic (2025). [How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system).
-36. OpenAI (2026). [Harness engineering](https://openai.com/index/harness-engineering/).
-37. Marmelab (2026). [The state of AI harness engineering 2026](https://marmelab.com/blog/2026/09/24/the-state-of-ai-harness-engineering-2026.html).
+28. Anthropic (2025). [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents).
+29. Anthropic (2025). [Writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents).
+30. OpenAI (2026). [Harness engineering](https://openai.com/index/harness-engineering/).
+31. TypeSafe. [Jev decision model](https://openrouter.ai/docs/guides/community/jev). OpenRouter documentation.
+32. Liu, J., Qiu, S., et al. (2026). [AutoResearchClaw: Self-Reinforcing Autonomous Research with Human-AI Collaboration](https://arxiv.org/abs/2605.20025v1). arXiv. Code: [aiming-lab/AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw/tree/be4ba4755bf1b52220f25e13b2293b5956590070). Author-reported experiment-stage benchmark and component ablations; not independent validation of every pipeline mechanism.
 
-**Decision models**
+**Initial data analysis**
 
-38. TypeSafe. [Jev decision model](https://openrouter.ai/docs/guides/community/jev). OpenRouter documentation.
-
-**Initial data analysis and hypothesis design**
-
-39. Huebner, M., le Cessie, S., Schmidt, C. O., & Vach, W. (2018). [A contemporary conceptual framework for initial data analysis](https://doi.org/10.1353/obs.2018.0014). _Observational Studies_.
-40. Baillie, M., le Cessie, S., Schmidt, C. O., Lusa, L., & Huebner, M. (2022). [Ten simple rules for initial data analysis](https://doi.org/10.1371/journal.pcbi.1009819). _PLoS Computational Biology_.
-41. Platt, J. R. (1964). [Strong inference](https://doi.org/10.1126/science.146.3642.347). _Science_.
-42. Lakens, D., Scheel, A. M., & Isager, P. M. (2018). [Equivalence testing for psychological research: a tutorial](https://doi.org/10.1177/2515245918770963). _Advances in Methods and Practices in Psychological Science_.
-43. Austin, P. C. (2009). [Balance diagnostics for comparing the distribution of baseline covariates between treatment groups in propensity-score matched samples](https://doi.org/10.1002/sim.3697). _Statistics in Medicine_.
-44. Cameron, A. C., Gelbach, J. B., & Miller, D. L. (2008). [Bootstrap-based improvements for inference with clustered errors](https://doi.org/10.1162/rest.90.3.414). _Review of Economics and Statistics_.
+33. Huebner, M., le Cessie, S., Schmidt, C. O., & Vach, W. (2018). [A contemporary conceptual framework for initial data analysis](https://doi.org/10.1353/obs.2018.0014). _Observational Studies_.
+34. Baillie, M., le Cessie, S., Schmidt, C. O., Lusa, L., & Huebner, M. (2022). [Ten simple rules for initial data analysis](https://doi.org/10.1371/journal.pcbi.1009819). _PLoS Computational Biology_.
