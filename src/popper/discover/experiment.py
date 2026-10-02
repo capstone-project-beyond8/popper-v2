@@ -14,8 +14,10 @@ from popper.discover.robustness import (
     collect_evidence,
     load_robustness_plan,
     plan_robustness,
+    schedule_context,
 )
 from popper.harness.context import RESEARCH_CHARS, part
+from popper.harness.prompts import load_prompt
 from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
 from popper.treesearch.engine import (
@@ -73,13 +75,28 @@ def method_reference(
         requirements.append(f"Main planned method operations: {_names(hypothesis['methods'])}.")
     if methods:
         requirements.append(f"Recorded alternative operations: {_names(methods)}.")
-    if "log_transform" in methods or (
-        purpose == "main" and "log_transform" in hypothesis["methods"]
-    ):
+    declared_methods = hypothesis["methods"] if purpose == "main" else methods
+    if "imputation" in declared_methods:
         requirements.append(
-            "Transformed outcome: the contrast and its interval must be on the original outcome "
+            "Multiple imputation must propagate missingness uncertainty using stochastic draws; "
+            "repeating deterministic imputations is not multiple imputation. Check within- and "
+            "between-imputation variance before accepting a pooled interval."
+        )
+    if "cluster_robust_standard_errors" in declared_methods:
+        requirements.append(
+            "Clustered intervals must respect the number of independent clusters, including "
+            "cluster-based inference degrees of freedom when pooling manually."
+        )
+    requirements.append(
+        "For a custom likelihood, check design/parameter dimensions, per-observation density "
+        "normalization and optimizer convergence before accepting a fit."
+    )
+    if "log_transform" in declared_methods:
+        requirements.append(
+            "If the outcome is transformed, the contrast and its interval must be on the original outcome "
             "scale, with the interval from bootstrap or from transformed prediction endpoints, "
-            "not a hand-derived delta method."
+            "not a hand-derived delta method. Transforming only the exposure does not require "
+            "back-transforming the outcome; compute predictions at the declared exposure endpoints."
         )
     if purpose == "adversarial":
         requirements.append(
@@ -181,7 +198,8 @@ def run_experiment_stage(
                 f"{part('Framing', json.dumps(framing), RESEARCH_CHARS, untrusted=True, journal=h.journal, tag=f'analyst:{name}')}\n"
                 f"Hypothesis:\n{json.dumps(hypothesis)}\n"
                 f"{part('Study design', design or '(none)', RESEARCH_CHARS, untrusted=True, journal=h.journal, tag=f'analyst:{name}')}\n"
-                f"{_notes_part(h, f'analyst:{name}', notes)}"
+                f"{_notes_part(h, f'analyst:{name}', notes)}\n"
+                f"{load_prompt('popper.discover', 'analysis_practice.md', timeout=str(h.config.execution.timeout_seconds))}"
             ),
             inputs={"data": h.run.path("data", "processed.parquet")},
             required_outputs=("results.json", "estimand.json"),
@@ -210,6 +228,8 @@ def experiment(
     committed = h.run.committed("evidence")
     if committed:
         return committed
+    if h.run.committed("robustness_plan") is None:
+        schedule_context(h.config)
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None, notes, design)
     main = run_experiment_stage(h, "main", framing, hypothesis, baseline, notes, design)
     plan = plan_robustness(h, hypothesis, main, preparation)
@@ -236,7 +256,10 @@ def experiment(
             StageSpec(
                 name="robustness",
                 goal="Test the main contrast under recorded alternative analyses.",
-                context=f"Hypothesis:\n{json.dumps(hypothesis)}\n{_notes_part(h, 'analyst:robustness', notes)}",
+                context=(
+                    f"Hypothesis:\n{json.dumps(hypothesis)}\n{_notes_part(h, 'analyst:robustness', notes)}\n"
+                    f"{load_prompt('popper.discover', 'analysis_practice.md', timeout=str(h.config.execution.timeout_seconds))}"
+                ),
                 inputs={
                     "data": h.run.path("data", "processed.parquet"),
                     "raw": h.run.path("data", "raw.csv"),

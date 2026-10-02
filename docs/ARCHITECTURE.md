@@ -321,7 +321,7 @@ Each check has a test that it fires on a bad fixture and stays silent on a good 
 | `main`       | Experiment  | Planned analysis and the follow-ups results call for                                  | best `baseline`        | estimates with intervals, figures     |
 | `robustness` | Experiment  | Multiverse and adversarial checks (§5.5)                                              | best `main`            | main estimate under every variant     |
 
-Experiment stages are separate; default step budgets are baseline 3, main 6, robustness 6. `search.stage_steps` overrides individual stages. Scheduled robustness attempts run before optional repairs and do not stop on goal/plateau; repairs retain specification identity and consume the same budget.
+Experiment stages are separate; default step budgets are baseline 3, main 6, robustness 6. `search.stage_steps` overrides individual stages. New robustness schedules reserve a step for repair; recorded schedules remain replayable. Scheduled attempts run before repairs and do not stop on goal/plateau; repairs retain specification identity and consume the same budget. Failed execution feedback includes stdout and stderr so repairs can see the underlying fit failure as well as the final exception.
 
 ### 5.5 Robustness and stability
 

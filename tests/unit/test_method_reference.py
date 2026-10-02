@@ -72,7 +72,7 @@ def test_method_reference_rejects_unknown_column_roles() -> None:
         method_reference(PROPOSAL, ["hours"], purpose="main")
 
 
-def test_transformed_outcome_requirement_only_when_log_transform_declared() -> None:
+def test_transform_reference_distinguishes_exposure_from_outcome() -> None:
     def text(hypothesis_methods: list[str], purpose: str, methods: list[str]) -> str:
         reference = method_reference(
             {**PROPOSAL, "methods": hypothesis_methods},
@@ -82,14 +82,18 @@ def test_transformed_outcome_requirement_only_when_log_transform_declared() -> N
         )
         return " ".join(reference.requirements)
 
-    assert "Transformed outcome" not in text(["bootstrap"], "main", [])
-    assert "Transformed outcome" in text(["log_transform"], "main", [])
-    assert "Transformed outcome" not in text(["log_transform"], "baseline", [])
-    assert "Transformed outcome" in text(["bootstrap"], "model", ["log_transform"])
+    assert "If the outcome is transformed" not in text(["bootstrap"], "main", [])
+    main = text(["log_transform"], "main", [])
+    alternative = text(["bootstrap"], "model", ["log_transform"])
+    for transformed in (main, alternative):
+        assert "If the outcome is transformed" in transformed
+        assert "Transforming only the exposure" in transformed
+        assert "does not require back-transforming the outcome" in transformed
+    assert "If the outcome is transformed" not in text(["log_transform"], "baseline", [])
     adversary = text(
         ["bootstrap", "log_transform"], "adversarial", ["permutation_test", "linear_regression"]
     )
-    assert "Transformed outcome" not in adversary
+    assert "If the outcome is transformed" not in adversary
     assert "bootstrap" not in adversary and "log transform" not in adversary
     assert "linear regression" in adversary
 

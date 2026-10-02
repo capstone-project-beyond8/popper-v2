@@ -343,7 +343,22 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
     if failed:
         node.results = {}
-        node.analysis = f"Check failed: {failed}.\n{res.stderr}"
+        feedback = "\n".join(
+            part(
+                title,
+                text,
+                ARTIFACT_CHARS // 3,
+                keep="tail" if title == "stderr" else "head",
+                untrusted=True,
+                journal=h.journal,
+                tag=f"analyst:{spec.name}",
+            )
+            for title, text in (
+                ("stderr", res.stderr),
+                ("stdout", res.stdout),
+            )
+        )
+        node.analysis = f"Check failed: {failed}.\n{feedback}"
         return
     try:
         if spec.blind_estimates:

@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from popper.discover.experiment import run_experiment_stage
+from popper.discover.experiment import experiment, run_experiment_stage
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
@@ -13,6 +13,21 @@ from tests.unit.test_hypothesis import ESTIMAND, PROPOSAL
 
 pytestmark = pytest.mark.integration
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
+
+
+def test_insufficient_repair_budget_fails_before_model_work(tmp_path: Path) -> None:
+    cfg = load_config(env={})
+    cfg.search.stage_steps["robustness"] = cfg.robustness.min_variants + 1
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    pd.DataFrame({"score": [1], "hours": [2]}).to_parquet(store.path("data", "processed.parquet"))
+
+    def respond(req: LLMRequest) -> str:
+        raise AssertionError(f"unexpected model call: {req.tag}")
+
+    fake = FakeLLM(respond)
+    with pytest.raises(ValueError, match="repair"):
+        experiment(Harness(cfg, fake, store), {}, PROPOSAL, tmp_path)
+    assert not fake.calls
 
 
 @pytest.mark.slow
