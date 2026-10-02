@@ -72,6 +72,14 @@ def test_method_reference_rejects_unknown_column_roles() -> None:
         method_reference(PROPOSAL, ["hours"], purpose="main")
 
 
+def test_open_method_requirements_reach_reference() -> None:
+    method = {"family": "custom", "description": "trimmed mean", "algorithm": "trim then compare", "inputs": ["hours", "score"], "outputs": ["primary_estimate"], "effect_scale": "points", "assumptions": ["exchangeability"], "diagnostics": ["check trimming"], "parameters": {}}
+    reference = method_reference({**PROPOSAL, "methods": [method]}, ["hours", "score"], purpose="main")
+    text = " ".join(reference.requirements)
+    assert "trim then compare" in text and "check trimming" in text
+    assert "expected_direction" not in text and str(PROPOSAL["rationale"]) not in text
+
+
 def test_transform_reference_distinguishes_exposure_from_outcome() -> None:
     def text(hypothesis_methods: list[str], purpose: str, methods: list[str]) -> str:
         reference = method_reference(

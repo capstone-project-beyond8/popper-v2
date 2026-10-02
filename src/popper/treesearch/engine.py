@@ -60,6 +60,7 @@ class Node:
     implementation_id: str | None = None
     execution_id: str | None = None
     outputs: dict[str, str] = field(default_factory=dict)
+    fidelity: dict[str, Any] = field(default_factory=dict)
 
     @property
     def execution_dir(self) -> Path:
@@ -74,6 +75,7 @@ class AttemptSpec:
     context: str
     check: Callable[[Path], str | None] | None = None
     judge_reference: JudgeReference | None = None
+    test: ArtifactRef | None = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,10 @@ class Verdict(BaseModel):
     node_score: float
     analysis: str
     figure_issues: list[str] = Field(default_factory=list)
+    fidelity_status: Literal["consistent", "defect", "unresolved"] | None = None
+    fidelity_reason: str = ""
+    fidelity_requirements: list[str] = Field(default_factory=list)
+    fidelity_evidence: list[str] = Field(default_factory=list)
 
     # Checked here, not in the schema: structured outputs reject numeric bounds.
     @field_validator("node_score")
@@ -287,6 +293,7 @@ def _step(
         _execute(h, spec, node, limit)
     node.outputs = {p.relative_to(h.run.root).as_posix(): file_hash(p) for p in node.execution_dir.rglob("*") if p.is_file()}
     meta = {k: v for k, v in asdict(node).items() if k not in ("code", "results", "dir")}
+    meta["test_ref"] = node.test_ref.model_dump(mode="json") if node.test_ref else None
     h.run.write_json(f"tree/{spec.execution_id}/{node_id}/meta.json", meta)
     h.run.write_text(f"tree/{spec.execution_id}/{node_id}/analysis.md", node.analysis)
     meta_path = node.dir / "meta.json"
@@ -428,6 +435,14 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         node.analysis = f"judge call failed: {exc}"
         return
     node.analysis = "\n".join([verdict.analysis, *verdict.figure_issues])
+    if spec.test:
+        evidenced = bool(verdict.fidelity_requirements and verdict.fidelity_evidence and verdict.fidelity_reason)
+        node.fidelity = {
+            "status": verdict.fidelity_status if evidenced and verdict.fidelity_status else "unresolved",
+            "reason": verdict.fidelity_reason or "No cited specification-to-code assessment.",
+            "requirements": verdict.fidelity_requirements or ["Declared procedure and output"],
+            "evidence": verdict.fidelity_evidence,
+        }
     if not verdict.node_buggy:
         node.status, node.score, node.goal_met = "ok", verdict.node_score, verdict.goal_met
 
@@ -446,7 +461,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
     if len(spec.attempts) > steps:
         raise ValueError("scheduled attempts exceed stage step budget")
     events = _stage_events(h, spec.execution_id)
-    if any(e.get("stage") != spec.name for e in events):
+    if any(e.get("stage") != spec.name for e in events if e["event"] == "stage_start"):
         raise ValueError(f"stage instance {spec.execution_id!r} is bound to a different role")
     nodes = load_nodes(h, spec.execution_id, include_abandoned=True)
     ends = [e for e in events if e["event"] == "stage_end"]
@@ -511,6 +526,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
                 context=f"{spec.context}\n{attempt.context}",
                 check=attempt.check or spec.check,
                 judge_reference=attempt.judge_reference or spec.judge_reference,
+                test=attempt.test or spec.test,
             )
             reason = f"{kind} specification {attempt.id}"
         else:

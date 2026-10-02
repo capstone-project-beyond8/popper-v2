@@ -28,3 +28,8 @@ Reply with one JSON object with exactly these keys:
 - "node_score": a number from 1 to 10
 - "analysis": a short reading of the outputs
 - "figure_issues": list of specific readability or presentation problems, empty when none
+- For a committed scientific test, also provide "fidelity_status": consistent, defect or unresolved,
+  "fidelity_reason", "fidelity_requirements" and "fidelity_evidence". Cite concrete requirements
+  and corresponding code operations/outputs. Script success and an echoed estimand alone cannot
+  establish fidelity. Unchecked seed use, effort, scale or custom algorithm stays unresolved.
+  This assessment is independent of code score and signed scientific outcome.
