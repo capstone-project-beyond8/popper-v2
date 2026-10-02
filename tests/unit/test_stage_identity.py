@@ -41,3 +41,9 @@ def test_stage_identity_rejects_unsafe_component(tmp_path: Path, instance_id: st
     with pytest.raises(ValueError):
         StageSpec("main", "g", "", {}, (), instance_id=instance_id)
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("role", ["../main", "Main", "con", ""])
+def test_default_stage_identity_rejects_unsafe_role(role: str) -> None:
+    with pytest.raises(ValueError):
+        StageSpec(role, "g", "", {}, ())

@@ -6,9 +6,10 @@ import pytest
 
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMError, LLMRequest, ToolCall
+from popper.harness.recovery import read_events
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
-from popper.treesearch.engine import AttemptSpec, StageFailed, StageSpec, run_stage
+from popper.treesearch.engine import AttemptSpec, StageFailed, StageSpec, load_nodes, run_stage
 
 pytestmark = pytest.mark.integration
 
@@ -174,6 +175,58 @@ def test_stage_check_rejection_makes_node_buggy(tmp_path: Path) -> None:
 _OK_CODE = _submit(
     "import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))\nopen('out.txt','w')"
 )
+
+
+def test_same_role_instances_are_isolated(tmp_path: Path) -> None:
+    h = _harness(tmp_path, [_OK_CODE, _OK_CODE], [FEEDBACK, FEEDBACK])
+    specs = [
+        StageSpec("main", "goal", "ctx", {}, ("results.json",), instance_id=identity)
+        for identity in ("h001-s001-main", "h002-s001-main")
+    ]
+    for spec in specs:
+        best = run_stage(h, spec)
+        assert best.id == f"{spec.instance_id}-000"
+        assert best.stage == "main" and best.stage_instance == spec.instance_id
+        assert best.dir == h.run.root / "tree" / str(spec.instance_id) / best.id
+        assert [n.id for n in load_nodes(h, str(spec.instance_id))] == [best.id]
+        metadata = json.loads((best.dir / "meta.json").read_bytes())
+        assert metadata["stage"] == "main" and metadata["stage_instance"] == spec.instance_id
+    assert load_nodes(h, "main") == []
+    no_calls = Harness(
+        h.config, FakeLLM(lambda _: pytest.fail("completed instance must not replay")), h.run
+    )
+    for spec in specs:
+        assert run_stage(no_calls, spec).id == f"{spec.instance_id}-000"
+
+
+def test_scoped_stage_uses_role_budget(tmp_path: Path) -> None:
+    nonterminal = FEEDBACK.replace('"goal_met": true', '"goal_met": false')
+    terminal = FEEDBACK.replace('"node_score": 7', '"node_score": 8')
+    h = _harness(tmp_path, [_OK_CODE] * 4, [nonterminal, terminal] * 2)
+    h.config.search.steps_per_stage = 1
+    h.config.search.stage_steps["main"] = 2
+    for identity in ("h001-s001-main", "h002-s001-main"):
+        best = run_stage(
+            h, StageSpec("main", "goal", "ctx", {}, ("results.json",), instance_id=identity)
+        )
+        assert best.id == f"{identity}-001" and best.parent == f"{identity}-000"
+        assert len(load_nodes(h, identity)) == 2
+    starts = [e for e in read_events(h.run.root) if e["event"] == "stage_start"]
+    assert [e["steps"] for e in starts] == [2, 2]
+    assert [e["stage"] for e in starts] == ["main", "main"]
+    assert [e["stage_instance"] for e in starts] == ["h001-s001-main", "h002-s001-main"]
+
+
+@pytest.mark.parametrize("instance_id", [None, "h001-s001-main"])
+def test_stage_instance_cannot_change_role(tmp_path: Path, instance_id: str | None) -> None:
+    h = _harness(tmp_path, [_OK_CODE])
+    spec = StageSpec("main", "goal", "ctx", {}, ("results.json",), instance_id=instance_id)
+    run_stage(h, spec)
+    before = {p: p.read_bytes() for p in h.run.root.rglob("*") if p.is_file()}
+    h.llm = FakeLLM(lambda _: pytest.fail("role mismatch must fail before model calls"))
+    with pytest.raises(ValueError, match="role"):
+        run_stage(h, StageSpec("baseline", "goal", "ctx", {}, (), instance_id=spec.execution_id))
+    assert {p: p.read_bytes() for p in h.run.root.rglob("*") if p.is_file()} == before
 
 
 def test_stage_stops_when_good_score_stops_improving(tmp_path: Path) -> None:

@@ -87,8 +87,7 @@ class StageSpec:
     instance_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.instance_id is not None:
-            _validate_execution_id(self.instance_id)
+        _validate_execution_id(self.execution_id)
 
     @property
     def execution_id(self) -> str:
@@ -158,7 +157,11 @@ def _task(h: Harness, spec: StageSpec, kind: NodeKind, parent: Node | None) -> s
             return f"Starting point to adapt:\n```python\n{spec.seed_code}\n```"
         return "Draft a new approach."
     code = part(
-        "Previous code", parent.code, CODE_CHARS, journal=h.journal, tag=f"analyst:{spec.name}"
+        "Previous code",
+        parent.code,
+        CODE_CHARS,
+        journal=h.journal,
+        tag=f"analyst:{spec.execution_id}",
     )
     analysis = part(
         "Analysis of its output",
@@ -166,7 +169,7 @@ def _task(h: Harness, spec: StageSpec, kind: NodeKind, parent: Node | None) -> s
         ARTIFACT_CHARS,
         untrusted=True,
         journal=h.journal,
-        tag=f"analyst:{spec.name}",
+        tag=f"analyst:{spec.execution_id}",
     )
     if kind == "improve":
         return f"Improve this working script.\n{code}\n{analysis}"
@@ -204,7 +207,7 @@ def _step(
     attempt: AttemptSpec | None = None,
     rng_state: tuple[Any, ...] | None = None,
 ) -> Node:
-    node_id = f"{spec.name}-{i:03d}"
+    node_id = f"{spec.execution_id}-{i:03d}"
     limit = h.config.execution.max_output_chars
     max_turns = h.config.search.max_turns
     node = Node(
@@ -213,7 +216,7 @@ def _step(
         parent=parent.id if parent else None,
         kind=kind,
         debug_depth=parent.debug_depth + 1 if kind == "debug" and parent else 0,
-        dir=h.run.path("tree", spec.name, node_id),
+        dir=h.run.path("tree", spec.execution_id, node_id),
         code="",
         status="buggy",
         score=None,
@@ -224,11 +227,13 @@ def _step(
         reason=reason,
         attempt_id=attempt.id if attempt else None,
         seed_node=spec.seed_node,
+        stage_instance=spec.execution_id,
     )
     node.dir.mkdir(parents=True)
     h.journal.write(
         "node_start",
         stage=spec.name,
+        stage_instance=spec.execution_id,
         node=node.id,
         kind=kind,
         parent=node.parent,
@@ -253,7 +258,7 @@ def _step(
         submitted = agent_loop(
             h,
             "analyst",
-            tag=f"analyst:{spec.name}",
+            tag=f"analyst:{spec.execution_id}",
             system=_SYSTEM,
             task=prompt,
             tools=node_tools(h, spec.inputs, node.dir),
@@ -271,31 +276,32 @@ def _step(
         node.code = submitted["code"]
         _execute(h, spec, node, limit)
     meta = {k: v for k, v in asdict(node).items() if k not in ("code", "results", "dir")}
-    h.run.write_json(f"tree/{spec.name}/{node_id}/meta.json", meta)
-    h.run.write_text(f"tree/{spec.name}/{node_id}/analysis.md", node.analysis)
-    h.journal.write("node_commit", stage=spec.name, node=node_id)
+    h.run.write_json(f"tree/{spec.execution_id}/{node_id}/meta.json", meta)
+    h.run.write_text(f"tree/{spec.execution_id}/{node_id}/analysis.md", node.analysis)
+    h.journal.write("node_commit", stage=spec.name, stage_instance=spec.execution_id, node=node_id)
     return node
 
 
+def _stage_events(h: Harness, stage: str) -> list[dict[str, Any]]:
+    _validate_execution_id(stage)
+    return [
+        e for e in read_events(h.run.root) if (e.get("stage_instance") or e.get("stage")) == stage
+    ]
+
+
 def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> list[Node]:
+    """Load nodes for an exact execution identity, falling back to roles in old records."""
     nodes: list[Node] = []
-    events = read_events(h.run.root)
-    committed = {
-        e["node"] for e in events if e["event"] == "node_commit" and e.get("stage") == stage
-    }
+    events = _stage_events(h, stage)
+    committed = {e["node"] for e in events if e["event"] == "node_commit"}
     for event in events:
-        if (
-            event["event"] == "node_start"
-            and event.get("stage") == stage
-            and event["node"] not in committed
-            and include_abandoned
-        ):
+        if event["event"] == "node_start" and event["node"] not in committed and include_abandoned:
             node_dir = h.run.path("tree", stage, str(event["node"]))
             source = node_dir / "execution" / "code.py"
             nodes.append(
                 Node(
                     id=event["node"],
-                    stage=stage,
+                    stage=event["stage"],
                     parent=event.get("parent"),
                     kind=event["kind"],
                     debug_depth=event.get("debug_depth", 0),
@@ -310,12 +316,14 @@ def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> li
                     reason="interrupted",
                     attempt_id=event.get("attempt_id"),
                     seed_node=event.get("seed_node"),
+                    stage_instance=stage,
                 )
             )
-        if event["event"] != "node_commit" or event.get("stage") != stage:
+        if event["event"] != "node_commit":
             continue
         node_dir = h.run.path("tree", stage, str(event["node"]))
         metadata = json.loads((node_dir / "meta.json").read_text("utf-8"))
+        metadata.setdefault("stage_instance", metadata["stage"])
         code_file = node_dir / "execution" / "code.py"
         nodes.append(
             Node(
@@ -369,7 +377,7 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
                 keep="tail" if title == "stderr" else "head",
                 untrusted=True,
                 journal=h.journal,
-                tag=f"analyst:{spec.name}",
+                tag=f"analyst:{spec.execution_id}",
             )
             for title, text in (
                 ("stderr", res.stderr),
@@ -385,7 +393,7 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         verdict = h.ask_model(
             "judge",
             schema=Verdict,
-            tag=f"judge:{spec.name}",
+            tag=f"judge:{spec.execution_id}",
             system=_SYSTEM,
             prompt=prompt,
             images=images,
@@ -414,8 +422,10 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
     steps = spec.steps or h.config.search.steps_for(spec.name)
     if len(spec.attempts) > steps:
         raise ValueError("scheduled attempts exceed stage step budget")
-    events = [e for e in read_events(h.run.root) if e.get("stage") == spec.name]
-    nodes = load_nodes(h, spec.name, include_abandoned=True)
+    events = _stage_events(h, spec.execution_id)
+    if any(e.get("stage") != spec.name for e in events):
+        raise ValueError(f"stage instance {spec.execution_id!r} is bound to a different role")
+    nodes = load_nodes(h, spec.execution_id, include_abandoned=True)
     ends = [e for e in events if e["event"] == "stage_end"]
     if ends:
         best = next((n for n in nodes if n.id == ends[-1]["best"]), None)
@@ -427,9 +437,18 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
         rng.setstate(cast(tuple[Any, ...], _tuple_state(states[-1])))
     if not any(e["event"] == "stage_start" for e in events):
         h.journal.write(
-            "stage_start", stage=spec.name, steps=steps, seed=7, rng_state=rng.getstate()
+            "stage_start",
+            stage=spec.name,
+            stage_instance=spec.execution_id,
+            steps=steps,
+            seed=7,
+            rng_state=rng.getstate(),
         )
-    folders = [p for p in h.run.path("tree", spec.name).glob(f"{spec.name}-*") if p.is_dir()]
+    folders = [
+        p
+        for p in h.run.path("tree", spec.execution_id).glob(f"{spec.execution_id}-*")
+        if p.is_dir()
+    ]
     next_id = max((int(p.name.rsplit("-", 1)[1]) for p in folders), default=-1) + 1
     remaining = steps - len(folders)
     if not spec.attempts and (
@@ -478,14 +497,20 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
         nodes.append(node)
         score = f" score {node.score:g}" if node.status == "ok" else ""
         h.progress(
-            f"[{spec.name}] {node.id} {node.kind} → {node.status}{score} · ${h.spent_usd:.2f}"
+            f"[{spec.execution_id}] {node.id} {node.kind} → {node.status}{score} · ${h.spent_usd:.2f}"
         )
         if not spec.attempts and node.status == "ok" and node.goal_met:
             break
         if not spec.attempts and _plateaued(nodes, h.config.search):
             break
     best = select_best(nodes)
-    h.journal.write("stage_end", stage=spec.name, best=best.id if best else None, steps=len(nodes))
+    h.journal.write(
+        "stage_end",
+        stage=spec.name,
+        stage_instance=spec.execution_id,
+        best=best.id if best else None,
+        steps=len(nodes),
+    )
     if best is None:
         raise StageFailed(spec.name)
     return best
