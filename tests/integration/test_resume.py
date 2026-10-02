@@ -9,10 +9,54 @@ from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.recovery import Journal, load_state, read_events
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
-from popper.treesearch.engine import StageSpec, run_stage
+from popper.treesearch.engine import StageSpec, load_nodes, run_stage
 from tests.integration.test_run import EXAMPLE, FRAMING, _config
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def historical_stage(tmp_path: Path) -> tuple[Harness, dict[Path, bytes]]:
+    """Independently encoded records from the unscoped stage format."""
+    cfg = load_config(env={})
+    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    node_dir = store.path("tree", "main", "main-000")
+    payloads = {
+        node_dir
+        / "meta.json": b'{"id":"main-000","stage":"main","parent":null,"kind":"draft","debug_depth":0,"status":"ok","score":7.0,"goal_met":true,"analysis":"valid","figures":[],"reason":"draft 1 of 1","attempt_id":null,"seed_node":null}',
+        node_dir / "analysis.md": b"valid",
+        node_dir
+        / "execution"
+        / "code.py": b"import json; json.dump({'m': {'value': 1.5}}, open('results.json', 'w'))",
+        node_dir / "execution" / "results.json": b'{"m":{"value":1.5}}',
+        store.path("journal.jsonl"): (
+            b'{"event":"stage_start","stage":"main","steps":2,"seed":7}\n'
+            b'{"event":"node_start","stage":"main","node":"main-000","kind":"draft","parent":null,"debug_depth":0,"attempt_id":null,"seed_node":null}\n'
+            b'{"event":"node_commit","stage":"main","node":"main-000"}\n'
+            b'{"event":"stage_end","stage":"main","best":"main-000","steps":1}\n'
+        ),
+    }
+    for path, content in payloads.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    return Harness(
+        cfg, FakeLLM(lambda _: pytest.fail("historical node must not replay")), store
+    ), payloads
+
+
+def test_historical_stage_records_preserve_identity(
+    historical_stage: tuple[Harness, dict[Path, bytes]],
+) -> None:
+    h, payloads = historical_stage
+    nodes = load_nodes(h, "main")
+    assert len(nodes) == 1
+    node = run_stage(h, StageSpec("main", "goal", "context", {}, ("results.json",)))
+    assert node.id == nodes[0].id == "main-000"
+    assert node.stage == "main"
+    assert node.execution_dir == h.run.root / "tree/main/main-000/execution"
+    assert node.results == {"m": {"value": 1.5}}
+    assert node.score == 7 and node.goal_met
+    assert all(path.read_bytes() == content for path, content in payloads.items())
 
 
 @pytest.mark.parametrize("auto", [False, True])

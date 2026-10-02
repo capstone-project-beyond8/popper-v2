@@ -2,6 +2,7 @@
 
 import json
 import random
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -25,6 +26,13 @@ NodeKind = Literal["draft", "debug", "improve", "variant", "adversarial"]
 _SYSTEM = "You are a careful data scientist."
 
 
+def _validate_execution_id(value: str) -> None:
+    if not re.fullmatch(r"[a-z][a-z0-9_-]*", value) or re.fullmatch(
+        r"con|prn|aux|nul|com[1-9]|lpt[1-9]", value
+    ):
+        raise ValueError(f"unsafe stage execution identity: {value!r}")
+
+
 @dataclass
 class Node:
     id: str
@@ -43,6 +51,7 @@ class Node:
     reason: str
     attempt_id: str | None = None
     seed_node: str | None = None
+    stage_instance: str | None = None
 
     @property
     def execution_dir(self) -> Path:
@@ -75,6 +84,15 @@ class StageSpec:
     seed_node: str | None = None
     attempts: tuple[AttemptSpec, ...] = ()
     judge_reference: JudgeReference | None = None
+    instance_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.instance_id is not None:
+            _validate_execution_id(self.instance_id)
+
+    @property
+    def execution_id(self) -> str:
+        return self.name if self.instance_id is None else self.instance_id
 
 
 class Verdict(BaseModel):
