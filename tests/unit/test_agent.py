@@ -20,6 +20,23 @@ def _harness(tmp_path: Path, llm: LLM) -> Harness:
     return Harness(load_config(env={}), llm, run)
 
 
+def test_integrity_failure_is_recorded_and_blocks_tool_retry(tmp_path: Path) -> None:
+    from popper.harness.records import IntegrityError
+    from popper.harness.recovery import read_events
+
+    fake = FakeLLM(lambda _: (ToolCall("read", "echo", {}),))
+    h = _harness(tmp_path, fake)
+
+    def corrupted(args: dict[str, Any]) -> str:
+        raise IntegrityError("committed source hash mismatch")
+
+    with pytest.raises(IntegrityError, match="hash mismatch"):
+        _run(h, corrupted)
+    assert len(fake.calls) == 1
+    events = [e for e in read_events(h.run.root) if e["event"] == "tool_call"]
+    assert len(events) == 1 and events[0]["status"] == "integrity_error"
+
+
 def _run(
     h: Harness,
     handler: Callable[[dict[str, Any]], str | Path] = lambda args: "echoed",

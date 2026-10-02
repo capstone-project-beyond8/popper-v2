@@ -1,10 +1,10 @@
 """Bounded sourced proposals, selection and immutable scheduling."""
 
 import json
+from typing import Any
 
 from pydantic import Field
 
-from popper.discover.compatibility import StudyPolicy
 from popper.discover.contracts import (
     Attempt,
     Diagnosis,
@@ -56,7 +56,7 @@ def eligible_candidates(state: ResearchState, limits: Discovery) -> list[str]:
 
 
 def check_move(
-    state: ResearchState, move: ResearchMove, policy: StudyPolicy, limits: Discovery
+    state: ResearchState, move: ResearchMove, limits: Discovery
 ) -> None:
     if move.action == "stop":
         return
@@ -72,8 +72,6 @@ def check_move(
         raise EligibilityError("resource cap reached")
     if move.action in {"technical_repair", "measurement_repair"} and not move.diagnosis:
         raise EligibilityError("repair requires sourced defect diagnosis")
-    if move.action == "refine" and not move.test_proposal and not move.changed_fields:
-        raise EligibilityError("refinement requires changed intended procedure")
 
 
 def validate_moves(
@@ -83,7 +81,7 @@ def validate_moves(
     allowed = {r.model_dump_json() for r in reachable_refs(h, snapshot)}
     candidates = {c.record.id for c in state.candidates}
     seen: set[str] = set()
-    moves: list[ResearchMove] = []
+    validated: list[tuple[dict[str, Any], TestSpec | None]] = []
     for index, proposal in enumerate(proposals):
         for ref in proposal.trigger_refs:
             if ref.model_dump_json() not in allowed:
@@ -96,6 +94,7 @@ def validate_moves(
             seen.add(proposal.hypothesis_id)
         validate_sources(h, proposal.model_dump(mode="json"))
         payload = proposal.model_dump(mode="json")
+        test = None
         if proposal.test_proposal:
             if not proposal.hypothesis_id:
                 raise ValueError("test proposal requires owning hypothesis")
@@ -119,16 +118,20 @@ def validate_moves(
                 hypothesis_id=proposal.hypothesis_id,
                 parent_test=previous,
             )
-            test_ref = commit_record(h, "test", test, key=test_id)
-            payload["test"] = test_ref.model_dump(mode="json")
         if payload.get("test"):
-            test = TestSpec.model_validate_json(
+            existing_test = TestSpec.model_validate_json(
                 resolve_artifact(h.run, ArtifactRef.model_validate(payload["test"])).read_text(
                     "utf-8"
                 )
             )
-            if test.hypothesis_id != proposal.hypothesis_id:
+            if existing_test.hypothesis_id != proposal.hypothesis_id:
                 raise IntegrityError("move test belongs to another hypothesis")
+        validated.append((payload, test))
+    moves: list[ResearchMove] = []
+    for index, (payload, test) in enumerate(validated):
+        if test:
+            test_ref = commit_record(h, "test", test, key=test.id)
+            payload["test"] = test_ref.model_dump(mode="json")
         moves.append(
             ResearchMove(
                 **payload,
@@ -148,15 +151,14 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
     collected: list[ResearchMove] = []
 
     def submit(proposal: Proposals) -> str:
-        collected.extend(validate_moves(h, snapshot, proposal.moves))
         eligible = eligible_candidates(state, h.config.discovery)
-        proposed = {m.hypothesis_id for m in collected}
+        proposed = {m.hypothesis_id for m in proposal.moves}
         missing = set(eligible) - proposed - proposal.omitted.keys()
         if missing:
-            collected.clear()
             raise ValueError(
                 f"omitted eligible candidates need attributed reasons: {sorted(missing)}"
             )
+        collected[:] = validate_moves(h, snapshot, proposal.moves)
         return "Validated sourced proposals."
 
     tools = [
@@ -270,17 +272,19 @@ def make_attempt(h: Harness, move: ResearchMove, parent: ArtifactRef | None) -> 
     )
     if snapshot.frontier != state.frontier:
         raise EligibilityError("stale scientific frontier")
-    check_move(
-        state, move, StudyPolicy(5, h.config.discovery.hypotheses, True, False), h.config.discovery
-    )
+    check_move(state, move, h.config.discovery)
     if move.test is None or move.hypothesis_id is None:
         raise EligibilityError("move cannot schedule an execution")
     test = TestSpec.model_validate_json(resolve_artifact(h.run, move.test).read_text("utf-8"))
+    if test.hypothesis_id != move.hypothesis_id:
+        raise IntegrityError("move test belongs to another hypothesis")
     previous = next(
         (a for a in reversed(state.attempts) if a.record.hypothesis_id == move.hypothesis_id), None
     )
     reuse: dict[str, ArtifactRef] = {}
     if previous:
+        if parent != previous.ref:
+            raise EligibilityError("revisit must cite its latest parent attempt")
         old_test = TestSpec.model_validate_json(
             resolve_artifact(h.run, previous.record.test).read_text("utf-8")
         )
@@ -320,8 +324,11 @@ def make_attempt(h: Harness, move: ResearchMove, parent: ArtifactRef | None) -> 
         elif move.action == "refine":
             if change != "refine":
                 raise EligibilityError("refinement must change the operational procedure")
-            if not move.trigger_refs:
-                raise EligibilityError("refinement requires a sourced unresolved question")
+            attributed = {r.ref for r in state.results if r.record.hypothesis_id == move.hypothesis_id}
+            attributed.update(q.ref for q in state.questions if q.record.hypothesis_id == move.hypothesis_id and not q.record.resolved)
+            attributed.update(d.ref for d in state.diagnoses if previous.record.test in d.record.affected_refs or previous.ref in d.record.observation_refs)
+            if not any(ref in attributed for ref in move.trigger_refs):
+                raise EligibilityError("refinement requires an attributed question or diagnostic observation")
     elif move.action != "test":
         raise EligibilityError("first hypothesis execution must be a test")
     move_ref = commit_record(h, "move", move, key=move.id)

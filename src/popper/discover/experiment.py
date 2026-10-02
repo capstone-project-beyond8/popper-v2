@@ -155,6 +155,34 @@ def method_reference(
     return JudgeReference({outcome: "outcome", exposure: "exposure"}, tuple(requirements))
 
 
+def declared_procedure_reference(
+    test: TestSpec, columns: Sequence[str], *, purpose: str
+) -> JudgeReference:
+    """Carry the effective operational declaration across the estimate blinding boundary."""
+    primary = test.primary_estimand
+    if primary.outcome not in columns or primary.exposure not in columns:
+        raise ValueError("primary outcome and exposure must identify processed data columns")
+    requirements = [
+        f"Stage/specification: {purpose}.",
+        f"Declared estimand: {primary.model_dump_json()}.",
+        f"Selection and assumptions: {json.dumps(test.selection)}.",
+        f"Inference: {json.dumps(test.inference)}.",
+        f"Adjustments: {json.dumps(test.adjustment)}.",
+        f"Requested coverage: {json.dumps({k: v for k, v in test.requested_coverage.items() if k != 'alternatives'})}.",
+        f"Required outputs: {json.dumps(test.outputs)}.",
+    ]
+    for method in test.methods:
+        declaration = method.model_dump(mode="json", exclude={"implementation_ref"})
+        requirements.append(f"Declared method: {json.dumps(declaration)}.")
+    requirements.append(
+        "Assess operational fidelity from code and structural diagnostics; signed estimates "
+        "and support predictions are withheld. Unverified requirements remain unresolved."
+    )
+    return JudgeReference(
+        {primary.outcome: "outcome", primary.exposure: "exposure"}, tuple(requirements)
+    )
+
+
 def check_estimate(
     workdir: Path,
     key: str = "primary_estimate",
@@ -257,7 +285,11 @@ def run_experiment_stage(
             check=partial(observe_declared_output, test=intended, sources=[test])
             if intended and test
             else (lambda path: check_estimate(path, estimand=estimand)),
-            judge_reference=method_reference(
+            judge_reference=declared_procedure_reference(
+                intended,
+                pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
+                purpose=name,
+            ) if intended else method_reference(
                 hypothesis,
                 pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
                 purpose=name,
@@ -427,6 +459,35 @@ def _node_ref(h: Harness, node: Node) -> ArtifactRef:
     )
 
 
+def _sensitivity(h: Harness, measurements: list[AcceptedMeasurement]) -> dict[str, Any]:
+    usable = [m for m in measurements if m.fidelity.status == "consistent"]
+    main = next((m for m in usable if m.role == "main"), None)
+    comparisons = []
+    if main:
+        primary = resolve_measurement(h.run, main.ref)
+        for variant in usable:
+            if variant.role != "robustness" or variant.ref.result_key == "placebo_estimate":
+                continue
+            alternative = resolve_measurement(h.run, variant.ref)
+            assert isinstance(primary.value, (int, float)) and isinstance(
+                alternative.value, (int, float)
+            )
+            comparisons.append(
+                {
+                    "main": main.ref.model_dump(mode="json"),
+                    "variant": variant.ref.model_dump(mode="json"),
+                    "same_direction": primary.value * alternative.value > 0,
+                    "intervals_overlap": bool(
+                        primary.ci
+                        and alternative.ci
+                        and max(primary.ci[0], alternative.ci[0])
+                        <= min(primary.ci[1], alternative.ci[1])
+                    ),
+                }
+            )
+    return {"comparisons": comparisons}
+
+
 def _scoped_experiment(
     h: Harness,
     framing: dict[str, Any],
@@ -515,59 +576,67 @@ def _scoped_experiment(
     if not isinstance(alternative_payloads, list):
         raise IntegrityError("declared alternatives must be a list")
     attempts: list[AttemptSpec] = []
-    if "main" in selected:
-        for index, payload in enumerate(alternative_payloads):
-            if not isinstance(payload, dict):
-                raise IntegrityError("variant declaration must be an object")
-            variant = TestSpec.model_validate(
-                {
-                    **intended.model_dump(mode="json"),
-                    **payload,
-                    "id": f"{intended.id}-v{index:03d}",
-                    "hypothesis_id": intended.hypothesis_id,
-                    "parent_test": request.test.model_dump(mode="json"),
-                }
+    for index, payload in enumerate(alternative_payloads):
+        if not isinstance(payload, dict):
+            raise IntegrityError("variant declaration must be an object")
+        variant = TestSpec.model_validate(
+            {
+                **intended.model_dump(mode="json"),
+                **payload,
+                "id": f"{intended.id}-v{index:03d}",
+                "hypothesis_id": intended.hypothesis_id,
+                "parent_test": request.test.model_dump(mode="json"),
+            }
+        )
+        if classify_change(intended, variant) == "pivot":
+            raise IntegrityError("robustness cannot change the substantive target")
+        ref = commit_record(h, "test", variant, key=f"{attempt.id}-v{index:03d}")
+        variants.append(ref)
+        key = next(k for k in variant.outputs if not k.endswith(".json"))
+        attempts.append(
+            AttemptSpec(
+                variant.id,
+                "adversarial" if key == "placebo_estimate" else "variant",
+                adaptive_goal(variant, "robustness"),
+                variant.model_dump_json(),
+                partial(observe_declared_output, test=variant, sources=[ref]),
+                declared_procedure_reference(
+                    variant,
+                    pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
+                    purpose="robustness",
+                ),
+                ref,
             )
-            if classify_change(intended, variant) == "pivot":
-                raise IntegrityError("robustness cannot change the substantive target")
-            ref = commit_record(h, "test", variant, key=f"{attempt.id}-v{index:03d}")
-            variants.append(ref)
-            key = next(k for k in variant.outputs if not k.endswith(".json"))
-            attempts.append(
-                AttemptSpec(
-                    variant.id,
-                    "adversarial" if key == "placebo_estimate" else "variant",
-                    adaptive_goal(variant, "robustness"),
-                    variant.model_dump_json(),
-                    partial(observe_declared_output, test=variant, sources=[ref]),
-                    method_reference(
-                        {**hypothesis, "methods": [m.model_dump() for m in variant.methods]},
-                        pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
-                        purpose="model",
-                    ),
-                    ref,
-                )
+        )
+    if "main" in selected and attempts:
+        capacity = h.config.search.steps_for("robustness")
+        if len(attempts) > capacity:
+            diagnoses.append(commit_record(
+                h, "diagnosis", Diagnosis(
+                    category="resource", observation_refs=[request.attempt], author="executor",
+                    reason="Declared alternatives exceed the stage execution allowance; excess alternatives remain unavailable",
+                    affected_refs=[request.test], affected_roles=["robustness"],
+                ), key=f"{attempt.id}-coverage-cap",
+            ))
+        try:
+            run_stage(
+                h,
+                StageSpec(
+                    "robustness",
+                    "Execute predeclared sensitivity tests.",
+                    "",
+                    {"data": h.run.path("data", "processed.parquet")},
+                    ("results.json", "estimand.json", "coverage.json"),
+                    seed_code=selected["main"].code,
+                    min_figures=0,
+                    blind_estimates=True,
+                    seed_node=selected["main"].id,
+                    attempts=tuple(attempts[:capacity]),
+                    instance_id=attempt.stage_instances["robustness"],
+                ),
             )
-        if attempts:
-            try:
-                run_stage(
-                    h,
-                    StageSpec(
-                        "robustness",
-                        "Execute predeclared sensitivity tests.",
-                        "",
-                        {"data": h.run.path("data", "processed.parquet")},
-                        ("results.json", "estimand.json", "coverage.json"),
-                        seed_code=selected["main"].code,
-                        min_figures=0,
-                        blind_estimates=True,
-                        seed_node=selected["main"].id,
-                        attempts=tuple(attempts),
-                        instance_id=attempt.stage_instances["robustness"],
-                    ),
-                )
-            except StageFailed:
-                pass
+        except StageFailed:
+            pass
     measured_nodes = [(role, node) for role, node in selected.items()]
     measured_nodes.extend(
         ("robustness", n)
@@ -611,16 +680,17 @@ def _scoped_experiment(
             sources=[node.test_ref, ref],
         )
         if fidelity.status == "defect":
+            diagnosis_name = f"science:diagnosis:{node.id}"
             diagnoses.append(
-                commit_record(
+                h.run.artifact_ref(diagnosis_name) if h.run.committed(diagnosis_name) else commit_record(
                     h,
                     "diagnosis",
                     Diagnosis(
                         category="measurement",
-                        observation_refs=[ref],
+                        observation_refs=[request.attempt, ref],
                         author="judge",
                         reason=fidelity.reason,
-                        affected_refs=[node.test_ref],
+                        affected_refs=[request.test, node.test_ref],
                         affected_roles=[role],
                     ),
                     key=node.id,
@@ -684,12 +754,7 @@ def _scoped_experiment(
         checks=checks,
         diagnoses=diagnoses,
         coverage=coverage,
-        sensitivity={
-            "comparable_measurements": [
-                m.ref.model_dump(mode="json") for m in measurements if m.role != "baseline"
-            ],
-            "missing": coverage["missing"],
-        },
+        sensitivity={**_sensitivity(h, measurements), "missing": coverage["missing"]},
         status="failed"
         if "main" not in selected
         else "partial"

@@ -1,10 +1,17 @@
 """Scientific declarations and immutable lifecycle records."""
 
+import json
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, JsonValue, StringConstraints, ValidationInfo, model_validator
 
-from popper.harness.records import ArtifactRef, MeasurementRef, Record
+from popper.harness.records import (
+    ArtifactRef,
+    IntegrityError,
+    MeasurementRef,
+    Record,
+    resolve_artifact,
+)
 from popper.harness.session import Harness
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -285,11 +292,14 @@ def commit_record(
     h: Harness, kind: str, record: Record | dict[str, Any], *, key: str | None = None
 ) -> ArtifactRef:
     name = f"science:{kind}" + (f":{key}" if key else "")
+    data = record.model_dump(mode="json") if isinstance(record, Record) else record
     if key and h.run.committed(name):
-        return h.run.artifact_ref(name)
+        ref = h.run.artifact_ref(name)
+        if json.loads(resolve_artifact(h.run, ref).read_text("utf-8")) != data:
+            raise IntegrityError(f"conflicting scientific record for {name}")
+        return ref
     folder = h.run.new_attempt(f"discover/{kind}")
     rel = folder.relative_to(h.run.root).as_posix()
-    data = record.model_dump(mode="json") if isinstance(record, Record) else record
     path = h.run.write_json(f"{rel}/{kind}.json", data)
     h.run.commit_artifact(name, path)
     return h.run.artifact_ref(name)

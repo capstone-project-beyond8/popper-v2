@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from popper.discover.contracts import MoveProposal
-from popper.discover.policy import eligible_candidates, validate_moves
-from popper.discover.state import ResearchState
+from popper.discover.policy import eligible_candidates, propose_moves, validate_moves
+from popper.discover.state import ResearchState, commit_snapshot
 from popper.harness.config import Discovery, load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
@@ -31,3 +31,28 @@ def test_source_validation_and_limits(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         validate_moves(h, snapshot, [move.model_copy(update={"trigger_refs": [foreign]})])
     assert eligible_candidates(ResearchState(counters={"moves": 4}), Discovery()) == []
+
+
+def test_permanently_incomplete_proposal_stops_after_bounded_correction(tmp_path: Path) -> None:
+    from popper.harness.llm import ToolCall
+    fake = FakeLLM(lambda _: (ToolCall("bad", "submit_moves", {"moves": [{"action": "test"}]}),))
+    h = Harness(load_config(env={}), fake, RunStore(tmp_path))
+    snapshot = commit_snapshot(h, ResearchState())
+    ref = propose_moves(h, snapshot)
+    import json
+
+    from popper.harness.records import resolve_artifact
+    assert json.loads(resolve_artifact(h.run, ref).read_text())["moves"] == []
+    assert len(fake.calls) == 2
+    assert h.run.committed(f"science:disposition:{snapshot.record_id}") is not None
+
+
+def test_scientific_commit_rejects_conflicting_key(tmp_path: Path) -> None:
+    from popper.discover.contracts import commit_record
+    from popper.harness.records import IntegrityError
+
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    original = commit_record(h, "test", {"inference": 1000}, key="test-1")
+    assert commit_record(h, "test", {"inference": 1000}, key="test-1") == original
+    with pytest.raises(IntegrityError, match="conflicting"):
+        commit_record(h, "test", {"inference": 100}, key="test-1")
