@@ -53,6 +53,7 @@ def test_historical_stage_records_preserve_identity(
     node = run_stage(h, StageSpec("main", "goal", "context", {}, ("results.json",)))
     assert node.id == nodes[0].id == "main-000"
     assert node.stage == "main"
+    assert node.stage_instance == "main"
     assert node.execution_dir == h.run.root / "tree/main/main-000/execution"
     assert node.results == {"m": {"value": 1.5}}
     assert node.score == 7 and node.goal_met
@@ -171,8 +172,9 @@ def test_budget_raise_survives_failure_before_its_checkpoint(
     assert len([e for e in read_events(store.root) if e["event"] == "budget_raise"]) == 1
 
 
+@pytest.mark.parametrize("instance_id", [None, "h001-s001-stage"])
 def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(
-    tmp_path: Path,
+    tmp_path: Path, instance_id: str | None,
 ) -> None:
     cfg = load_config(env={})
     cfg.search.steps_per_stage = 2
@@ -185,10 +187,17 @@ def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(
         return (ToolCall("submit", "submit", {"code": script}),)
 
     store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
-    spec = StageSpec("stage", "goal", "context", {}, ("results.json",))
+    spec = StageSpec("stage", "goal", "context", {}, ("results.json",),
+                     seed_node="baseline-000", instance_id=instance_id)
     with pytest.raises(KeyboardInterrupt):
         run_stage(Harness(cfg, FakeLLM(first), store), spec)
-    original = store.path("tree", "stage", "stage-000", "execution", "results.json").read_bytes()
+    first_dir = store.path("tree", spec.execution_id, f"{spec.execution_id}-000")
+    original = {p: p.read_bytes() for p in first_dir.rglob("*") if p.is_file()}
+    interrupted = load_nodes(Harness(cfg, FakeLLM(first), store), spec.execution_id, include_abandoned=True)
+    assert len(interrupted) == 1 and interrupted[0].status == "buggy"
+    assert interrupted[0].score is None and interrupted[0].results == {}
+    assert interrupted[0].stage == "stage" and interrupted[0].stage_instance == spec.execution_id
+    assert interrupted[0].seed_node == "baseline-000"
 
     def second(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         if req.tag.startswith("judge:"):
@@ -196,11 +205,10 @@ def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(
         return (ToolCall("submit", "submit", {"code": script}),)
 
     best = run_stage(Harness(cfg, FakeLLM(second), store), spec)
-    assert best.id == "stage-001" and best.kind == "debug"
-    assert (
-        store.path("tree", "stage", "stage-000", "execution", "results.json").read_bytes()
-        == original
-    )
+    assert best.id == f"{spec.execution_id}-001" and best.kind == "debug"
+    assert best.parent == f"{spec.execution_id}-000" and best.seed_node == "baseline-000"
+    assert best.stage == "stage" and best.stage_instance == spec.execution_id
+    assert all(p.read_bytes() == content for p, content in original.items())
     starts = [e for e in read_events(store.root) if e["event"] == "node_start"]
     assert len(starts) == 2
 
@@ -220,8 +228,9 @@ def test_resume_rejects_legacy_format_and_retains_budget_stop(tmp_path: Path) ->
     assert resume(outcome.run_dir, llm=fake).status == "budget_exceeded"
 
 
+@pytest.mark.parametrize("instance_id", [None, "h001-s001-stage"])
 def test_resume_after_node_commit_reconstructs_stage_end(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, instance_id: str | None,
 ) -> None:
     cfg = _config()
     store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
@@ -252,13 +261,20 @@ def test_resume_after_node_commit_reconstructs_stage_end(
         original_write(event, **fields)
 
     monkeypatch.setattr(h.journal, "write", interrupted)
-    spec = StageSpec("stage", "goal", "context", {}, ("results.json",))
+    spec = StageSpec("stage", "goal", "context", {}, ("results.json",), instance_id=instance_id)
     with pytest.raises(KeyboardInterrupt):
         run_stage(h, spec)
+    original = {p: p.read_bytes() for p in store.path("tree").rglob("*") if p.is_file()}
     no_calls = FakeLLM(lambda req: pytest.fail("committed node must not replay"))
     node = run_stage(Harness(cfg, no_calls, store), spec)
-    assert node.id == "stage-000"
-    assert len([e for e in read_events(store.root) if e["event"] == "node_start"]) == 1
+    assert node.id == f"{spec.execution_id}-000"
+    assert node.stage == "stage" and node.stage_instance == spec.execution_id
+    assert all(p.read_bytes() == content for p, content in original.items())
+    events = read_events(store.root)
+    assert len([e for e in events if e["event"] == "node_start"]) == 1
+    assert len([e for e in events if e["event"] == "exec"]) == 1
+    end = next(e for e in events if e["event"] == "stage_end")
+    assert end["stage"] == "stage" and end["stage_instance"] == spec.execution_id
 
 
 def test_locked_run_cannot_be_resumed_and_journal_is_untouched(tmp_path: Path) -> None:

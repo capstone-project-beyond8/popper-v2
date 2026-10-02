@@ -7,7 +7,7 @@ import pytest
 from popper.communicate.evidence import evidence_rows, load_evidence
 
 
-def _manifest(root: Path) -> Path:
+def _manifest(root: Path, *, scoped: bool = False) -> Path:
     nodes: list[dict[str, Any]] = []
     for i, (stage, kind) in enumerate(
         (("main", "draft"), ("main", "improve"), ("robustness", "adversarial"))
@@ -51,6 +51,10 @@ def _manifest(root: Path) -> Path:
             "figures": [],
         }
     )
+    if scoped:
+        for node in nodes:
+            node["stage_instance"] = f"h001-s001-{node['stage']}"
+            node["seed_node"] = "baseline-000"
     for name in ("hypothesis.json", "schedule.json", "results.json"):
         (root / name).write_text("{}")
     (root / "schedule.json").write_text(
@@ -84,11 +88,17 @@ def _manifest(root: Path) -> Path:
     return path
 
 
-def test_all_successful_attempts_keep_equal_estimates_and_unique_keys(tmp_path: Path) -> None:
-    evidence = load_evidence(_manifest(tmp_path), tmp_path)
+@pytest.mark.parametrize("scoped", [False, True])
+def test_all_successful_attempts_keep_equal_estimates_and_unique_keys(tmp_path: Path, scoped: bool) -> None:
+    evidence = load_evidence(_manifest(tmp_path, scoped=scoped), tmp_path)
+    assert evidence["format_version"] == 1
+    assert evidence["stability"] == "fragile" and evidence["standing"] == "exploratory"
+    assert evidence["selected"] == {"main": "main-000"}
     rows = evidence_rows(evidence, tmp_path)
     assert [row["id"] for row in rows] == ["main-000", "main-001", "robustness-002"]
     assert rows[-1]["adversarial"]
+    assert rows[-1]["attempt_id"] == "permuted"
+    assert rows[0]["value"] == 1.0 and rows[0]["ci"] == (0.5, 1.5)
     assert len({row["key"] for row in rows}) == 3
     (tmp_path / "main-001.json").write_text('{"primary_estimate":{"value":-2,"ci":[-3,-1],"n":21}}')
     updated = evidence_rows(evidence, tmp_path)
@@ -108,8 +118,9 @@ def test_evidence_rejects_escaped_reference_and_unknown_version(tmp_path: Path) 
         load_evidence(path, tmp_path)
 
 
-def test_secondary_placebo_cannot_replace_primary_and_repair_keeps_identity(tmp_path: Path) -> None:
-    evidence = load_evidence(_manifest(tmp_path), tmp_path)
+@pytest.mark.parametrize("scoped", [False, True])
+def test_secondary_placebo_cannot_replace_primary_and_repair_keeps_identity(tmp_path: Path, scoped: bool) -> None:
+    evidence = load_evidence(_manifest(tmp_path, scoped=scoped), tmp_path)
     primary = {"value": 2, "ci": [1, 3], "n": 20}
     placebo = {"value": 0, "ci": [-1, 1], "n": 20}
     (tmp_path / "main-000.json").write_text(

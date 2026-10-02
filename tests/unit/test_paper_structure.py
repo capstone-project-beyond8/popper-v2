@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 from popper.communicate.paper import (
     FigureRef,
     Writeup,
@@ -104,12 +106,13 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
     assert "reviewed and steered by the researcher" in tex
 
 
-def test_figure_references_are_identity_based_bounded_known_and_exploration_first() -> None:
+@pytest.mark.parametrize("scoped", [False, True])
+def test_figure_references_are_identity_based_bounded_known_and_exploration_first(scoped: bool) -> None:
     nodes = [
-        cast(Node, SimpleNamespace(id=f"main-{i:03d}", stage="main", figures=["fit.png"]))
+        cast(Node, SimpleNamespace(id=f"main-{i:03d}", stage="main", stage_instance="a-main" if scoped else None, figures=["fit.png"]))
         for i in range(4)
     ]
-    explore = cast(Node, SimpleNamespace(id="explore-000", stage="explore", figures=["raw.png"]))
+    explore = cast(Node, SimpleNamespace(id="explore-000", stage="explore", stage_instance="z-explore" if scoped else None, figures=["raw.png"]))
     refs = [FigureRef(node_id=n.id, file="fit.png", caption="fit", section="main") for n in nodes]
     assert len(_select_figures(refs + refs, nodes)) == 3
     raw = FigureRef(node_id="explore-000", file="raw.png", caption="raw", section="data_methods")
