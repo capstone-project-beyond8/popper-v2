@@ -48,7 +48,12 @@ def collect_values(
     for node in nodes:
         for name, entry in node.results.items():
             keys = [f"{node.id}.{name}"]
-            if aliases.get(node.stage) == node.id:
+            if node.test_id:
+                scoped = f"{node.test_id}.{node.stage}.{name}"
+                if scoped in values:
+                    raise ValueError(f"ambiguous scientific measurement alias: {scoped}")
+                keys.append(scoped)
+            elif aliases.get(node.stage) == node.id:
                 keys.append(f"{node.stage}.{name}")
             for key in keys:
                 values.update(entry_values(key, entry))

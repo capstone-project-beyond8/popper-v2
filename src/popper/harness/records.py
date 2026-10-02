@@ -62,6 +62,9 @@ class StudyOutput(Record):
     frame: ArtifactRef | None = None
     foundation: ArtifactRef | None = None
     exploration: ArtifactRef | None = None
+    preparation: ArtifactRef | None = None
+    attempt_history: list[dict[str, Any]] = Field(default_factory=list)
+    diagnoses: list[dict[str, Any]] = Field(default_factory=list)
     candidates: list[CandidateView] = Field(default_factory=list)
     attempts: list[ArtifactRef] = Field(default_factory=list)
     usable_measurements: list[MeasurementView] = Field(default_factory=list)
@@ -71,6 +74,7 @@ class StudyOutput(Record):
     dispositions: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[dict[str, Any]] = Field(default_factory=list)
     selections: list[ArtifactRef] = Field(default_factory=list)
+    selection_history: list[dict[str, Any]] = Field(default_factory=list)
     stop_reason: str
     operational_status: Literal["completed", "failed", "budget_exceeded"]
     historical_evidence: ArtifactRef | None = None

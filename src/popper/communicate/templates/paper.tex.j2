@@ -53,6 +53,43 @@ Concept & Columns & Proxy strength \\
 \VAR{sections.exploratory}
 \subsection{Main}
 \VAR{sections.main}
+\BLOCK{if adaptive}
+\paragraph{Candidates and retained history}
+\BLOCK{for c in study.candidates}
+\noindent \VAR{c.id}: \VAR{c.statement}.
+\BLOCK{if c.selected}Selected for execution.\BLOCK{endif}
+\BLOCK{if c.attempted}Attempted.\BLOCK{else}Untested.\BLOCK{endif}
+\BLOCK{endfor}
+\paragraph{Stopping condition}
+\VAR{study.stop_reason}
+\BLOCK{for s in study.selection_history}
+\noindent Selected \VAR{s.proposal_id}: \VAR{s.rationale}.
+\BLOCK{endfor}
+\BLOCK{for a in study.attempt_history}
+\noindent \VAR{a.id}: \VAR{a.status}; candidate \VAR{a.hypothesis_id}.
+\BLOCK{endfor}
+\BLOCK{for d in study.diagnoses}
+\noindent Diagnosis \VAR{d.record.category}: \VAR{d.record.reason}.
+\BLOCK{endfor}
+\paragraph{Evidence dimensions}
+\BLOCK{for m in study.measurement_history}
+\noindent \VAR{m.ref.test_id}: fidelity \VAR{m.fidelity}; support \VAR{m.support};
+\VAR{m.fidelity_reason}.
+\BLOCK{if m.active}usable.\BLOCK{else}excluded from active claims; retained in history.\BLOCK{endif}
+\BLOCK{endfor}
+\BLOCK{for c in study.coverage}
+\noindent Coverage: \VAR{c.status}.
+\BLOCK{endfor}
+\BLOCK{for sensitivity in study.sensitivity}
+\BLOCK{for comparison in sensitivity.comparisons}
+\noindent Sensitivity: same direction \VAR{comparison.same_direction};
+interval overlap \VAR{comparison.intervals_overlap}.
+\BLOCK{endfor}
+\BLOCK{endfor}
+\BLOCK{for d in study.dispositions}
+\noindent \VAR{d.record.kind}: \VAR{d.record.reason}.
+\BLOCK{endfor}
+\BLOCK{endif}
 {\small
 \begin{longtable}{p{.18\textwidth}p{.18\textwidth}lrrr}
 \hline
@@ -65,12 +102,14 @@ Attempt & Specification & Kind & Estimate & Interval & $n$ \\
 \end{longtable}
 }
 \subsection{Robustness}
+\BLOCK{if not adaptive}
 \noindent Computed stability: \textbf{\VAR{stability}}. Standing remains exploratory.
 \R{summary.supporting_count} of \R{summary.variant_count} planned ordinary variants support the main sign
 with intervals excluding zero (share \R{summary.supporting_share}); \R{summary.adversarial_count} adversarial checks.
 \BLOCK{for reason in reasons}
 \noindent \VAR{reason}
 \BLOCK{endfor}
+\BLOCK{endif}
 \VAR{sections.robustness}
 \BLOCK{if failures}
 \paragraph{Incomplete attempts}
@@ -82,8 +121,13 @@ with intervals excluding zero (share \R{summary.supporting_share}); \R{summary.a
 \VAR{w.discussion}
 \noindent This analysis followed adaptive exploration on discovery data. Rows reserved at ingest were
 never passed to analysis code as inputs, and they are not evidence of verification. Subgroup analyses concern their declared
+\BLOCK{if not adaptive}
 restricted populations. Failed and missing specification attempts remain non-supporting; a single
 exposure permutation is a diagnostic, not a calibrated permutation significance test.
+\BLOCK{else}
+operational selections; the substantive target is retained with explicit assumptions. Incomplete
+coverage and unresolved fidelity are unavailable evidence, rather than scientific non-support.
+\BLOCK{endif}
 \subsection{Limitations}
 \begin{itemize}
 \BLOCK{for item in limitations}
@@ -92,7 +136,9 @@ exposure permutation is a diagnostic, not a calibrated permutation significance 
 \end{itemize}
 \section{Conclusion}
 \VAR{w.conclusion}
+\BLOCK{if not adaptive}
 \noindent Computed stability is \VAR{stability}; this study remains exploratory.
+\BLOCK{endif}
 \appendix
 \section{Experiment code}
 \BLOCK{for node in experiment_nodes}

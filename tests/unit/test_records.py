@@ -35,6 +35,20 @@ def test_reference_rejects_unsafe_paths(tmp_path: Path, path: str) -> None:
         resolve_artifact(RunStore(tmp_path), ArtifactRef(path=path, sha256="a"*64, producer="input", record_id="r1"))
 
 
+def test_symlink_reference_cannot_escape_committed_root(tmp_path: Path) -> None:
+    root = tmp_path / "run"
+    root.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}")
+    link = root / "linked.json"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("operating system denies symlink creation")
+    with pytest.raises(ValueError, match="escaped"):
+        resolve_artifact(RunStore(root), ArtifactRef(path="linked.json", sha256=file_hash(outside), producer="source", record_id="r1"))
+
+
 def test_measurement_requires_exact_accepted_node(tmp_path: Path) -> None:
     store = RunStore(tmp_path)
     result = store.write_json("tree/scoped/node/execution/results.json", {"estimate": {"value": 2.0, "ci": [1, 3]}})

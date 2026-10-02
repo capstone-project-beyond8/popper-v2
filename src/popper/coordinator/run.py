@@ -287,7 +287,11 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             )
             status = output.operational_status
             message = output.stop_reason if status != "completed" else ""
-            if any(e["event"] == "publication_budget_stop" for e in read_events(store.root)):
+            if h.spent_usd >= h.config.budget.max_usd and any(
+                e["event"] == "publication_budget_stop"
+                and e.get("study_identity") == store.artifact_ref("study").sha256
+                for e in read_events(store.root)
+            ):
                 status = "budget_exceeded"
         else:
             changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))

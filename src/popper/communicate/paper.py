@@ -22,8 +22,9 @@ from popper.communicate.numbers import (
 )
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
+from popper.harness.records import ArtifactRef, StudyOutput, resolve_artifact, resolve_measurement
 from popper.harness.results import validate_results
-from popper.harness.session import Harness
+from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import next_sequence
 from popper.treesearch.engine import Node, load_nodes
 from popper.treesearch.judge import validate_image
@@ -278,6 +279,49 @@ def _render_report(
         for a in manifest["specifications"]
         if a["node"] is None
     ]
+    study = manifest.get("study")
+    if study:
+        study = {
+            **study,
+            "stop_reason": latex_escape(study["stop_reason"]),
+            "candidates": [
+                {**c, "id": latex_escape(c["id"]), "statement": latex_escape(c["statement"])}
+                for c in study["candidates"]
+            ],
+            "attempt_history": [
+                {
+                    **a,
+                    "id": latex_escape(a["id"]),
+                    "hypothesis_id": latex_escape(a["hypothesis_id"]),
+                }
+                for a in study["attempt_history"]
+            ],
+            "diagnoses": [
+                {**d, "record": {**d["record"], "reason": latex_escape(d["record"]["reason"])}}
+                for d in study["diagnoses"]
+            ],
+            "dispositions": [
+                {**d, "record": {**d["record"], "reason": latex_escape(d["record"]["reason"])}}
+                for d in study["dispositions"]
+            ],
+            "selection_history": [
+                {
+                    **s,
+                    "rationale": latex_escape(s["rationale"]),
+                    "proposal_id": latex_escape(s["proposal_id"]),
+                }
+                for s in study["selection_history"]
+            ],
+            "measurement_history": [
+                {
+                    **m,
+                    "support": latex_escape(m["support"]),
+                    "fidelity_reason": latex_escape(m["fidelity_reason"]),
+                    "ref": {**m["ref"], "test_id": latex_escape(m["ref"]["test_id"])},
+                }
+                for m in study["measurement_history"]
+            ],
+        }
     tex = _ENV.get_template("paper.tex.j2").render(
         w=w,
         sections=sections,
@@ -312,6 +356,8 @@ def _render_report(
         limitations=[latex_escape(item) for item in limitations],
         steered=steered,
         experiment_nodes=[n for n in nodes if n.stage in _CODE_STAGES and n.status == "ok"],
+        adaptive=manifest.get("adaptive", False),
+        study=study,
     )
     return fill_numbers(tex, values)
 
@@ -440,6 +486,18 @@ def write_paper(
     )
     if missing:
         h.journal.write("numbers_missing", keys=missing)
+    return _commit_report(h, report_dir, tex, missing)
+
+
+def _commit_report(
+    h: Harness,
+    report_dir: Path,
+    tex: str,
+    missing: list[str],
+    *,
+    identity: str | None = None,
+) -> tuple[Path, Path | None, list[str]]:
+    prefix = report_dir.relative_to(h.run.root).as_posix()
     path = h.run.write_text(f"{prefix}/paper.tex", tex)
     pdf = compile_pdf(path)
     record_path = h.run.write_json(
@@ -448,7 +506,156 @@ def write_paper(
             "tex": path.relative_to(h.run.root).as_posix(),
             "pdf": pdf.relative_to(h.run.root).as_posix() if pdf else None,
             "missing": missing,
+            **({"study_identity": identity} if identity else {}),
         },
     )
     h.run.commit_artifact("report", record_path)
+    if identity:
+        h.run.commit_artifact(f"report:{identity}", record_path)
     return path, pdf, missing
+
+
+def diagnostic_writeup(study: StudyOutput) -> Writeup:
+    findings = []
+    for measurement in study.usable_measurements:
+        ref = measurement.ref
+        key = f"{ref.test_id}.{measurement.role}.{ref.result_key}"
+        findings.append(
+            latex_escape(f"{ref.hypothesis_id}, {measurement.role}: ")
+            + rf"\R{{{key}}} (interval \R{{{key}.ci}}). "
+            + latex_escape(f"Fidelity {measurement.fidelity}; support {measurement.support}.")
+        )
+    return Writeup(
+        title="Exploratory research study" if findings else "Research diagnostic report",
+        abstract="Available committed observations and remaining uncertainty.",
+        introduction="Sequential discovery on the reviewed research frame.",
+        data="Only discovery inputs were provided to analysis.",
+        exploration="Candidate origins cite committed exploration and framing records.",
+        hypothesis="All selected and untested candidate hypotheses are retained below.",
+        methods="Intended tests and actual implementations have distinct recorded identities.",
+        results="\n\n".join(findings)
+        if findings
+        else "No accepted usable measurements. No empirical findings are available.",
+        robustness="Coverage, fidelity, sensitivity and support are reported separately. Missing work is unavailable evidence.",
+        discussion=latex_escape(study.stop_reason),
+        conclusion="These observations remain exploratory; no held-back verification standing is granted.",
+        figures=[],
+    )
+
+
+def write_study(
+    h: Harness, study: Path, *, notes: str = "", research: str = ""
+) -> tuple[Path, Path | None, list[str]]:
+    output = StudyOutput.model_validate_json(study.read_text("utf-8"))
+    ref = h.run.artifact_ref("study")
+    if resolve_artifact(h.run, ref) != study:
+        raise ValueError("publication must cite the exact committed study output")
+    identity = ref.sha256
+    committed = h.run.committed(f"report:{identity}")
+    if committed:
+        record = json.loads(committed.read_text("utf-8"))
+        return (
+            h.run.path(record["tex"]),
+            h.run.path(record["pdf"]) if record["pdf"] else None,
+            record["missing"],
+        )
+    report_dir = h.run.new_attempt("report")
+    values: dict[str, Any] = {}
+    nodes: dict[str, Node] = {}
+    changes: list[dict[str, Any]] = []
+    for source, alias in ((output.preparation, "data"), (output.exploration, "explore")):
+        if source is None:
+            continue
+        manifest = json.loads(resolve_artifact(h.run, source).read_text("utf-8"))
+        for rel, digest in manifest.get("files", {}).items():
+            if Path(rel).name not in {"results.json", "changes.json"}:
+                continue
+            child = ArtifactRef(
+                path=rel,
+                sha256=digest,
+                producer=source.producer,
+                record_id=source.record_id,
+                backing=source,
+            )
+            content = json.loads(resolve_artifact(h.run, child).read_text("utf-8"))
+            if Path(rel).name == "changes.json" and alias == "data":
+                changes = content
+            elif Path(rel).name == "results.json":
+                for name, entry in validate_results(content).items():
+                    values.update(entry_values(f"{alias}.{name}", entry))
+    rows = []
+    for item in output.usable_measurements:
+        measurement = resolve_measurement(h.run, item.ref)
+        assert item.ref.artifact.backing is not None
+        metadata = json.loads(resolve_artifact(h.run, item.ref.artifact.backing).read_text("utf-8"))
+        if metadata["id"] not in nodes:
+            nodes[metadata["id"]] = next(
+                n for n in load_nodes(h, metadata["stage_instance"]) if n.id == metadata["id"]
+            )
+        entry = measurement.model_dump(mode="json", exclude_none=True)
+        key = f"{item.ref.test_id}.{item.role}.{item.ref.result_key}"
+        if key in values:
+            raise ValueError("ambiguous active scientific measurement")
+        values.update(entry_values(key, entry))
+        node_id = Path(item.ref.artifact.path).parent.parent.name
+        values.update(entry_values(f"{node_id}.{item.ref.result_key}", entry))
+        rows.append(
+            {
+                "id": item.ref.execution_id,
+                "stage": item.role,
+                "attempt_id": item.ref.test_id,
+                "key": key,
+                "adversarial": item.ref.result_key == "placebo_estimate",
+            }
+        )
+    writeup_name = f"writeup:{identity}"
+    saved = h.run.committed(writeup_name)
+    writeup = Writeup.model_validate_json(saved.read_bytes()) if saved else None
+    if writeup is None:
+        writeup = diagnostic_writeup(output)
+        if h.spent_usd < h.config.budget.max_usd and output.usable_measurements:
+            try:
+                prompt = (
+                    "Write an exploratory report using this committed study. Preserve untested, failed, "
+                    "negative and invalidated work; distinguish fidelity, support, coverage and sensitivity. "
+                    "All empirical numbers use \\R{key} macros. No legacy stability label.\n"
+                    f"Study: {output.model_dump_json()}\nNamed numbers: {json.dumps(values)}\n"
+                    f"Available figures: {json.dumps({n.id: n.figures for n in nodes.values()})}\n"
+                    f"Notes: {notes}\nResearch: {research}"
+                )
+                candidate = h.ask_model(
+                    "writer", schema=Writeup, tag="writeup", system=_SYSTEM, prompt=prompt
+                )
+                for _ in range(_WRITER_RETRIES):
+                    problems = _problems(candidate, values, list(nodes.values()))
+                    if not problems:
+                        break
+                    candidate = h.ask_model(
+                        "writer",
+                        schema=Writeup,
+                        tag="writeup",
+                        system=_SYSTEM,
+                        prompt=prompt + "\nCorrect: " + problems,
+                    )
+                if not _violations(candidate):
+                    writeup = candidate
+            except BudgetExceeded:
+                h.journal.write("publication_budget_stop", study_identity=identity)
+                writeup = diagnostic_writeup(output)
+        prefix = report_dir.relative_to(h.run.root).as_posix()
+        saved = h.run.write_json(f"{prefix}/writeup.json", writeup.model_dump(mode="json"))
+        h.run.commit_artifact(writeup_name, saved)
+    manifest = {
+        "adaptive": True,
+        "study": output.model_dump(mode="json"),
+        "nodes": [],
+        "specifications": [],
+        "stability": "",
+        "reasons": [],
+    }
+    placed = _copy_figures(h, writeup, list(nodes.values()), report_dir)
+    prefix = report_dir.relative_to(h.run.root).as_posix()
+    for node in nodes.values():
+        h.run.write_text(f"{prefix}/code/{node.id}.py", node.code)
+    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, manifest, placed, values, [], [], False)
+    return _commit_report(h, report_dir, tex, missing, identity=identity)

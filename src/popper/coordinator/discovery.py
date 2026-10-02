@@ -48,7 +48,8 @@ def commit_study(
     selections = [
         ref for name, ref in scientific_commits(h) if name.startswith("science:selection:")
     ]
-    selected_ids = {a.record.hypothesis_id for a in state.attempts}
+    attempted_ids = {a.record.hypothesis_id for a in state.attempts}
+    selected_ids = {selected_move(h, ref).hypothesis_id for ref in selections}
     history = [
         MeasurementView(
             ref=m.record.ref,
@@ -68,6 +69,20 @@ def commit_study(
         frame=_upstream(h, "frame_reviewed"),
         foundation=_upstream(h, "foundation"),
         exploration=_upstream(h, "exploration"),
+        preparation=_upstream(h, "preparation"),
+        attempt_history=[
+            {
+                "ref": a.ref.model_dump(mode="json"),
+                "id": a.record.id,
+                "hypothesis_id": a.record.hypothesis_id,
+                "status": next(
+                    (r.record.status for r in state.results if r.record.attempt == a.ref),
+                    "incomplete",
+                ),
+            }
+            for a in state.attempts
+        ],
+        diagnoses=[d.model_dump(mode="json") for d in state.diagnoses],
         candidates=[
             CandidateView(
                 id=c.record.id,
@@ -76,12 +91,21 @@ def commit_study(
                 source=c.ref,
                 warnings=c.record.warnings,
                 selected=c.record.id in selected_ids,
-                attempted=c.record.id in selected_ids,
+                attempted=c.record.id in attempted_ids,
             )
             for c in state.candidates
         ],
         attempts=[a.ref for a in state.attempts],
         selections=selections,
+        selection_history=[
+            {
+                "ref": ref.model_dump(mode="json"),
+                **MoveSelection.model_validate_json(
+                    resolve_artifact(h.run, ref).read_text("utf-8")
+                ).model_dump(mode="json"),
+            }
+            for ref in selections
+        ],
         usable_measurements=[m for m in history if m.active],
         measurement_history=history,
         coverage=[r.record.coverage for r in state.results],
@@ -160,7 +184,6 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                     if p.is_file()
                 },
                 "node": exploration.id,
-                "results": exploration.results,
             },
         )
         h.run.commit_artifact("exploration", path)

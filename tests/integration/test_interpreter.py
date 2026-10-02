@@ -140,7 +140,7 @@ plt.plot(df.x, fit.fittedvalues)
 plt.savefig('plot.png')
 print(pd.read_parquet('table.parquet').shape)
 """
-    result = _run(code, tmp_path)
+    result = _run(code, tmp_path, timeout=120)
     assert result.exit_code == 0, result.stderr
     assert "(10, 2)" in result.stdout and (tmp_path / "plot.png").is_file()
 
