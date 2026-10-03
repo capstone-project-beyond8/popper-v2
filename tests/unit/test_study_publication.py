@@ -2,6 +2,7 @@ from pathlib import Path
 
 from popper.communicate.paper import write_study
 from popper.coordinator.discovery import commit_study
+from popper.discover.contracts import Challenge, Interpretation
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.records import CandidateView, StudyOutput
@@ -47,6 +48,27 @@ def test_diagnostic_history_text_is_escaped(tmp_path: Path) -> None:
         adaptive=True,
         frontier=[],
         candidates=[candidate],
+        challenges=[{
+            "ref": candidate.source.model_dump(mode="json"),
+            "record": Challenge(
+                snapshot=candidate.source, candidates=candidate.source, author="judge",
+                assessments=[{
+                    "hypothesis_id": candidate.id, "assessment": r"Challenge 50% & \input{secret}",
+                    "concerns": [r"Concern \input{secret}"], "rivals": [r"Rival & uncertainty"],
+                    "discriminating_checks": [r"Check \input{secret}"], "sources": [candidate.source],
+                }],
+            ).model_dump(mode="json"),
+        }],
+        interpretations=[{
+            "ref": candidate.source.model_dump(mode="json"),
+            "record": Interpretation(
+                snapshot=candidate.source, result=candidate.source, hypothesis_id=candidate.id,
+                author="theorist", summary=r"Summary 50% & \input{secret}",
+                rivals=[r"Rival & uncertainty"], limitations=[r"Limits \input{secret}"],
+                questions=[r"Question \input{secret}"], sources=[candidate.source],
+            ).model_dump(mode="json"),
+        }],
+        stale_interpretations=[candidate.source],
         stop_reason=r"Stop \input{secret}",
         operational_status="budget_exceeded",
     )
@@ -56,3 +78,5 @@ def test_diagnostic_history_text_is_escaped(tmp_path: Path) -> None:
     rendered = tex.read_text("utf-8")
     assert r"\input{secret}" not in rendered
     assert r"50\% \&" in rendered
+    assert r"Challenge 50\% \&" in rendered and r"Summary 50\% \&" in rendered
+    assert "Stale interpretation" in rendered

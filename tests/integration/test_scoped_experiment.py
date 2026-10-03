@@ -8,6 +8,8 @@ import pytest
 from popper.discover.contracts import Attempt, AttemptResult, commit_record
 from popper.discover.contracts import TestSpec as ScientificTest
 from popper.discover.experiment import ExperimentRequest, experiment
+from popper.discover.feedback import interpret_result
+from popper.discover.state import rebuild_state
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_measurement
@@ -43,6 +45,15 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         attempt = commit_record(h, "attempt", Attempt(id=f"a{index}", move=move, move_id=f"m{index}", hypothesis_id=f"h{index}", test=test, parent=None, diagnosis=None, changed_fields=[], stage_instances={role: f"h{index}-a{index}-{role}" for role in ("baseline", "main", "robustness")}, move_count=index, revisit_count=0, exposure=[]), key=f"m{index}")
 
         def respond(req: LLMRequest, payload: dict[str, Any] = payload) -> str | tuple[ToolCall, ...]:
+            if req.tag == "interpret_result":
+                outcome = rebuild_state(h).results[-1]
+                return (ToolCall("interpret", "submit_interpretation", {
+                    "summary": "The usable negative interval contradicts the positive prediction.",
+                    "rivals": ["The opposing association"],
+                    "limitations": ["Sensitivity coverage is partial" if outcome.record.status == "partial" else "Association does not establish mechanism"],
+                    "questions": ["What explains the opposing association?"],
+                    "sources": [outcome.ref.model_dump(mode="json")],
+                }),)
             if req.tag.startswith("judge:"):
                 return json.dumps({"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "valid", "fidelity_status": "consistent", "fidelity_reason": "Code computes declared contrast and reports required outputs", "fidelity_requirements": ["contrast", "scale"], "fidelity_evidence": ["code: means", "output: declared scale"]})
             code = "raise RuntimeError('variant failure')" if failed_variant and "robustness" in req.tag else (
@@ -68,6 +79,15 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         main = next(m for m in result.measurements if m.role == "main")
         assert main.support == "not_supported"
         assert resolve_measurement(h.run, main.ref).value == -2.
+        original_result = path.read_bytes()
+        interpretation = interpret_result(h, rebuild_state(h).results[-1].ref)
+        state = rebuild_state(h)
+        assert interpretation is not None and path.read_bytes() == original_result
+        assert state.interpretations[-1].record.result == state.results[-1].ref
+        assert state.results[-1].record.status == result.status
+        assert any(m.record.role == "main" and m.record.support == "not_supported" for m in state.observations)
+        assert state.questions[-1].record.text == "What explains the opposing association?"
+        assert not state.stale_interpretations
         h.llm = FakeLLM(lambda req: (_ for _ in ()).throw(AssertionError(req.tag)))
         assert experiment(h, {}, hypothesis, prep.parent, request=request) == path
         results.append(result)

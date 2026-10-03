@@ -73,6 +73,9 @@ class StudyOutput(Record):
     sensitivity: list[dict[str, Any]] = Field(default_factory=list)
     dispositions: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[dict[str, Any]] = Field(default_factory=list)
+    challenges: list[dict[str, Any]] = Field(default_factory=list)
+    interpretations: list[dict[str, Any]] = Field(default_factory=list)
+    stale_interpretations: list[ArtifactRef] = Field(default_factory=list)
     selections: list[ArtifactRef] = Field(default_factory=list)
     selection_history: list[dict[str, Any]] = Field(default_factory=list)
     stop_reason: str

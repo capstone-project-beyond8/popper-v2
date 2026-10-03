@@ -11,8 +11,10 @@ from popper.discover.contracts import (
     Attempt,
     AttemptResult,
     Candidate,
+    Challenge,
     Diagnosis,
     Disposition,
+    Interpretation,
     Invalidation,
     Question,
     Standing,
@@ -34,6 +36,9 @@ class ResearchState(Record):
     version: int = 1
     frontier: list[ArtifactRef] = Field(default_factory=list)
     candidates: list[Sourced[Candidate]] = Field(default_factory=list)
+    challenges: list[Sourced[Challenge]] = Field(default_factory=list)
+    interpretations: list[Sourced[Interpretation]] = Field(default_factory=list)
+    stale_interpretations: list[ArtifactRef] = Field(default_factory=list)
     attempts: list[Sourced[Attempt]] = Field(default_factory=list)
     results: list[Sourced[AttemptResult]] = Field(default_factory=list)
     observations: list[Sourced[AcceptedMeasurement]] = Field(default_factory=list)
@@ -115,6 +120,8 @@ def scientific_commits(h: Harness) -> list[tuple[str, ArtifactRef]]:
 def rebuild_state(h: Harness) -> ResearchState:
     frontier: list[ArtifactRef] = []
     candidates: list[Sourced[Candidate]] = []
+    challenges: list[Sourced[Challenge]] = []
+    interpretations: list[Sourced[Interpretation]] = []
     attempts: list[Sourced[Attempt]] = []
     results: list[Sourced[AttemptResult]] = []
     history: list[Sourced[AcceptedMeasurement]] = []
@@ -127,6 +134,8 @@ def rebuild_state(h: Harness) -> ResearchState:
     kinds = {
         "intent",
         "candidates",
+        "challenge",
+        "interpretation",
         "attempt",
         "result",
         "diagnosis",
@@ -149,6 +158,10 @@ def rebuild_state(h: Harness) -> ResearchState:
             exposure = candidates[0].record.exposure if candidates else []
         elif kind == "attempt":
             attempts.append(Sourced(ref=ref, record=Attempt.model_validate(payload)))
+        elif kind == "challenge":
+            challenges.append(Sourced(ref=ref, record=Challenge.model_validate(payload)))
+        elif kind == "interpretation":
+            interpretations.append(Sourced(ref=ref, record=Interpretation.model_validate(payload)))
         elif kind == "result":
             result = AttemptResult.model_validate(payload)
             results.append(Sourced(ref=ref, record=result))
@@ -174,6 +187,32 @@ def rebuild_state(h: Harness) -> ResearchState:
         if m.record.fidelity.status == "consistent"
         and m.record.ref.model_dump_json() not in invalidated
     ]
+    stale_sources = {
+        result.ref
+        for result in results
+        if any(m.ref.model_dump_json() in invalidated for m in result.record.measurements)
+    }
+    stale_sources.update(
+        m.record.ref.artifact for m in history if m.record.ref.model_dump_json() in invalidated
+    )
+    stale_interpretations = []
+    for interpretation in interpretations:
+        if any(source in stale_sources for source in interpretation.record.sources):
+            stale_interpretations.append(interpretation.ref)
+            stale_sources.add(interpretation.ref)
+        else:
+            questions.extend(
+                Sourced(
+                    ref=interpretation.ref,
+                    record=Question(
+                        hypothesis_id=interpretation.record.hypothesis_id,
+                        text=text,
+                        author=interpretation.record.author,
+                        sources=interpretation.record.sources,
+                    ),
+                )
+                for text in interpretation.record.questions
+            )
     counters = {"moves": len(attempts)}
     for attempt in attempts:
         key = attempt.record.hypothesis_id
@@ -181,6 +220,9 @@ def rebuild_state(h: Harness) -> ResearchState:
     return ResearchState(
         frontier=frontier,
         candidates=candidates,
+        challenges=challenges,
+        interpretations=interpretations,
+        stale_interpretations=stale_interpretations,
         attempts=attempts,
         results=results,
         observations=observations,
@@ -201,7 +243,10 @@ def commit_snapshot(h: Harness, state: ResearchState) -> ArtifactRef:
 def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any]:
     view = state.model_dump(mode="json")
     omitted: list[dict[str, Any]] = []
-    for key in ("history", "results", "candidates", "observations", "diagnoses", "questions"):
+    for key in (
+        "history", "results", "candidates", "observations", "diagnoses", "questions",
+        "challenges", "interpretations",
+    ):
         if len(json.dumps(view)) <= max_chars:
             break
         entries = view[key]

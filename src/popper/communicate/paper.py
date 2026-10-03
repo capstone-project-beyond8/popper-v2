@@ -321,6 +321,46 @@ def _render_report(
                 }
                 for m in study["measurement_history"]
             ],
+            "challenges": [
+                {
+                    **c,
+                    "record": {
+                        **c["record"],
+                        "author": latex_escape(c["record"]["author"]),
+                        "assessments": [
+                            {
+                                **a,
+                                "hypothesis_id": latex_escape(a["hypothesis_id"]),
+                                "assessment": latex_escape(a["assessment"]),
+                                **{
+                                    key: [latex_escape(text) for text in a[key]]
+                                    for key in ("concerns", "rivals", "discriminating_checks")
+                                },
+                            }
+                            for a in c["record"]["assessments"]
+                        ],
+                    },
+                }
+                for c in study.get("challenges", [])
+            ],
+            "interpretations": [
+                {
+                    **i,
+                    "stale": i["ref"] in study.get("stale_interpretations", []),
+                    "record": {
+                        **i["record"],
+                        **{
+                            key: latex_escape(i["record"][key])
+                            for key in ("author", "hypothesis_id", "summary")
+                        },
+                        **{
+                            key: [latex_escape(text) for text in i["record"][key]]
+                            for key in ("rivals", "limitations", "questions")
+                        },
+                    },
+                }
+                for i in study.get("interpretations", [])
+            ],
         }
     tex = _ENV.get_template("paper.tex.j2").render(
         w=w,

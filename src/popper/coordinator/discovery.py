@@ -7,6 +7,7 @@ from popper.discover.compatibility import decode_policy
 from popper.discover.contracts import Disposition, MoveSelection, commit_record
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.explore import generate_candidates, propose_hypothesis
+from popper.discover.feedback import challenge_candidates, interpret_result
 from popper.discover.policy import (
     EligibilityError,
     eligible_candidates,
@@ -15,7 +16,7 @@ from popper.discover.policy import (
     select_move,
     selected_move,
 )
-from popper.discover.state import commit_snapshot, rebuild_state, scientific_commits
+from popper.discover.state import ResearchState, commit_snapshot, rebuild_state, scientific_commits
 from popper.ground.steward import load_foundation
 from popper.harness.descriptive import read_table
 from popper.harness.records import (
@@ -112,6 +113,9 @@ def commit_study(
         sensitivity=[r.record.sensitivity for r in state.results],
         dispositions=[d.model_dump(mode="json") for d in state.dispositions],
         questions=[q.model_dump(mode="json") for q in state.questions],
+        challenges=[c.model_dump(mode="json") for c in state.challenges],
+        interpretations=[i.model_dump(mode="json") for i in state.interpretations],
+        stale_interpretations=state.stale_interpretations,
         stop_reason=reason,
         operational_status=status,
         historical_evidence=evidence,
@@ -147,9 +151,25 @@ def _preparation_manifest(h: Harness, preparation: Path) -> ArtifactRef:
     return h.run.artifact_ref("preparation")
 
 
+def _current_frontier(h: Harness, snapshot: ArtifactRef, frontier: list[ArtifactRef]) -> bool:
+    recorded = ResearchState.model_validate_json(resolve_artifact(h.run, snapshot).read_text("utf-8"))
+    return recorded.frontier == frontier
+
+
 def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration: Node) -> Path:
     metadata = json.loads(h.run.path("run.json").read_text("utf-8"))
     policy = decode_policy(metadata)
+    if policy.adaptive and (completed_study := h.run.committed("science:study")):
+        output = StudyOutput.model_validate_json(completed_study.read_text("utf-8"))
+        if (
+            output.operational_status == "completed"
+            and output.frontier == rebuild_state(h).frontier
+            and output.frame == _upstream(h, "frame_reviewed")
+            and output.foundation == _upstream(h, "foundation")
+        ):
+            if h.run.committed("study") != completed_study:
+                h.run.commit_artifact("study", completed_study)
+            return completed_study
     reviewed = load_frame(frame)
     prepared = load_foundation(h)
     assert prepared is not None
@@ -201,9 +221,23 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
             key="initial",
         )
     try:
-        generate_candidates(h, reviewed.research, framing, facts, exploration, raw_columns, policy)
+        candidates = generate_candidates(
+            h, reviewed.research, framing, facts, exploration, raw_columns, policy
+        )
         while True:
             state = rebuild_state(h)
+            if state.dispositions and state.dispositions[-1].ref == state.frontier[-1]:
+                terminal = state.dispositions[-1].record
+                if (
+                    len(terminal.sources) == 1
+                    and terminal.sources[0].producer.startswith("science:selection:")
+                ):
+                    move = selected_move(h, terminal.sources[0])
+                    if (
+                        (terminal.kind == "stopped" and move.action == "stop")
+                        or (terminal.kind == "deferred" and move.action in {"pivot", "reframe", "acquisition"})
+                    ) and _current_frontier(h, move.snapshot, state.frontier[:-1]):
+                        return commit_study(h, terminal.reason)
             completed = {r.record.attempt.record_id for r in state.results}
             pending = next((a for a in state.attempts if a.ref.record_id not in completed), None)
             if pending:
@@ -221,6 +255,18 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                     render_fields(reviewed.research, "design"),
                     request=ExperimentRequest(pending.record.test, pending.ref),
                 )
+                continue
+            if not any(c.record.candidates == candidates for c in state.challenges):
+                if challenge_candidates(h, candidates) is None:
+                    return commit_study(h, "Candidate challenge deferred; scientific feedback unavailable")
+                continue
+            uninterpreted = next(
+                (r for r in state.results if not any(i.record.result == r.ref for i in state.interpretations)),
+                None,
+            )
+            if uninterpreted:
+                if interpret_result(h, uninterpreted.ref) is None:
+                    return commit_study(h, "Result interpretation deferred; scientific feedback unavailable")
                 continue
             if h.spent_usd >= h.config.budget.max_usd:
                 raise BudgetExceeded("discovery resource cap reached")
@@ -240,6 +286,13 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                         resolve_artifact(h.run, ref).read_text("utf-8")
                     ).proposal_id
                     not in used
+                    and _current_frontier(
+                        h,
+                        MoveSelection.model_validate_json(
+                            resolve_artifact(h.run, ref).read_text("utf-8")
+                        ).snapshot,
+                        state.frontier,
+                    )
                 ),
                 None,
             )
@@ -259,6 +312,13 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                             ).proposals
                             == ref
                             for s in selections
+                        )
+                        and _current_frontier(
+                            h,
+                            ArtifactRef.model_validate(
+                                json.loads(resolve_artifact(h.run, ref).read_text("utf-8"))["snapshot"]
+                            ),
+                            state.frontier,
                         )
                     ),
                     None,

@@ -110,6 +110,42 @@ class Candidate(CandidateProposal):
     warnings: list[Text] = Field(default_factory=list)
 
 
+class CandidateChallenge(Record):
+    hypothesis_id: Text
+    assessment: Text
+    concerns: list[Text]
+    rivals: list[Text]
+    discriminating_checks: list[Text] = Field(min_length=1)
+    sources: list[ArtifactRef] = Field(min_length=1)
+
+
+class ChallengeProposal(Record):
+    assessments: list[CandidateChallenge] = Field(min_length=1)
+
+
+class Challenge(ChallengeProposal):
+    version: Literal[1] = 1
+    snapshot: ArtifactRef
+    candidates: ArtifactRef
+    author: Text
+
+
+class InterpretationProposal(Record):
+    summary: Text
+    rivals: list[Text]
+    limitations: list[Text] = Field(min_length=1)
+    questions: list[Text]
+    sources: list[ArtifactRef] = Field(min_length=1)
+
+
+class Interpretation(InterpretationProposal):
+    version: Literal[1] = 1
+    hypothesis_id: Text
+    result: ArtifactRef
+    snapshot: ArtifactRef
+    author: Text
+
+
 class TestProposal(Record):
     primary_estimand: PrimaryEstimand
     selection: dict[str, JsonValue]

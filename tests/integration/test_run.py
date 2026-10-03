@@ -185,23 +185,56 @@ def _submit(code: str) -> tuple[ToolCall, ...]:
     return (ToolCall("submit-1", "submit", {"code": code}),)
 
 
+def _sourced_state(req: LLMRequest) -> dict[str, Any]:
+    text = req.messages[0].text.split("Sourced state: ", 1)[1].split("\nRead omitted", 1)[0]
+    return cast(dict[str, Any], json.loads(text.removeprefix("<untrusted>\n").removesuffix("\n</untrusted>")))
+
+
 def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     tag = req.tag
     if tag == "candidates":
         methods = [{"family": "linear_regression", "description": "Log exposure contrast", "inputs": ["exam_score", "study_hours_week"], "outputs": ["primary_estimate"], "effect_scale": "exam score points", "parameters": {"bootstrap": 200, "seed": 0}, "diagnostics": ["finite interval"], "assumptions": []}]
         return json.dumps({"candidates": [{**HYPOTHESIS, "statement": f"Candidate {i}: scores and hours", "methods": methods} for i in (1, 2, 3)]})
+    if tag == "candidate_challenge":
+        state = _sourced_state(req)
+        return (ToolCall("challenge", "submit_challenge", {"assessments": [
+            {"hypothesis_id": c["record"]["id"], "assessment": "The association alone does not identify learning benefit.",
+             "concerns": ["Prior attainment may select students into more study."], "rivals": ["Prior-attainment selection"],
+             "discriminating_checks": ["Compare the competing explanation in a separate declared test."], "sources": [c["ref"]]}
+            for c in state["candidates"]
+        ]}),)
+    if tag == "interpret_result":
+        state = _sourced_state(req)
+        result = state["results"][-1]
+        return (ToolCall("interpret", "submit_interpretation", {
+            "summary": "The observed contrast does not resolve prior-attainment selection; test the retained alternative.",
+            "rivals": ["Prior-attainment selection"], "limitations": ["Observational design and imperfect proxy."],
+            "questions": ["Which observation distinguishes learning benefit from selection?"],
+            "sources": [result["ref"], state["challenges"][0]["ref"]],
+        }),)
     if tag == "research_moves":
-        state = json.loads(req.messages[0].text.split("Sourced state: ", 1)[1].split("\nRead omitted", 1)[0])
+        state = _sourced_state(req)
         omitted = {"hypothesis-002": "Retain competing explanation for later", "hypothesis-003": "Retain uncertainty"}
-        if state["results"]:
+        move: dict[str, Any]
+        if len(state["results"]) >= 2:
             move = {"action": "stop", "objective": "retain observed contrast and alternatives", "trigger_refs": [state["results"][-1]["ref"]], "cost_usd": 0, "stopping_condition": "bounded informative test completed"}
             omitted["hypothesis-001"] = "completed test"
         else:
+            hypothesis_id = "hypothesis-002" if state["results"] else "hypothesis-001"
             intent = next(ref for ref in state["frontier"] if "intent" in ref["path"])
-            candidate = state["candidates"][0]["record"]
-            if len(req.messages) == 1:
+            retrieved = {
+                result.call_id: json.loads(result.text.split("<untrusted>\n", 1)[1].split("\n</untrusted>", 1)[0])
+                for message in req.messages
+                for result in message.tool_results
+                if result.text and result.call_id in {"read-intent", "read-candidates"}
+            }
+            if "record" not in state["candidates"][0] and "read-candidates" not in retrieved:
+                return (ToolCall("read-candidates", "read_artifact", {"path": state["candidates"][0]["ref"]["path"]}),)
+            candidates = retrieved["read-candidates"]["candidates"] if "read-candidates" in retrieved else [c["record"] for c in state["candidates"]]
+            candidate = next(c for c in candidates if c["id"] == hypothesis_id)
+            if "read-intent" not in retrieved:
                 return (ToolCall("read-intent", "read_artifact", {"path": intent["path"]}),)
-            intent_data = json.loads(req.messages[-1].tool_results[0].text.split("<untrusted>\n", 1)[1].split("\n</untrusted>", 1)[0])
+            intent_data = retrieved["read-intent"]
             test = {
                 "primary_estimand": candidate["primary_estimand"], "selection": {"slice": "all discovery rows", "assumptions": []},
                 "preparation": intent_data["preparation"], "methods": candidate["methods"],
@@ -211,10 +244,14 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
                 "support_rule": {"kind": "directional_ci", "result_key": "primary_estimate", "interval_level": .95, "null": 0, "direction": "positive"},
                 "sources": [intent],
             }
-            move = {"action": "test", "objective": "resolve exploration uncertainty", "hypothesis_id": "hypothesis-001", "trigger_refs": [state["candidates"][0]["ref"]], "test_proposal": test, "discriminating_outcomes": ["positive", "negative", "inconclusive"], "cost_usd": .1, "stopping_condition": "one informative test"}
+            move = {"action": "test", "objective": "resolve exploration uncertainty", "hypothesis_id": hypothesis_id, "trigger_refs": [state["interpretations"][-1]["ref"] if state["results"] else state["challenges"][0]["ref"]], "test_proposal": test, "discriminating_outcomes": ["positive", "negative", "inconclusive"], "cost_usd": .1, "stopping_condition": "one informative test"}
+        omitted.pop(move.get("hypothesis_id", ""), None)
+        if state["results"]:
+            omitted["hypothesis-001"] = "Observed contrast leaves a rival unresolved"
         return (ToolCall("submit-moves", "submit_moves", {"moves": [move], "omitted": omitted}),)
     if tag == "select_move":
-        proposals = json.loads(req.prompt.split("Retained proposals: ", 1)[1])
+        text = req.prompt.split("Retained proposals: ", 1)[1].strip()
+        proposals = json.loads(text.removeprefix("<untrusted>\n").removesuffix("\n</untrusted>"))
         return json.dumps({"proposal_id": proposals["moves"][0]["id"], "rationale": "Exploration uncertainty motivates an informative contrast"})
     if tag == "theorist":
         return (ToolCall("frame-1", "submit_frame", {"framing": FRAMING}),)
@@ -368,7 +405,19 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     from popper.discover.state import rebuild_state
     from popper.harness.session import Harness
     state = rebuild_state(Harness(config, no_calls, store))
-    assert len(state.attempts) == 1 and state.observations
+    assert len(state.attempts) == 2 and state.observations
+    assert len(state.challenges) == 1 and len(state.interpretations) == 2
+    assert {a.hypothesis_id for a in state.challenges[0].record.assessments} == {"hypothesis-001", "hypothesis-002", "hypothesis-003"}
+    assert state.questions and state.interpretations[0].record.rivals == ["Prior-attainment selection"]
+    assert state.attempts[1].record.hypothesis_id == "hypothesis-002"
+    from popper.discover.contracts import ResearchMove
+    from popper.harness.records import resolve_artifact
+    move = ResearchMove.model_validate_json(resolve_artifact(store, state.attempts[1].record.move).read_text("utf-8"))
+    assert state.interpretations[0].ref in move.trigger_refs
+    study_path = store.committed("study")
+    assert study_path is not None
+    report = json.loads(study_path.read_text("utf-8"))
+    assert len(report["challenges"]) == 1 and len(report["interpretations"]) == 2
     assert all(m.record.ref.test_id and m.record.ref.execution_id for m in state.observations)
     body = parse_research((EXAMPLE / "research.md").read_text(encoding="utf-8")).body
     request = next(r for r in llm.calls if r.tag == "theorist")

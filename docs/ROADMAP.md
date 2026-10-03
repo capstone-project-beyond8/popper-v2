@@ -1,225 +1,133 @@
 # Roadmap
 
-Product milestones for Popper. Each milestone describes a user-visible outcome, the capabilities in scope, a demo gate, dependencies, and explicit exclusions. The demo gate accepts useful negative, null, inconclusive, and partial outcomes when their standing is clear; statistical significance is not a completion criterion. Architecture contracts live in [ARCHITECTURE.md](ARCHITECTURE.md). Implementation breakdowns belong in temporary specs and plans.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the architectural baseline: a persistent AI Scientist operating through Scientific Runtime and Agent Harness. This roadmap records implemented behavior and the runnable scientific increments that approach it. Change architectural direction only when implementation exposes a concrete contradiction; component completion alone is not a milestone.
 
-The development priority is to find useful, evidence-grounded hypotheses and findings worth further testing. Execution, state, recovery and traceability support that discovery loop. Established research systems provide mechanisms to adapt; local benchmarking is not a prerequisite for adoption. LLM capacity is expandable: budgets and concurrency settings allocate work and bound runs, without imposing a fixed capability ceiling. Demo gates verify concrete behavior and contracts; later evaluation measures scientific effectiveness.
-
-For M3–M6, collect a small set of scientific capability signals while exercising each mechanism on real runs. Signals describe observed usefulness and failure modes; they are not benchmark gates, minimum thresholds, or prerequisites for completing a milestone. Build the mechanism, run it, inspect the signals and representative traces, then adjust the design.
-
-M0–M2-optimize describe the baseline playbook. M3 establishes bounded adaptive execution; M4 adds scientific interpretation/challenge and strengthens recovery; M5 develops candidate evolution, research direction and minimal literature; M6 expands literature and data assessment. M7 makes manuscript/review feedback callable, M8 adds a strong optional validation regime, and M9 delivers cross-run scientific continuity alongside separate procedural reuse. Milestone numbers describe delivery, not a terminal scientific phase sequence. Parallelism and role topology remain optional strategies; each increment retains a runnable path.
+The target loop is `Research Program → Scientific State ↔ Scientist → ResearchMove → Run → Evidence → Scientific State`. A Run bounds execution and resources; it need not complete a Study or manuscript. Each increment uses the authoritative path, preserves existing persisted evidence, and delivers a behavior that can be exercised with useful positive, negative, inconclusive, failed or partial outcomes. Model agreement, favorable estimates and candidate counts alone are not success.
 
 ## Current code reality
 
-The traced path is [CLI](../src/popper/cli.py) → [run/resume](../src/popper/coordinator/run.py) → [sequential scheduling](../src/popper/coordinator/discovery.py). It creates a format-5 Run, or decodes a saved format-4/5 policy, locks the Run, computes raw descriptives, obtains a reviewed frame, prepares data with bounded reframing, and explores discovery rows. [Discover](../src/popper/discover/explore.py) generates exactly two or three sourced testable candidates (default three). [Its model policy](../src/popper/discover/policy.py) proposes and selects sourced ResearchMoves; Coordinator schedules an immutable attempt, and [scoped experiments](../src/popper/discover/experiment.py) reuse baseline/main/predeclared sensitivity code search. [State](../src/popper/discover/state.py) is rebuilt from committed results, diagnoses and direct invalidation. [Communication](../src/popper/communicate/paper.py) renders measurements and retained history, including deterministic partial output when model budget is exhausted.
+The traced path is [CLI](../src/popper/cli.py) → [run/resume](../src/popper/coordinator/run.py) → [sequential scheduling](../src/popper/coordinator/discovery.py). It creates a format-5 Run, or decodes a saved format-4/5 policy, locks the Run, computes raw descriptives, obtains a reviewed frame, prepares data with bounded reframing, and explores discovery rows. [Discover](../src/popper/discover/explore.py) generates exactly two or three sourced testable candidates (default three). [Scientific feedback](../src/popper/discover/feedback.py) challenges every candidate in a separate read-only context. [Its model policy](../src/popper/discover/policy.py) proposes and selects sourced ResearchMoves; Coordinator schedules an immutable attempt, and [scoped experiments](../src/popper/discover/experiment.py) reuse baseline/main/predeclared sensitivity code search. [State](../src/popper/discover/state.py) is rebuilt from committed results, diagnoses and invalidation. Each result receives an attributed interpretation with surviving rivals, limits and unresolved questions before another move is selected. Measurement invalidation marks dependent interpretations stale, including results that reused the measurement and later interpretations citing stale ones. [Communication](../src/popper/communicate/paper.py) renders measurements, attributed feedback and retained history, including deterministic partial output when model budget is exhausted.
 
 | Capability | Current contract | Target distinction |
 | --- | --- | --- |
 | Researcher intent and empirical grounding | Reviewed Research Frame; fresh preparation, proposed operationalization, concerns/readiness | These remain useful scientific inputs; phase order is replaceable. |
 | Candidates and methods | Two or three once-generated candidates; precise primary estimand/direction; open MethodSpec | Immature ideas, explanation/rival evolution and broader candidate identity are not yet supported. |
-| Moves and transitions | Sourced proposal/selection; test, same-test repair and operational refinement; pivot/reframe/acquisition deferred | Reasoning-only moves, independent scientific challenge and interpretation updates are targets. |
+| Moves and transitions | Sourced proposal/selection; test, same-test repair and operational refinement; pivot/reframe/acquisition deferred | Candidate challenge and result interpretation are current. Reasoning-only moves, general candidate evolution and broader routes remain targets. |
 | Experiment and evidence | Immutable TestSpec, scoped Attempt/MeasurementRef; fresh execution; exact code/input/test identity; separate fidelity, support, coverage and sensitivity | TestSpec is the current ExperimentSpec contract. Successful execution or prospective support does not confer validation or scientific truth. |
-| Persistence and recovery | Journal, write-once artifacts, frontier/snapshots, direct invalidation, run lock and spend; incomplete attempts resume first | Cross-run scientific continuity and transitive interpretation/claim invalidation are targets. |
+| Persistence and recovery | Journal, write-once artifacts, frontier/snapshots, interpretation staleness, run lock and spend; incomplete attempts resume first; committed feedback, terminal decisions and exhausted correction deferrals are not replayed | Cross-run scientific continuity and general claim resolution remain targets. |
 | Reporting | StudyOutput transports one Run's records; exact-content publication caches; named results and partial/diagnostic reports | This does not yet provide a persistent multi-run Study or manuscript-to-research feedback. |
 
 Defaults allow four scheduled moves and one later move per hypothesis. Interrupted attempts count; proposal, stop and deferred calls do not. Stage roles select analysis budgets; opaque instance identities scope paths and replay, avoiding reuse of another candidate's results. Node scores select code within an instance, never hypotheses. Scratch output has no accepted node backing. Prospective directional/equivalence support rules apply only to matching usable measurements; missing or unresolved fidelity means unavailable support.
 
 Format-4 Runs retain their single-hypothesis declarations, global artifact names and original stability rule through the saved-policy decoder, existing engine and renderer. Historical records are not rewritten or granted a richer scientific specification retroactively. Current format-5 contracts replace those global identities for new work; compatibility decoding is not a second target architecture.
 
-**Remaining gaps:** the set is generated once and demands precise estimands/direction immediately. Move proposal/selection can reason over observations, but there is no committed explanatory synthesis or general independent scientific challenge. Question records can be projected but no current production path creates them. Literature retrieval, persistent cross-run direction, transitive claim resolution, held-back verification and manuscript-to-research routing are not implemented. These are scientific capability gaps; execution recovery and node assessment do not fill them.
+**Remaining gaps:** the set is generated once and demands precise estimands/direction immediately. Move proposal/selection consumes committed challenge and interpretation, and unresolved questions are projected from current interpretations. General explanation/rival maturation and independent challenge of interpretations are not implemented. Literature retrieval, persistent cross-run direction, transitive claim resolution, held-back verification and manuscript-to-research routing are not implemented. These are scientific capability gaps; execution recovery and node assessment do not fill them.
 
 **Logical ownership versus current placement.** Scientific responsibilities already exist across these files; the runtime is not a proposed service. `harness/research.py` currently contains research-context semantics, and `harness/records.py` contains hypothesis/test measurement identities and StudyOutput transport. Those are scientific contracts housed in the harness, not generic harness policy. Preserve their working semantics and readers. Move shared scientific contracts only when a concrete caller or ownership conflict requires it; do not create a new package hierarchy merely to make the diagram literal. Pure descriptive computation can stay a reusable utility; interpretation belongs to the Scientist.
 
 Current `choose_action` drafts until its configured draft allowance, then chooses a debuggable node or improves the best accepted node under step/debug limits; `select_best` uses the highest local Judge score, earliest on ties. Predeclared sensitivity attempts use their recorded schedule. Replay preserves instance identity and consumed attempts. These are local implementation strategies, not scientific judgments. Discover's separate model proposal/selection loop chooses ResearchMoves (§4.6); it must not treat a node score as hypothesis quality or favorable estimates as its objective.
 
-## Delivery toward a persistent Scientist
+### Existing execution and reporting strategies
 
-The target is `Research Program → Scientific State ↔ AI Scientist → ResearchMove → Run → Evidence → Scientific State`. Persistence means scientific understanding, direction and exposure survive bounded episodes; it does not require a continuously running process. Architecture owns these semantics. The following delivery slices strengthen the existing loop without changing historical evidence or building a second pipeline:
+The current playbook uses Understand, Ground, Discover, Experiment and Communication, with Theorist, Data Steward, Analyst, Judge and Writer model configurations. These are implemented capabilities and strategies, not the target scientific topology. Within code search, the existing stage configuration is:
 
-1. Preserve the execution core: exact references, TestSpec, scoped attempts, typed recovery, evidence dimensions and resume. Treat current StudyOutput as an episode report, not a persistent Study.
-2. Add independent challenge and attributed interpretation to the sequential loop. After a result, commit what changed in the explanation, which rivals survive and which questions remain unresolved; derive the Scientist-facing view from those records. Exercise the thin behavior below before wider scheduling.
-3. Let candidates mature and evolve, and give move selection a sourced research direction above the immediate action. Integrate minimal resolved literature into that reasoning; parallel branches remain an optional response to an observed limitation.
-4. Continue a real question across bounded Runs through explicit source-run references, scientific state and shared exposure. Use that continuation to demonstrate persistent Research Program semantics; add Study grouping only when it clarifies a coherent investigation. Keep reusable procedural lessons separate.
-5. Make manuscript review, validation and new-data requests return observations or unresolved questions to the same scientific loop as their capabilities ship. These are callable capabilities, not a required sequence or completion ladder.
+| Stage | Goal | Inputs | Required outputs |
+| --- | --- | --- | --- |
+| `explore` | Relevant relations, group differences and surprises | Prepared discovery data, descriptives and empirical foundation | Observations with figures |
+| `baseline` | Transparent model/test for the hypothesis | Prepared discovery data and intended test | Key estimate with interval; historical contracts also require a figure |
+| `main` | Planned analysis under the specification | Selected baseline and committed test | Named estimates and coverage; figures only where the saved contract requires them |
+| `robustness` | Predeclared sensitivity checks | Selected main analysis and recorded schedule | Named measurements and requested-alternative coverage |
 
-These slices describe the path to the target, not a claim that the current branch already delivers persistent research. Milestone acceptance below determines delivery scope. Evaluation cases accumulate with each slice, including stopped, null and contradictory outcomes.
+Format-5 sensitivity currently compares direction and interval overlap, with coverage, attributed fidelity and prospective support recorded separately. Format-4 retains its ordinary-variant schedule plus one seeded exposure permutation using the same contrast/estimator; the permutation is diagnostic rather than a calibrated permutation test. A repaired specification is represented by its highest-scoring successful node, earliest on ties. The historical rule requires at least `min_variants=3` successful ordinary specifications and labels work `stable` when at least `stability_share` (default 0.8) of scheduled variants have intervals excluding zero with the main sign and the adversary interval contains zero, endpoints included. Failed/missing ordinary variants remain in the denominator; a failed/missing adversary forces `fragile`. Preserve this rule's original meaning without using it as validation or a general scientific verdict.
 
-### Thin end-to-end behavior
+Candidate holdout preparation currently uses `holdout_fraction` (default 0.2; zero disables), grouped by `data.group_column` when configured, without inferring grouping from research metadata. Executable locked validation remains M9 work; sealing alone does not establish suitability or independence.
 
-The target behavior is `scientific candidates → challenge → ResearchMove → ExperimentSpec → execute → observe → update scientific understanding → next move`. Exercise it on the existing sequential path before adding topology. The following is an illustrative target trace, not a claim about a completed run:
+Current reporting uses exact StudyOutput content/frontiers for publication caches and provides deterministic partial/diagnostic output. Local context truncation, prompt caching, progress display and CLI modes remain harness configuration. Targeted decision-specific escalation must preserve initial researcher review while it is adapted; automated operation leaves unresolved intent proposed/unknown or deferred.
 
-1. Exploration finds a study-time/score association. The Scientist retains an observation, asks what explains it, and proposes learning benefit and prior-attainment selection as rivals; it does not require both to become precise directional hypotheses immediately.
-2. A separate challenge checks timing, proxies and prior work. It identifies missing prior-attainment measurement and asks which available observation could distinguish the rivals. Sources and access limits are recorded; agreement between models grants no empirical standing.
-3. The Scientist chooses a ResearchMove to test a stated implication with an available pre-outcome proxy, explains its value to the larger question and its limits, and retains the alternative of collecting longitudinal data. The move yields a TestSpec with fixed inputs, operational comparison, uncertainty procedure, outputs and any prospective support rule.
-4. Coordinator schedules the authorized move; the current Analyst/tree strategy implements it through the harness. A fresh execution records named measurements and coverage; fidelity concerns remain separate from scientific outcome.
-5. Suppose the association attenuates under the declared adjustment. The Scientist records that this weakens the simple learning-benefit account, may favor selection, and cannot identify causality from an imperfect proxy. The sourced view retains both explanations, the measurement and the unresolved temporal question.
-6. The next move follows that updated understanding: a justified discriminating check, literature clarification, or a recommendation for new data/another Run. A paper can report the uncertainty; writing is neither required for this episode to be useful nor permission to upgrade the evidence.
+## Delivered foundations and outstanding verification
 
-**Current coverage:** candidate proposals, sourced moves, immutable TestSpecs, scoped execution, accepted observations, state rebuilding and next-move selection exist. **Target additions:** independent candidate/interpretation challenge, less premature formalization, explicit scientific synthesis/evolution and longer-horizon continuity. The architectural test is whether these additions change what Popper understands and chooses to investigate, with traceable evidence and cost, rather than merely making the schedule more elaborate.
+Earlier milestone names describe delivery history, not a required scientific lifecycle:
 
-## M0 — Mini scientist
+| Delivery history | Implemented foundation retained |
+| --- | --- |
+| M0: initial end-to-end path | Framing, preparation, exploration, generated analysis and named-result reporting. A paper-producing playbook is a current strategy, not the meaning of a Run. |
+| M1: trustworthy execution | Recorded attempts, computed historical sensitivity summary, sealed candidate holdout and resume. Historical labels retain their original rules and do not establish validation. |
+| M2: grounded framing | Reviewed researcher intent, proposed operationalization, preparation checks, concerns and bounded reframing. |
+| M2-optimize: cost and context | Recorded spend, conversation/tool context and explicit budget raises without resetting spend. |
+| M3: adaptive execution | Multiple sourced quantitative candidates, model-selected moves, immutable specifications, scoped fresh execution, state rebuilding and typed repair/refinement. |
 
-**Outcome.** A researcher can provide a brief and tabular dataset and receive a paper reporting a framed question, data exploration, one hypothesis, and its analysis.
+**Status (2026-10-03).** Provisionally closed by researcher decision. Implementation and automated verification are complete on the feature branch; live verification of the full demo gate remains outstanding. The live study retained two hypotheses but stopped before experiment execution because proposed source references lacked manifest backing and the budget was exhausted.
 
-**Scope / capabilities.** End-to-end coordination across understanding, data preparation, exploration, analysis, and communication; generated analysis code; recorded executions; named-result reporting.
+**Carry-forward.** Verify live move selection, execution, committed state update and bounded revisit/resume. Address reference guidance and correction behavior while preserving integrity checks, and the budget guard's possible in-flight cost overrun. These remain open follow-ups for M4; provisional closure does not mark the demo gate as passed or merge the feature branch.
 
-**Demo gate.** A researcher runs the example study and receives a readable paper containing the research framing, data changes, exploration, hypothesis, and result.
+## M4 — Challenge, execute, interpret, continue
 
-**Dependencies.** None.
+**Outcome.** The Scientist challenges multiple candidates from a separate context, executes a justified move, records what the result changes in its understanding, and uses that sourced interpretation to choose the next move.
 
-**Out.** Researcher-guided framing, robustness summaries, locked validation, multi-hypothesis discovery, literature retrieval.
+**Smallest vertical slice.** Extend the existing sequential path with independent candidate challenge and attributed result interpretation. Reuse quantitative candidates, ResearchMove selection, TestSpec, scoped experiments, artifact reading, immutable records and the existing report renderer. Make unresolved questions visible in state; feedback is reasoning rather than a code-computed scientific verdict. No separate Scientist agent, Program service, planner or parallel scheduler is needed.
 
-## M1 — Trustworthy results
+**Runnable acceptance.** An existing end-to-end case retains competing candidates, records sourced challenge, selects and freshly executes a test, records an interpretation with limits/rivals/open questions, then selects a second experiment because of the updated state. A null/contradictory result and a technical/measurement failure receive distinct reasoning. Resume at challenge, execution or interpretation boundaries neither duplicates committed feedback nor repeats accepted execution. Invalidated observations expose dependent interpretations as stale. Budget/correction exhaustion preserves useful records and an explicit deferral/episode stop.
 
-**Outcome.** A researcher can inspect the analysis attempts and robustness evidence, with computed labels and held-back data protected for possible future validation.
+**Delivery status.** Implemented on the existing path. Provider-free focused tests exercise competing candidates, exact-source correction, a second experiment triggered by interpretation, negative outcomes, technical/measurement failure, invalidation, partial reporting and committed-boundary recovery. Automated verification is complete: Ruff and mypy pass; the non-slow suite has 433 passed, 1 skipped and 25 deselected; the full parallel suite has 458 passed and 1 skipped (2026-10-03). The final read-only review/simplify pass found two interrupted-disposition recovery gaps; both are fixed and covered by regressions. Live verification and scientific usefulness remain open; automated completion does not close the earlier demo gate.
 
-**Scope / capabilities.** Baseline, main, and robustness analyses; an attempt summary and computed legacy stability label; sealed candidate holdout; resumable runs.
+**Carry-forward included.** Exercise exact-source guidance and actionable correction for feedback and move reasoning. Keep reference checks hard. Resource checks continue to gate new calls/actions; possible in-flight model cost overrun remains an explicit limitation, not a reset or permission to exceed future allocations.
 
-**Demo gate.** A study report shows baseline, main, and robustness results, the full attempt summary, and a code-computed label; held-back data remain unavailable to discovery.
+**Out.** General candidate maturation, cross-run Program continuity, broad late-data/pivot/reframe routing, literature retrieval, independent validation, persistent manuscripts and infrastructure expansion.
 
-**Dependencies.** M0.
+## Subsequent runnable increments
 
-**Out.** A claim-level evidence audit and executable validation protocol.
+The order below follows new scientific behavior. Each increment retains a runnable path and integrates already available capabilities rather than requiring an architectural component to be finished first.
 
-## M2 — Grounded frame
+### Next: M5 — Evolve explanations and choose discriminating work
 
-**Outcome.** A researcher can steer the system's understanding of the problem, and see how the data represent that framing and where they fall short.
+**Outcome.** An observation or question can remain useful before an estimand exists; challenge and evidence narrow, split, retire or evolve explanations/rivals with sourced lineage. The Scientist chooses a prerequisite, replication or discriminating test because it advances a recorded research direction.
 
-**Scope / capabilities.** Research context and Research Frame; researcher review; data-grounded operationalization, readiness, concerns, and limitations; a bounded return to framing when the data do not support the intended question.
+**Implementation path.** Relax precise-candidate declarations only at their authoritative owner, retain the stronger executable-test contract, and extend existing move/state reasoning. Add reasoning-only moves and justified scientific transitions where exercised; unavailable routes remain deferred. A selection narrative can carry direction without a planner hierarchy.
 
-**Demo gate.** A researcher reviews and resumes a study, then receives a paper with operationalizations and limitations grounded in the reviewed frame and data.
+**Runnable acceptance.** Evidence changes a candidate's explanatory meaning and the next action while prior identity/evidence remain readable. Scientific change cannot masquerade as repair. Confirmed-intent changes remain researcher decisions.
 
-**Dependencies.** M1.
+### M6 — Continue an inquiry across bounded episodes
 
-**Out.** Literature grounding, multiple hypotheses, broad method admission rules, and locked validation.
+**Outcome.** One Run ends with a contradiction, unresolved question or replication need; another continues the same Research Program with prior understanding, direction and exposure intact.
 
-## M2-optimize — Cost and context
+**Implementation path.** Extend exact source-Run references/read contracts over existing immutable records. Demonstrate continuation before adding storage/services; optional Study grouping must clarify a coherent investigation. Procedural lessons keep attribution/applicability and remain separate from scientific observations.
 
-**Outcome.** Grounded-frame studies expose cost and context behavior, and researchers can control the resources available to a resumed run.
+**Runnable acceptance.** The second episode uses prior evidence without repeating resolved work, relabeling imported results as fresh execution or resetting exposure. Invalidated sources are visible and scientific understanding is reassessed. No mandatory Program service, Study hierarchy or graph.
 
-**Scope / capabilities.** Run-cost and tool-use reporting; model conversation reuse; clearer tool interaction; explicit researcher control over a resumed run's budget.
+### M7 — Resolve prior work when reasoning needs it
 
-**Demo gate.** Positive and null grounded-frame studies expose cost and reuse behavior. An explicit budget change on resume is recorded and respected without resetting prior spend.
+**Outcome.** A missing explanation, assumption or discriminating observation motivates a literature query; resolved prior work changes a candidate, interpretation or next move.
 
-**Dependencies.** M2.
+**Implementation path.** Add narrow source reading/retrieval through existing artifact/untrusted-context contracts. Preserve passages, retrieval provenance and distinctions between source claims, Scientist interpretation and current measurements. Expand search/triangulation only when the exercised question needs it.
 
-**Out.** New research capabilities, broad model-routing changes, and publication redesign.
+**Runnable acceptance.** Relevant resolved sources materially change scientific reasoning; missing/unresolved sources remain explicit. Literature does not confer empirical or validation standing. Broad acquisition is not a prerequisite.
 
-## Pre-M3 — Baseline reconciliation
+### M8 — Let writing and review reveal missing science
 
-**Outcome.** The implemented M0–M2-optimize execution path is understood and reconciled with the contracts needed for M3, without replacing the existing scientist or creating parallel legacy and new paths.
+**Outcome.** A sourced manuscript/review issue motivates another scientific move; later evidence changes a preserved manuscript version while the inquiry continues.
 
-**Scope / capabilities.** Trace the real path from CLI through coordinator, phases, tree search, harness execution and run store to reported output. Inventory active mechanisms and their owning contracts; for each, record whether to keep, adapt in place, retire or remove it based on an observed conflict with the M3 contracts. Preserve the meaning and readable history of existing runs. Keep stage-level code search inside analysis; place scientific candidate selection at the Discover boundary. Adapt single-hypothesis, closed-method and unscoped evidence identities only as required to support M3.
+**Implementation path.** Extend the existing evidence resolver and renderer with frontier-bound manuscript versions and stale-claim visibility. Reuse state/selection for returned questions. Build status, manuscript readiness, Run status and scientific outcome stay distinct.
 
-**Demo gate.** The current-code baseline in this roadmap records the observed end-to-end path and the preserve/adapt decision for each affected mechanism; architecture retains its design contracts. Each adaptation has one owner and a clear artifact identity; no new run can enter duplicate baseline and M3 paths. Format-4 runs retain their existing interpretation and resume behavior. Before changing a persisted reader or writer, tests exercise representative old records and the new contract; removal requires confirming no callers or serialized-state dependency remains.
+**Runnable acceptance.** Claims/figures resolve to committed evidence, an unsupported claim is narrowed or motivates testing, and correction retains the prior manuscript and evidence. No mandatory paper per Run or manuscript service.
 
-**Dependencies.** M0–M2-optimize implementation.
+### M9 — Evaluate a selected claim under locked validation
 
-**Out.** Building the M3 adaptive loop, broad cleanup unrelated to a demonstrated contract conflict, and wholesale replacement of working phases.
+**Outcome.** Suitable evidence that did not shape adaptive discovery evaluates a selected claim under a justified protocol locked before access.
 
-## M3 — Research execution core
+**Implementation path.** Preserve sealing; add lock, source/slice suitability, shared-source exposure and separated verdict authority. Compute supported, not-supported, inconclusive or unavailable standing; keep execution/protocol failure separate from scientific non-support.
 
-**Outcome.** A small adaptive scientist can compare a few hypotheses, choose and run a justified next move, and update sourced state while preserving the identity of each test.
+**Runnable acceptance.** Resume/branches/new Runs cannot acquire a fresh look at exposed evidence. Post-access adaptation cannot alter the lock or upgrade standing. Negative/inconclusive validation is a valid outcome. A completed manuscript is not a prerequisite; validation does not gate useful discovery.
 
-**Scope / capabilities.** Artifact-backed active research state exposing attempted work, usable observations, attributed assessments and open questions; scientific and execution identity; open `MethodSpec` for known and custom/generated methods with declared assumptions and outputs; specification-to-executor-to-artifact contracts using the existing backend; input source/provenance contracts; deterministic integrity checks; typed diagnosis and transitions; a thin loop that generates two or three hypotheses, proposes moves, selects one, executes it and updates state; bounded same-hypothesis revisit; committed resume and child lineage; separate coverage, fidelity, sensitivity, and support semantics.
+### M10 — Obtain a missing observation or extend an exercised strategy
 
-**Demo gate.** The study path completes and resumes while preserving identities and history. From two or three hypotheses, Discover proposes ResearchMoves with an objective, evidence trigger, candidate action, expected discriminating value, estimated cost and stopping condition; it selects and executes a move, then updates state from the committed result. A bounded revisit cites its trigger, preserves prior attempts, and distinguishes same-test repair from a changed specification. Negative evidence, measurement defects, integrity failures, and resource constraints lead to visibly different outcomes.
+**Outcome.** A concrete inquiry identifies needed data, a replication or an execution/search limitation; the justified extension improves the resulting scientific action.
 
-**Scientific capability signals.** On real runs, inspect whether the state view gives the agent enough relevant context to propose a useful next action, whether cited records support that proposal, and which missing or stale state led to an unhelpful action. Review whether the small hypothesis set contains plausible alternatives and whether the selected move is informative. Use examples and researcher review; no numeric pass threshold.
+**Implementation path.** Assess candidate datasets/benchmarks with provenance, access and suitability before researcher selection and Ground assessment; Coordinator authorizes use. Alternative backends, parallel search, specialized agents, graphs or deployment infrastructure are independent options only when exercised behavior demonstrates the need.
 
-**Dependencies.** Pre-M3 baseline reconciliation.
+**Runnable acceptance.** The extension supplies a useful observation/action at stated cost while preserving scientific identity, append-only history, exact provenance, fresh execution and exposure. No automatic procurement, validation entitlement or topology expansion merely to complete the diagram.
 
-**Out.** Broad recovery and late data routing, parallel branches, deep claim lineage audit, independent validation, large hypothesis tournaments, deep literature grounding and dataset acquisition, and graph infrastructure.
+## Verification and scientific capability signals
 
-## M4 — Scientific feedback, challenge and recovery
+Each increment runs focused contract tests and the repository's relevant full suite, using FakeLLM and real execution without provider calls. Extend the existing full pipeline or test at stage level. Historical records need representative coverage only where a changed reader/writer touches them; do not preserve obsolete new-work restrictions through compatibility workarounds.
 
-**Outcome.** After execution, challenge or an obstacle, the Scientist records what changes in the current explanation, which rivals survive and what remains unresolved, then proposes a justified next step or an honest episode stop.
-
-**Scope / capabilities.** Independent challenge from a fresh context; attributed interpretation/synthesis and sourced questions in the existing state path; shared recovery routing over domain-owned diagnoses; broader bounded repair/refine/pivot/reframe and late-data routes; targeted escalation for confirmed intent; minimal evidence resolution and invalidation/supersession visibility; sourced procedural lesson capture; readable partial/no-budget outcomes. Preserve the execution core and separate empirical observations from assessments.
-
-**Demo gate.** A challenged candidate or interpretation changes a subsequent move with cited reasons. A positive, null or contradictory result updates the Scientist-facing understanding and unresolved questions. Technical failure and negative scientific evidence lead to visibly different responses. A corrected measurement retains history and flags affected uses. An unavailable route is deferred rather than presented as executed; the Run may stop without a paper.
-
-**Scientific capability signals.** Inspect whether challenge identifies a material weakness, whether interpretation is faithful and whether it changes research choices. Review wrong-recovery cases, including scientific changes disguised as repairs and negative results treated as bugs. Inspect lesson applicability and limits; use cases and denominators without a target success rate.
-
-**Dependencies.** M3 execution identity, state and bounded moves.
-
-**Out.** Full cross-run Program persistence, parallel scheduling, locked validation execution and mandatory critic/debate topology.
-
-## M5 — Candidate evolution and research direction
-
-**Outcome.** The Scientist evolves explanations and rivals from observations/questions toward testable hypotheses, and selects work that advances a sourced research direction rather than only a greedy next test.
-
-**Scope / capabilities.** Adapt the once-generated precise-candidate contract for maturity and linked revisions; retain alternative explanations, abandoned work and reasons for selection. Add sourced direction above ResearchMoves, Scientist-facing queries for explanations/contradictions/open questions, and reasoning moves where needed. Integrate minimal literature reading/retrieval using existing source contracts. Reuse TestSpec, scoped code search and evidence semantics. Parallel branches or a separate allocator are optional extensions when a real run exposes a capacity/search gap; they preserve branch ownership, accounting and exposure.
-
-**Demo gate.** An observation/question remains useful before an estimand is declared. Challenge or evidence narrows, splits, retires or evolves a candidate with visible lineage. A move cites how it advances direction, including a prerequisite or replication need. Resolved prior work informs an explanation or discriminating test; unavailable literature remains explicit. New observations update understanding and the next move. If parallel scheduling is introduced, demonstrate ownership, resume and shared accounting without duplicate accepted executions or exposure resets.
-
-**Scientific capability signals.** Inspect substantive hypothesis evolution, diversity of surviving explanations, discrimination and longer-horizon rationale. Review whether sources materially affect reasoning rather than merely appear in related work. Compare useful progress, redundant work and cost with the sequential loop.
-
-**Dependencies.** M4 challenge, interpretation and evidence resolution; M3 source contracts. Minimal literature does not depend on dataset acquisition.
-
-**Out.** Mandatory parallelism, BudgetAllocator, tournament, PI hierarchy or graph infrastructure; locked validation as a prerequisite; comprehensive causal-identification machinery.
-
-## M6 — Acquisition and literature grounding
-
-**Outcome.** A researcher can use deeper literature grounding and assess sourced dataset or benchmark candidates before selecting a run input.
-
-**Scope / capabilities.** Expand M5's minimal literature retrieval with richer search, source triangulation, supporting passages, verified citations and suitability/limitations; provenance connecting sources to framing, hypothesis motivation and related work; candidate dataset and benchmark discovery with researcher selection and Ground assessment.
-
-**Demo gate.** Broader literature grounding informs framing or follow-up through resolved sources, and related work cites only resolved records. Candidate datasets or benchmarks expose source, retrieval provenance, suitability and limitations before researcher selection. Retrieved literature is distinguished from current-run measurements; unresolved citations are flagged.
-
-**Scientific capability signals.** Review whether retrieved sources are relevant to the query and research context, and whether they materially help framing, candidate generation or a justified follow-up. For dataset/benchmark candidates, record which were judged suitable and useful after researcher review and Ground assessment, including why others were rejected. Use representative cases and counts as observations, not acceptance thresholds.
-
-**Dependencies.** M5 minimal literature retrieval and M3 artifact/source contracts. Dataset and benchmark acquisition can proceed alongside M5; deep publication audit is not a prerequisite.
-
-**Out.** Automatic procurement or collection, multiple datasets within one run, automatic acquisition of validation entitlement, and unsupported novelty claims.
-
-## M7 — Persistent manuscripts and research feedback
-
-**Outcome.** A researcher can trace a manuscript's claims to evidence, preserve its versions, and see missing science revealed by writing/review become a justified research question or move.
-
-**Scope / capabilities.** Extend the resolver into claim/number/figure lineage audit, transitive stale-claim visibility, evidence-frontier manuscript versions and bounded writing/review. Return sourced issues through the existing scientific state/selection path. Preserve faithful negative, null, partial and superseded reporting and the deterministic fallback. Manuscript work is callable within or across episodes; rendering does not define Run completion.
-
-**Demo gate.** A manuscript version resolves empirical values and figures to committed evidence and builds or preserves source/logs. Review exposes a missing discriminating test or unsupported claim, commits the issue and motivates a move rather than only editing prose. A later result changes the manuscript with preserved prior versions and visible stale dependencies. An episode can end with evidence or a next question without producing a paper.
-
-**Scientific capability signals.** Inspect whether review-to-research feedback improves evidence or appropriately narrows claims, whether revisions remain faithful, and how much cost is spent on writing versus useful missing science.
-
-**Dependencies.** M4 evidence resolution and M5 state/selection. Cross-run manuscript continuation integrates M9 references when available; it does not require a manuscript service or full Program hierarchy to demonstrate within-run feedback.
-
-**Out.** Mandatory paper per Run, locked validation as a publication gate, comprehensive causal-identification machinery and fixed writer/critic topology.
-
-## M8 — Locked validation
-
-**Outcome.** A researcher can evaluate a selected claim once under a prespecified protocol using suitable evidence that did not shape adaptive discovery.
-
-**Scope / capabilities.** Protocol lock before access; suitability and exposure accounting across branches, resumes and shared sources; separated access and verdict authority; explicit supported, not-supported, inconclusive and unavailable outcomes; append-only validation records and publication updates.
-
-**Demo gate.** A validation study records a computed outcome under a locked protocol, preserves its exposure, and prevents post-access adaptation from changing the protocol or standing. Unsupported and inconclusive outcomes are valid demo results. Adaptive discovery runs remain useful when independent validation is unavailable.
-
-**Dependencies.** Evidence-lineage and stale-claim checks from M7, plus suitable independent evidence. A completed manuscript is not a prerequisite. This milestone does not gate adaptive discovery or acquisition.
-
-**Out.** Reusable holdouts, complex exposure allocation, and automatic acquisition of new validation data.
-
-## M9 — Persistent scientific continuity and procedural learning
-
-**Outcome.** The Scientist continues a real Research Program across bounded Runs, retaining current understanding, unresolved questions, research direction and evidence/exposure, while separately reusing attributed procedural advice.
-
-**Scope / capabilities.** Explicit source-run references/read contracts and Program identity over existing immutable records; continued Scientific State with explanation/candidate lineage, contradictions, direction and pending work; cross-run resolution, stale-state visibility and shared-source exposure. Use a real continuation or replication to justify Study grouping where useful, without a mandatory storage/service hierarchy. Separately retrieve reusable lessons/skills with applicability, source attribution, use records and correction/retirement. Preserve historical Run semantics.
-
-**Demo gate.** One episode ends with a contradiction, missing-data need or next question; another continues from the same Program understanding without relabeling imported measurements as new evidence or resetting exposure. It preserves the reason for the next move and updates understanding from its new outcomes. An applicable procedural lesson informs work with a recorded source and limit; an inapplicable lesson is excluded or qualified. Neither a report transport record nor a lesson store is treated as the scientific authority.
-
-**Scientific capability signals.** Inspect whether continuity avoids repeating resolved work, preserves competing explanations and handles stale/invalidated sources. Evaluate the new episode's contribution to the larger question, shared-source independence and the distinct value of procedural advice.
-
-**Dependencies.** M3 identity/persistence/source contracts, M4 interpretation/evidence resolution and M5 direction/evolution. Manuscripts and validation integrate when available; M8 is not a prerequisite, but any validation must honor inherited exposure.
-
-**Out.** Fresh validation entitlement per Run, automatic promotion of lessons to scientific facts, mandatory Study hierarchy/graph/service, automatic collection and model-weight training.
-
-## M10 — Strategy extensions and evaluation
-
-**Outcome.** A justified advanced capability improves a demonstrated user outcome without weakening evidence, identity, or integrity contracts.
-
-**Scope / capabilities.** Derived research graph/index, alternative search policies, tournament/debate and PI or Scientist agent configurations, richer diagnostics, additional backends, expanded data types, web interface or deployment isolation. Broaden the scientific evaluations accumulated in earlier milestones: hypothesis evolution, experiment selection, challenge/recovery quality, literature use, research continuity, fidelity, traceability, usefulness and cost. Rollout counts are activity metrics, not scientific success.
-
-**Demo gate.** Each proposed capability has its own end-to-end demonstration showing the motivating need, user-visible benefit, cost, and preservation of architectural contracts.
-
-**Dependencies.** The relevant shipped capability and a documented rationale from established systems, a concrete user need or an observed failure. These strategies are independent options; benchmark availability does not gate their initial adoption. Evaluation cases and operational records can accumulate throughout earlier milestones.
-
-**Out.** Capabilities without a demonstrated need and value; no advanced strategy is a prerequisite hidden in earlier milestones.
+On representative live runs, inspect whether challenge finds material weaknesses, interpretations follow usable evidence, candidates evolve substantively, next moves distinguish plausible explanations, and continued inquiry retains uncertainty/exposure. Include failures, null results and unavailable inputs with denominators and stated resources. Operational completion and model agreement do not establish scientific usefulness. Detailed temporary implementation steps belong under ignored `docs/superpowers/`.

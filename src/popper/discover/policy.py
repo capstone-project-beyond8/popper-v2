@@ -26,6 +26,7 @@ from popper.discover.state import (
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.artifacts import reachable_refs, read_artifact_tool
 from popper.harness.config import Discovery
+from popper.harness.context import fence
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, IntegrityError, Record, resolve_artifact
 from popper.harness.session import Harness
@@ -179,7 +180,7 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
         task=load_prompt(
             "popper.discover",
             "research_moves.md",
-            state=json.dumps(compact_state(state)),
+            state=fence(json.dumps(compact_state(state))),
             snapshot=snapshot.model_dump_json(),
         ),
         tools=tools,
@@ -234,7 +235,7 @@ def select_move(h: Harness, snapshot: ArtifactRef, proposals: ArtifactRef) -> Ar
         schema=SelectionProposal,
         tag="select_move",
         system="Select the most informative justified research move.",
-        prompt=load_prompt("popper.discover", "select_move.md", proposals=json.dumps(record)),
+        prompt=load_prompt("popper.discover", "select_move.md", proposals=fence(json.dumps(record))),
     )
     if choice.proposal_id not in {m.id for m in moves}:
         raise EligibilityError("selection names an unknown retained proposal")

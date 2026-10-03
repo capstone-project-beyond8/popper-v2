@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -103,7 +104,7 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "boundary",
-    ["science:selection:", "science:attempt:", "node_commit", "science:result:", "science:study"],
+    ["science:challenge:", "science:selection:", "science:attempt:", "node_commit", "science:result:", "science:interpretation:", "science:disposition:", "deferred_disposition", "science:study"],
 )
 def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
@@ -116,7 +117,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     from popper.harness.recovery import Journal, read_events
     from popper.harness.research import parse_research
     from popper.understand.frame import Frame, Framing
-    from tests.integration.test_run import EXAMPLE, FRAMING
+    from tests.integration.test_run import EXAMPLE, FRAMING, _respond
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
     h.run.write_json("run.json", {"format_version": 5, "config": h.config.model_dump(mode="json")})
@@ -166,10 +167,13 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         state = rebuild_state(h)
+        if req.tag in {"candidate_challenge", "interpret_result"}:
+            return _respond(req)
         if req.tag == "research_moves":
+            move: dict[str, Any]
             if state.results:
                 move = {
-                    "action": "stop",
+                    "action": "pivot" if boundary == "deferred_disposition" else "stop",
                     "objective": "stop after informative observation",
                     "trigger_refs": [state.results[-1].ref.model_dump(mode="json")],
                     "cost_usd": 0,
@@ -242,7 +246,8 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     def commit(store: RunStore, name: str, path: Path) -> None:
         nonlocal interrupted
         original_commit(store, name, path)
-        if name.startswith(boundary) and not interrupted:
+        commit_boundary = "science:disposition:" if boundary == "deferred_disposition" else boundary
+        if name.startswith(commit_boundary) and not interrupted:
             interrupted = True
             raise KeyboardInterrupt()
 
@@ -279,6 +284,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     state = rebuild_state(h)
     assert len(state.attempts) == 1 and len(state.results) == 1
     assert state.counters["moves"] == 1 and len(state.observations) == 2
+    assert len(state.challenges) == 1 and len(state.interpretations) == 1
     events = read_events(h.run.root)
     assert (
         len([e for e in events if e["event"] == "exec_start" and e["purpose"] == "submitted"]) == 2
@@ -300,3 +306,13 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         ).status
         == "complete"
     )
+    if boundary == "science:study":
+        output.chmod(0o666)
+        output.write_text(output.read_text("utf-8") + " ", encoding="utf-8")
+        with pytest.raises(ValueError, match="committed science:study artifact was changed"):
+            advance_discovery(
+                h,
+                frame=h.run.path("frame_reviewed.json"),
+                foundation=h.run.path("foundation.json"),
+                exploration=exploration,
+            )

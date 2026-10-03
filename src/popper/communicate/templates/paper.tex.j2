@@ -60,6 +60,41 @@ Concept & Columns & Proxy strength \\
 \BLOCK{if c.selected}Selected for execution.\BLOCK{endif}
 \BLOCK{if c.attempted}Attempted.\BLOCK{else}Untested.\BLOCK{endif}
 \BLOCK{endfor}
+\BLOCK{if study.challenges}
+\paragraph{Attributed candidate challenge}
+\BLOCK{for c in study.challenges}
+\BLOCK{for a in c.record.assessments}
+\noindent \VAR{a.hypothesis_id}, \VAR{c.record.author}: \VAR{a.assessment}
+\BLOCK{for concern in a.concerns}
+\noindent Concern: \VAR{concern}
+\BLOCK{endfor}
+\BLOCK{for rival in a.rivals}
+\noindent Rival: \VAR{rival}
+\BLOCK{endfor}
+\BLOCK{for check in a.discriminating_checks}
+\noindent Possible discriminating observation: \VAR{check}
+\BLOCK{endfor}
+\BLOCK{endfor}
+\BLOCK{endfor}
+\BLOCK{endif}
+\BLOCK{if study.interpretations}
+\paragraph{Attributed interpretation and open questions}
+\BLOCK{for i in study.interpretations}
+\noindent \VAR{i.record.hypothesis_id}, \VAR{i.record.author}: \VAR{i.record.summary}
+\BLOCK{if i.stale}
+\noindent Stale interpretation: a cited source was invalidated; reassessment is required.
+\BLOCK{endif}
+\BLOCK{for rival in i.record.rivals}
+\noindent Surviving rival: \VAR{rival}
+\BLOCK{endfor}
+\BLOCK{for limitation in i.record.limitations}
+\noindent Limitation: \VAR{limitation}
+\BLOCK{endfor}
+\BLOCK{for question in i.record.questions}
+\noindent Unresolved question: \VAR{question}
+\BLOCK{endfor}
+\BLOCK{endfor}
+\BLOCK{endif}
 \paragraph{Stopping condition}
 \VAR{study.stop_reason}
 \BLOCK{for s in study.selection_history}
