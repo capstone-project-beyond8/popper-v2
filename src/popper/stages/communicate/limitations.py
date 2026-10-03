@@ -34,3 +34,12 @@ def limitations(foundation: dict[str, Any], warnings: list[str]) -> list[str]:
         f"{kinds[c['kind']]} ({c['type']}): {c['description']}" for c in foundation["concerns"]
     ]
     return [*warnings, *concerns, *_readiness(foundation["readiness"]), PREPARATION_ACCESS]
+
+
+def audit_limitations(audits: list[dict[str, Any]]) -> list[str]:
+    items = ["Validation standing is unavailable. Audit checks committed discovery evidence only."]
+    for audit in audits:
+        record = audit["record"]
+        items.append(f"Audit scope: {record['scope']['path']} ({record['scope']['sha256']}).")
+        items.extend(f"Audit limitation at {issue['source']['path']}: {issue['reason']}" for issue in record["issues"])
+    return items

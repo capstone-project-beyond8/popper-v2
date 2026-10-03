@@ -137,7 +137,7 @@ def node_results(science: ScienceStore, ref: ArtifactRef) -> dict[str, Any]:
     return science.read(result)
 
 
-def record_exploration(science: ScienceStore, ref: ArtifactRef) -> ArtifactRef:
+def record_exploration(science: ScienceStore, ref: ArtifactRef, *, admission: ArtifactRef | None = None) -> ArtifactRef:
     if science.run.committed("exploration"):
         return science.run.artifact_ref("exploration")
     folder = resolve_artifact(science.run, ref).parent
@@ -154,9 +154,13 @@ def record_exploration(science: ScienceStore, ref: ArtifactRef) -> ArtifactRef:
                 )
             },
             "node": science.read(ref)["id"],
+            **({"admission": admission.model_dump(mode="json")} if admission else {}),
         },
     )
     science.run.commit_artifact("exploration", path)
+    if admission:
+        from popper.scientific.runtime.lifecycle.transitions import bind_stage_output
+        bind_stage_output(science, admission, [science.run.artifact_ref("exploration")])
     return science.run.artifact_ref("exploration")
 
 

@@ -21,6 +21,7 @@ from popper.harness.context.rendering import (
 )
 from popper.harness.context.validation import format_errors
 from popper.harness.session import Harness
+from popper.harness.storage.records import ArtifactRef, resolve_artifact
 from popper.harness.storage.store import RunStore
 from popper.scientific.runtime.data.descriptive import DescriptiveReport, format_description
 from popper.scientific.runtime.data.research import (
@@ -32,7 +33,10 @@ from popper.scientific.runtime.data.research import (
     Variable,
     render_research,
 )
+from popper.scientific.runtime.lifecycle.contracts import StageAdmission
+from popper.scientific.runtime.lifecycle.transitions import bind_stage_output
 from popper.scientific.runtime.settings import Understand, load_options
+from popper.scientific.runtime.store import ScienceStore
 from popper.strategies.treesearch.engine import StageFailed
 from popper.strategies.treesearch.tools import node_tools
 
@@ -416,6 +420,7 @@ def save_frame(
     warnings: list[str],
     asked: list[dict[str, Any]],
     review: Mapping[str, object] | None = None,
+    admission: ArtifactRef | None = None,
 ) -> Frame:
     """Write a frame into its attempt folder and commit it; a review makes it the reviewed frame."""
     rel = attempt.relative_to(run.root).as_posix()
@@ -429,6 +434,12 @@ def save_frame(
             {"supplied_by": "researcher", "researcher_steered": True, "review": review},
         )
     path = run.write_json(f"{rel}/framing.json", framing.model_dump())
+    if admission:
+        science = ScienceStore(run)
+        work = StageAdmission.model_validate(science.read(admission))
+        name = f"science:accepted:{work.id}:frame"
+        run.commit_artifact(name, path)
+        bind_stage_output(science, admission, [run.artifact_ref(name)])
     run.commit_artifact("frame" if review is None else "frame_reviewed", path)
     return Frame(context, framing, warnings, attempt.name)
 
@@ -442,8 +453,19 @@ def understand(
     guidance: str = "",
     rejected: Mapping[str, object] = {},
     review: Mapping[str, object] | None = None,
+    admission: ArtifactRef | None = None,
 ) -> Frame:
     run: RunStore = h.run
+    if admission:
+        science = ScienceStore(run)
+        work = StageAdmission.model_validate(science.read(admission))
+        name = f"science:accepted:{work.id}:frame"
+        if run.committed(name):
+            ref = run.artifact_ref(name)
+            bind_stage_output(science, admission, [ref])
+            if run.committed("frame") != resolve_artifact(run, ref):
+                run.commit_artifact("frame", resolve_artifact(run, ref))
+            return load_frame(resolve_artifact(run, ref))
     attempt = run.new_attempt("understand")
     declared = render_research(research.model_copy(update={"body": ""}))
     context_part = partial(part, journal=h.journal, tag="theorist")
@@ -486,4 +508,4 @@ def understand(
     )
     framing: Framing = result["framing"]
     warnings = [*framing_warnings(context, framing), *problems]
-    return save_frame(run, attempt, context, framing, warnings, asked, review)
+    return save_frame(run, attempt, context, framing, warnings, asked, review, admission)

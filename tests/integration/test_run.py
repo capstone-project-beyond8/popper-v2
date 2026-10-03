@@ -199,11 +199,16 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         return json.dumps({"candidates": [{**HYPOTHESIS, "statement": f"Candidate {i}: scores and hours", "methods": methods} for i in (1, 2, 3)]})
     if tag == "candidate_challenge":
         state = _sourced_state(req)
+        retrieved_candidates = next((json.loads(result.text.split("<untrusted>\n", 1)[1].split("\n</untrusted>", 1)[0])["candidates"]
+                                     for message in req.messages for result in message.tool_results if result.call_id == "read-challenge-candidates"), None)
+        if "record" not in state["candidates"][0] and retrieved_candidates is None:
+            return (ToolCall("read-challenge-candidates", "read_artifact", {"path": state["candidates"][0]["ref"]["path"]}),)
+        candidate_ids = [c["id"] for c in retrieved_candidates] if retrieved_candidates else [c["record"]["id"] for c in state["candidates"]]
         return (ToolCall("challenge", "submit_challenge", {"assessments": [
-            {"hypothesis_id": c["record"]["id"], "assessment": "The association alone does not identify learning benefit.",
+            {"hypothesis_id": candidate_id, "assessment": "The association alone does not identify learning benefit.",
              "concerns": ["Prior attainment may select students into more study."], "rivals": ["Prior-attainment selection"],
-             "discriminating_checks": ["Compare the competing explanation in a separate declared test."], "sources": [c["ref"]]}
-            for c in state["candidates"]
+             "discriminating_checks": ["Compare the competing explanation in a separate declared test."], "sources": [state["candidates"][0]["ref"]]}
+            for candidate_id in candidate_ids
         ]}),)
     if tag == "interpret_result":
         state = _sourced_state(req)
@@ -219,11 +224,12 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         omitted = {"hypothesis-002": "Retain competing explanation for later", "hypothesis-003": "Retain uncertainty"}
         move: dict[str, Any]
         if len(state["results"]) >= 2:
-            move = {"action": "stop", "objective": "retain observed contrast and alternatives", "trigger_refs": [state["results"][-1]["ref"]], "cost_usd": 0, "stopping_condition": "bounded informative test completed"}
+            audit_done = any(w["record"]["status"] == "completed" and next(a["record"]["stage"] for a in state["stage_admissions"] if a["ref"] == w["record"]["admission"]) == "verify" for w in state.get("stage_history", []))
+            move = {"action": "communicate" if audit_done else "audit", "objective": "retain observed contrast and alternatives", "trigger_refs": [state["results"][-1]["ref"]], "cost_usd": 0, "stopping_condition": "bounded informative test completed"}
             omitted["hypothesis-001"] = "completed test"
         else:
             hypothesis_id = "hypothesis-002" if state["results"] else "hypothesis-001"
-            intent = next(ref for ref in state["frontier"] if "intent" in ref["path"])
+            intent = next(ref for ref in state["frontier"] if ref["producer"] == "science:intent:initial")
             retrieved = {
                 result.call_id: json.loads(result.text.split("<untrusted>\n", 1)[1].split("\n</untrusted>", 1)[0])
                 for message in req.messages
@@ -357,10 +363,33 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
         return _respond(req)
 
     fake = FakeLLM(respond)
+    original_commit = RunStore.commit_artifact
+    def interrupt_accepted(store: RunStore, name: str, path: Path) -> None:
+        original_commit(store, name, path)
+        if name.startswith("science:stage_output:"):
+            binding = json.loads(path.read_text("utf-8"))
+            if any(ref["producer"].startswith("science:result:") for ref in binding["outputs"]):
+                raise KeyboardInterrupt("accepted experiment output before work completion")
+    monkeypatch.setattr(RunStore, "commit_artifact", interrupt_accepted)
+    with pytest.raises(KeyboardInterrupt):
+        resume(root, llm=fake)
+    from popper.scientific.runtime.projections.state import rebuild_state
+    accepted_state = rebuild_state(ScienceStore(store))
+    accepted_result = accepted_state.results[0]
+    accepted_execution = accepted_result.record.measurements[0].ref
+    accepted_spend = recorded_spend(store)
+    assert accepted_state.pending_admissions
+    assert not any(w.record.admission == accepted_result.record.admission for w in accepted_state.stage_history)
+    monkeypatch.setattr(RunStore, "commit_artifact", original_commit)
     monkeypatch.setattr("popper.stages.communicate.compiler.compile_pdf", interrupted_compile)
     with pytest.raises(KeyboardInterrupt):
         resume(root, llm=fake)
     assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in prefix.items())
+    recovered_state = rebuild_state(ScienceStore(store))
+    assert recovered_state.results[0].ref == accepted_result.ref
+    assert recovered_state.results[0].record.measurements[0].ref == accepted_execution
+    assert recorded_spend(store) >= accepted_spend
+    assert len([w for w in recovered_state.stage_history if w.record.admission == accepted_result.record.admission]) == 1
     assert not any(
         req.tag
         in {
@@ -405,9 +434,13 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert hypotheses_path is not None
     hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))["candidates"]
     assert len(hypotheses) == 3 and all(x["origins"] for x in hypotheses)
-    from popper.scientific.runtime.projections.state import rebuild_state
     state = rebuild_state(ScienceStore(store))
     assert len(state.attempts) == 2 and state.observations
+    assert {a.record.stage for a in state.stage_admissions} == {"understand", "ground", "discover", "verify", "communicate"}
+    assert not state.pending_admissions
+    assert len(state.stage_history) == len(state.stage_admissions)
+    audits = [ref for name, ref in ScienceStore(store).commits() if name.startswith("science:audit:")]
+    assert len(audits) == 1 and ScienceStore(store).read(audits[0])["validation_standing"] == "unavailable"
     assert len(state.challenges) == 1 and len(state.interpretations) == 2
     assert state.challenges[0].record.author == "judge"
     assert state.challenges[0].record.candidates == store.artifact_ref("science:candidates:initial")
@@ -442,7 +475,10 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     preparation = store.path(json.loads(accepted.read_text("utf-8"))["preparation"])
     prepared = json.loads((preparation / "results.json").read_text("utf-8"))
     assert f"Rows kept: {prepared['rows_after']['value']}." in tex
-    writeup = store.committed(f"writeup:{store.artifact_ref('study').sha256}")
+    published = store.committed("report")
+    assert published is not None
+    published_identity = json.loads(published.read_text("utf-8"))["study_identity"]
+    writeup = store.committed(f"writeup:{published_identity}")
     assert writeup is not None
     chosen = json.loads(writeup.read_text("utf-8"))
     assert chosen["discussion"] == "Revised discussion."

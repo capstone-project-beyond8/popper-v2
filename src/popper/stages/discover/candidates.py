@@ -101,7 +101,7 @@ class CandidateSetProposal(Record):
 
 
 def generate_candidates(
-    h: Harness, science: ScienceStore, source: ArtifactRef, policy: StudyPolicy
+    h: Harness, science: ScienceStore, source: ArtifactRef, policy: StudyPolicy, *, admission: ArtifactRef | None = None
 ) -> ArtifactRef:
     validate_intent_inputs(science, source)
     intent = science.read(source)
@@ -158,4 +158,4 @@ def generate_candidates(
                 warnings=warnings,
             ).model_dump(mode="json")
         )
-    return science.commit("candidates", {"version": 1, "candidates": candidates}, key="initial")
+    return science.commit("candidates", {"version": 1, "candidates": candidates, **({"admission": admission.model_dump(mode="json")} if admission else {})}, key="initial")

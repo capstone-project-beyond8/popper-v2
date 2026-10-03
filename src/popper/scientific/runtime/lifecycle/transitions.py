@@ -15,6 +15,7 @@ from popper.scientific.runtime.lifecycle.contracts import (
     Disposition,
     ExperimentSpec,
     Invalidation,
+    MacroStage,
     MoveProposal,
     MoveSelection,
     ResearchMove,
@@ -58,7 +59,7 @@ def admit_stage(science: ScienceStore, selection: ArtifactRef) -> ArtifactRef:
         raise EligibilityError("stale scientific frontier")
     if move.action == "stop" or move.action in {"pivot", "reframe", "acquisition"}:
         raise EligibilityError("selected move has no executable stage")
-    stage = "verify" if move.action == "audit" else "communicate" if move.action == "communicate" else "discover"
+    stage: MacroStage = "verify" if move.action == "audit" else "communicate" if move.action == "communicate" else "understand" if move.action == "frame" else "ground" if move.action == "ground" else "discover"
     move_ref = science.commit("move", move, key=move.id)
     return science.commit("admission", StageAdmission(
         id=move.id, stage=stage, move=move_ref, snapshot=move.snapshot,
@@ -81,6 +82,25 @@ def complete_stage(
     record = StageWork(admission=admission, status=status, outputs=outputs, reason=reason)
     validate_sources(science, record.model_dump(mode="json"))
     return science.commit("work", record, key=admission.record_id)
+
+
+def bind_stage_output(science: ScienceStore, admission: ArtifactRef, outputs: list[ArtifactRef]) -> ArtifactRef:
+    work = StageAdmission.model_validate(science.read(admission))
+    payload = {"admission": admission.model_dump(mode="json"), "outputs": [r.model_dump(mode="json") for r in outputs]}
+    validate_sources(science, payload)
+    return science.commit("stage_output", payload, key=work.id)
+
+
+def stage_outputs(science: ScienceStore, admission: ArtifactRef) -> list[ArtifactRef] | None:
+    work = StageAdmission.model_validate(science.read(admission))
+    name = f"science:stage_output:{work.id}"
+    if science.run.committed(name) is None:
+        return None
+    payload = science.read(science.run.artifact_ref(name))
+    if ArtifactRef.model_validate(payload["admission"]) != admission:
+        raise IntegrityError("stage output belongs to a different admission")
+    validate_sources(science, payload)
+    return [ArtifactRef.model_validate(r) for r in payload["outputs"]]
 
 
 def validate_moves(

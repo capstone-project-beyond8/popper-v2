@@ -15,18 +15,19 @@ from popper.scientific.runtime.lifecycle.contracts import (
     Attempt,
     CheckObservation,
     ExperimentSpec,
+    StageAdmission,
     classify_change,
 )
 from popper.scientific.runtime.store import ScienceStore
 
 
-def execution_binding(science: ScienceStore, test: ArtifactRef) -> ExecutionBinding:
+def execution_binding(science: ScienceStore, test: ArtifactRef, admission: ArtifactRef | None = None) -> ExecutionBinding:
     declaration = ExperimentSpec.model_validate(science.read(test))
     preparation = science.read(declaration.preparation)
     return ExecutionBinding(
         test,
         {name: mount["sha256"] for name, mount in preparation.get("mounts", {}).items()},
-        {"hypothesis_id": declaration.hypothesis_id, "test_id": declaration.id},
+        {"hypothesis_id": declaration.hypothesis_id, "test_id": declaration.id, **({"stage_admission": admission.model_dump_json(), "work_id": StageAdmission.model_validate(science.read(admission)).id} if admission else {})},
     )
 
 

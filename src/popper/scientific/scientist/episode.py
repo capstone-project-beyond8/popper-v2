@@ -1,7 +1,7 @@
 """Scientific reasoning and the current bounded research playbook."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from popper.harness.session import BudgetExceeded, Harness
@@ -9,8 +9,11 @@ from popper.harness.storage.records import ArtifactRef, IntegrityError, resolve_
 from popper.scientific.runtime.compatibility import StudyPolicy
 from popper.scientific.runtime.evidence.historical import schedule_context
 from popper.scientific.runtime.lifecycle.contracts import (
+    Action,
     Disposition,
+    MoveSelection,
     Program,
+    ResearchMove,
     Run,
     RunResources,
 )
@@ -66,13 +69,36 @@ def next_step(
     h: Harness, science: ScienceStore, context: EpisodeContext
 ) -> CapabilityRequest | None:
     store = science.run
+    if context.policy.stage_aware:
+        state = rebuild_state(science)
+        if state.pending_admissions:
+            admission = state.pending_admissions[0]
+            selection = next(ref for ref in admission.record.inputs if ref.producer.startswith("science:selection:"))
+            return replace(request_move(science, selection), admission=admission.ref)
+        if state.dispositions and state.frontier and state.dispositions[-1].ref == state.frontier[-1]:
+            disposition = state.dispositions[-1]
+            if disposition.record.kind == "stopped" or disposition.record.resource and h.spent_usd >= h.config.budget.max_usd:
+                return finish_episode(science, disposition.record.reason, "budget_exceeded" if disposition.record.resource else "completed", key=f"finish:{disposition.ref.record_id}")
+        if state.stage_history:
+            terminal = state.stage_history[-1].record
+            admitted = next(a.record for a in state.stage_admissions if a.ref == terminal.admission)
+            if admitted.stage == "communicate" and terminal.status == "completed":
+                move = ResearchMove.model_validate(science.read(admitted.move))
+                return finish_episode(science, move.stopping_condition, key=f"finish:{terminal.admission.record_id}")
+        pending_choice = pending_selection(science, state)
+        if pending_choice:
+            return request_move(science, pending_choice)
+        if not store.committed("science:intent:bootstrap"):
+            science.commit("intent", {"research": context.run.initial_intent.model_dump(mode="json"), "inputs": context.run.inputs.model_dump(mode="json")}, key="bootstrap")
     newest = latest(science, "frame", "frame_reviewed")
     if newest is None:
-        return CapabilityRequest("frame")
+        request = CapabilityRequest("frame")
+        return _bootstrap(science, request, context.run.initial_intent) if context.policy.stage_aware else request
     if newest == "frame":
         return CapabilityRequest("await_review", store.artifact_ref("frame"))
     if latest(science, "foundation", "frame_reviewed") != "foundation":
-        return CapabilityRequest("ground", store.artifact_ref("frame_reviewed"))
+        request = CapabilityRequest("ground", store.artifact_ref("frame_reviewed"))
+        return _bootstrap(science, request, request.subject) if context.policy.stage_aware else request
     prepared = foundation_view(science)
     concerns = [c for c in prepared.facts["concerns"] if c["kind"] == "frame"]
     reframes = max(sum(name == "frame" for name, _ in science.commits()) - 1, 0)
@@ -88,9 +114,11 @@ def next_step(
             "reword questions or concepts, or state what is unmeasured."
         )
         lines.append(f"Current framing:\n{json.dumps(frame.framing, indent=2)}")
-        return CapabilityRequest("frame", prepared.source, guidance="\n".join(lines))
+        request = CapabilityRequest("frame", prepared.source, guidance="\n".join(lines))
+        return _bootstrap(science, request, prepared.source) if context.policy.stage_aware else request
     if store.committed("exploration") is None:
-        return CapabilityRequest("explore", prepared.source)
+        request = CapabilityRequest("explore", prepared.source)
+        return _bootstrap(science, request, prepared.source) if context.policy.stage_aware else request
     return discovery_step(h, science, context.resources, context.policy, context.options)
 
 
@@ -101,6 +129,8 @@ def discovery_step(
     policy: StudyPolicy,
     options: ScientificOptions,
 ) -> CapabilityRequest | None:
+    if policy.stage_aware:
+        return _stage_decision(h, science, resources)
     if policy.adaptive and h.run.committed("science:intent:initial"):
         validate_intent_inputs(science, h.run.artifact_ref("science:intent:initial"))
     if policy.adaptive and (completed_study := h.run.committed("science:study")):
@@ -306,3 +336,95 @@ def unavailable(
         key=f"admission:{request.selection.record_id}",
     )
     return _publication(science, reason)
+
+
+def finish_episode(
+    science: ScienceStore, reason: str,
+    status: Literal["completed", "failed", "budget_exceeded"] = "completed",
+    *, key: str | None = None,
+) -> CapabilityRequest:
+    build_study(science, reason, status, key=key)
+    return CapabilityRequest("finish", science.run.artifact_ref("study"), outcome=status)
+
+
+def request_move(science: ScienceStore, selection: ArtifactRef) -> CapabilityRequest:
+    move = selected_move(science, selection)
+    if move.action in {"audit", "synthesize", "communicate", "stop"}:
+        kind: Literal["audit", "synthesize", "publish", "finish"] = "publish" if move.action == "communicate" else "finish" if move.action == "stop" else move.action
+        return CapabilityRequest(kind, move.snapshot, selection=selection, snapshot=move.snapshot)
+    if move.action in {"frame", "ground", "explore", "candidates", "challenge"}:
+        return CapabilityRequest(move.action, move.trigger_refs[0], selection=selection, snapshot=move.snapshot,
+                                 guidance=move.objective if move.action == "frame" and "foundation" in move.trigger_refs[0].producer else "")
+    if move.test is None:
+        return CapabilityRequest("finish", move.snapshot, selection=selection, snapshot=move.snapshot)
+    return CapabilityRequest("experiment", move.test, selection=selection, snapshot=move.snapshot)
+
+
+def _bootstrap(science: ScienceStore, request: CapabilityRequest, source: ArtifactRef | None) -> CapabilityRequest:
+    assert source is not None
+    state = rebuild_state(science)
+    snapshot = commit_snapshot(science, state)
+    actions: dict[str, Action] = {"frame": "frame", "ground": "ground", "explore": "explore", "candidates": "candidates", "challenge": "challenge"}
+    action = actions[request.kind]
+    key = f"bootstrap:{request.kind}:{source.record_id}:{len(state.frontier)}"
+    if science.run.committed(f"science:proposals:{key}"):
+        original = science.read(science.run.artifact_ref(f"science:proposals:{key}"))
+        snapshot = ArtifactRef.model_validate(original["snapshot"])
+    move = ResearchMove(action=action, id=key, snapshot=snapshot, objective=request.guidance or f"Required {request.kind} prerequisite",
+                        trigger_refs=[source], cost_usd=0, execution_effort=0, stopping_condition=f"Accepted {request.kind} output")
+    proposals = science.commit("proposals", {"snapshot": snapshot.model_dump(mode="json"), "moves": [move.model_dump(mode="json")]}, key=key)
+    selection = science.commit("selection", MoveSelection(proposal_id=move.id, snapshot=snapshot, proposals=proposals,
+                                                         author="scientist:bootstrap", rationale=move.objective), key=key)
+    return replace(request, selection=selection, snapshot=snapshot)
+
+
+def _stage_decision(h: Harness, science: ScienceStore, resources: RunResources) -> CapabilityRequest:
+    store = science.run
+    state = rebuild_state(science)
+    if state.pending_admissions:
+        admission = state.pending_admissions[0]
+        selection = next(r for r in admission.record.inputs if r.producer.startswith("science:selection:"))
+        return replace(request_move(science, selection), admission=admission.ref)
+    if store.committed("science:intent:initial") is None:
+        prepared = foundation_view(science)
+        preparation = preparation_manifest(science, prepared.preparation)
+        science.commit("intent", {"frame": store.artifact_ref("frame_reviewed").model_dump(mode="json"), "foundation": prepared.source.model_dump(mode="json"),
+                                  "preparation": preparation.model_dump(mode="json"), "exploration": store.artifact_ref("exploration").model_dump(mode="json")}, key="initial")
+    if store.committed("science:candidates:initial") is None:
+        return _bootstrap(science, CapabilityRequest("candidates", store.artifact_ref("science:intent:initial")), store.artifact_ref("science:intent:initial"))
+    state = rebuild_state(science)
+    candidates = store.artifact_ref("science:candidates:initial")
+    if not any(c.record.candidates == candidates for c in state.challenges):
+        if store.committed(f"science:disposition:candidate_challenge:{candidates.record_id}"):
+            return finish_episode(science, "Candidate challenge deferred; scientific feedback unavailable")
+        snapshot = commit_snapshot(science, state)
+        return _bootstrap(science, CapabilityRequest("challenge", candidates, snapshot=snapshot), candidates)
+    if state.dispositions and state.frontier and state.dispositions[-1].ref == state.frontier[-1]:
+        disposition = state.dispositions[-1]
+        if disposition.record.kind == "stopped":
+            return finish_episode(science, disposition.record.reason, key=f"finish:{disposition.ref.record_id}")
+        if disposition.record.resource and h.spent_usd >= h.config.budget.max_usd:
+            return finish_episode(science, disposition.record.reason, "budget_exceeded", key=f"finish:{disposition.ref.record_id}")
+    pending_choice = pending_selection(science, state)
+    if pending_choice:
+        return request_move(science, pending_choice)
+    try:
+        if h.spent_usd >= h.config.budget.max_usd:
+            raise BudgetExceeded("resource cap reached before scientific decision")
+        uninterpreted = next((r for r in state.results if not any(i.record.result == r.ref for i in state.interpretations)), None)
+        if uninterpreted:
+            if interpret_result(h, science, uninterpreted.ref) is None:
+                return finish_episode(science, "Result interpretation deferred; scientific feedback unavailable")
+            state = rebuild_state(science)
+        pending = pending_proposal(science, state)
+        if pending:
+            proposals, snapshot = pending
+        else:
+            snapshot = commit_snapshot(science, state)
+            proposals = propose_moves(h, science, snapshot, resources)
+        if h.spent_usd >= h.config.budget.max_usd:
+            raise BudgetExceeded("resource cap reached before move selection")
+        selection = select_move(h, science, snapshot, proposals)
+        return request_move(science, selection)
+    except (BudgetExceeded, EligibilityError) as exc:
+        return finish_episode(science, str(exc), "budget_exceeded" if isinstance(exc, BudgetExceeded) else "completed")

@@ -20,7 +20,7 @@ from popper.scientific.runtime.store import ScienceStore
 
 
 def challenge_candidates(
-    h: Harness, science: ScienceStore, candidates: ArtifactRef, snapshot: ArtifactRef
+    h: Harness, science: ScienceStore, candidates: ArtifactRef, snapshot: ArtifactRef, *, admission: ArtifactRef | None = None
 ) -> ArtifactRef | None:
     science.read(candidates)
     state = load_snapshot(science, snapshot)
@@ -76,5 +76,5 @@ def challenge_candidates(
         ), key=deferral_key)
         return None
     return science.commit("challenge", Challenge(
-        **collected[0].model_dump(), snapshot=snapshot, candidates=candidates, author="judge",
+        **collected[0].model_dump(), snapshot=snapshot, candidates=candidates, author="judge", admission=admission,
     ), key=candidates.record_id)

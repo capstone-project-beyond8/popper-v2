@@ -21,6 +21,7 @@ from popper.scientific.runtime.lifecycle.contracts import (
     Question,
     StageAdmission,
     StageWork,
+    Synthesis,
 )
 from popper.scientific.runtime.store import ScienceStore
 
@@ -35,6 +36,7 @@ class ResearchState(Record):
     stage_admissions: list[Sourced[StageAdmission]] = Field(default_factory=list)
     stage_history: list[Sourced[StageWork]] = Field(default_factory=list)
     pending_admissions: list[Sourced[StageAdmission]] = Field(default_factory=list)
+    syntheses: list[Sourced[Synthesis]] = Field(default_factory=list)
     frontier: list[ArtifactRef] = Field(default_factory=list)
     candidates: list[Sourced[Candidate]] = Field(default_factory=list)
     challenges: list[Sourced[Challenge]] = Field(default_factory=list)
@@ -80,6 +82,7 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
     exposure: list[ArtifactRef] = []
     admissions: list[Sourced[StageAdmission]] = []
     work: list[Sourced[StageWork]] = []
+    syntheses: list[Sourced[Synthesis]] = []
     kinds = {
         "intent",
         "candidates",
@@ -93,6 +96,8 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         "disposition",
         "admission",
         "work",
+        "synthesis",
+        "audit",
     }
     for name, ref in science.commits():
         kind = name.split(":")[1] if name.startswith("science:") else ""
@@ -101,11 +106,16 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         path = resolve_artifact(science.run, ref)
         payload = json.loads(path.read_text("utf-8"))
         validate_sources(science, payload)
-        frontier.append(ref)
+        if kind != "admission":
+            frontier.append(ref)
         if kind == "admission":
             admissions.append(Sourced(ref=ref, record=StageAdmission.model_validate(payload)))
         elif kind == "work":
             work.append(Sourced(ref=ref, record=StageWork.model_validate(payload)))
+        elif kind == "synthesis":
+            synthesis = Synthesis.model_validate(payload)
+            syntheses.append(Sourced(ref=ref, record=synthesis))
+            questions.extend(Sourced(ref=ref, record=Question(text=text, author=synthesis.author, sources=synthesis.sources)) for text in synthesis.questions)
         elif kind == "candidates":
             candidates.extend(
                 Sourced(ref=ref, record=Candidate.model_validate(c)) for c in payload["candidates"]
@@ -174,6 +184,7 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         counters[key] = counters.get(key, 0) + 1
     return ResearchState(
         stage_admissions=admissions,
+        syntheses=syntheses,
         stage_history=work,
         pending_admissions=[a for a in admissions if not any(w.record.admission == a.ref for w in work)],
         frontier=frontier,
@@ -199,6 +210,9 @@ def commit_snapshot(science: ScienceStore, state: ResearchState) -> ArtifactRef:
 
 def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any]:
     view = state.model_dump(mode="json")
+    for key in ("stage_admissions", "pending_admissions"):
+        view[key] = [{"ref": item.ref.model_dump(mode="json"), "record": {"id": item.record.id, "stage": item.record.stage, "move": item.record.move.model_dump(mode="json")}}
+                     for item in getattr(state, key)]
     omitted: list[dict[str, Any]] = []
     for key in (
         "history",

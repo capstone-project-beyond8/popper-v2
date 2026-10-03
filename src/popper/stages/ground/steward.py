@@ -25,6 +25,7 @@ from popper.harness.context.rendering import (
     valid_names,
 )
 from popper.harness.session import Harness
+from popper.harness.storage.records import ArtifactRef, resolve_artifact
 from popper.harness.storage.store import next_sequence
 from popper.scientific.runtime.data.descriptive import (
     DescriptiveReport,
@@ -34,7 +35,10 @@ from popper.scientific.runtime.data.descriptive import (
 )
 from popper.scientific.runtime.data.research import ResearchContext, render_research
 from popper.scientific.runtime.evidence.results import validate_results
+from popper.scientific.runtime.lifecycle.contracts import StageAdmission
+from popper.scientific.runtime.lifecycle.transitions import bind_stage_output
 from popper.scientific.runtime.settings import Ground, load_options
+from popper.scientific.runtime.store import ScienceStore
 from popper.strategies.treesearch.engine import StageFailed
 from popper.strategies.treesearch.tools import node_tools
 
@@ -337,8 +341,20 @@ def load_foundation(h: Harness) -> Foundation | None:
     )
 
 
-def ground(h: Harness, research: ResearchContext, framing: dict[str, Any], *, limits: Ground | None = None) -> Foundation:
+def ground(h: Harness, research: ResearchContext, framing: dict[str, Any], *, limits: Ground | None = None, admission: ArtifactRef | None = None) -> Foundation:
     run = h.run
+    science = ScienceStore(run)
+    if admission:
+        work = StageAdmission.model_validate(science.read(admission))
+        name = f"science:accepted:{work.id}:ground"
+        if run.committed(name):
+            ref = run.artifact_ref(name)
+            bind_stage_output(science, admission, [ref])
+            if run.committed("foundation") != resolve_artifact(run, ref):
+                run.commit_artifact("foundation", resolve_artifact(run, ref))
+            accepted_foundation = load_foundation(h)
+            assert accepted_foundation is not None
+            return accepted_foundation
     attempt = run.new_attempt("ground")
     ida_raw = DescriptiveReport(**json.loads(run.path("data", "ida-raw.json").read_text("utf-8")))
     inputs = {"raw": run.path("data", "raw.csv")}
@@ -397,7 +413,10 @@ def ground(h: Harness, research: ResearchContext, framing: dict[str, Any], *, li
     run.write_json(f"{rel}/concerns.json", body["concerns"])
     run.write_json(f"{rel}/readiness.json", body["readiness"])
     path = run.write_json(
-        f"{rel}/foundation.json", {"preparation": preparation.relative_to(run.root).as_posix()}
+        f"{rel}/foundation.json", {"preparation": preparation.relative_to(run.root).as_posix(), **({"admission": admission.model_dump(mode="json")} if admission else {})}
     )
+    if admission:
+        run.commit_artifact(name, path)
+        bind_stage_output(science, admission, [run.artifact_ref(name)])
     run.commit_artifact("foundation", path)
     return foundation

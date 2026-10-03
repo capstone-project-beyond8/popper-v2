@@ -19,7 +19,7 @@ from popper.scientific.runtime.projections.views import (
 )
 from popper.scientific.runtime.store import ScienceStore
 from popper.stages.communicate import historical
-from popper.stages.communicate.limitations import limitations
+from popper.stages.communicate.limitations import audit_limitations, limitations
 from popper.stages.communicate.numbers import (
     entry_values,
     latex_escape,
@@ -220,7 +220,7 @@ def write_study(
     steered = output.frame is not None and (
         resolve_artifact(h.run, output.frame).parent / "provenance.json"
     ).exists()
-    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, manifest, placed, values, [], [], steered)
+    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, manifest, placed, values, audit_limitations(output.audits), [], steered)
     return _commit_report(h, report_dir, tex, missing, identity=identity)
 
 

@@ -4,7 +4,7 @@ import json
 import math
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -23,8 +23,18 @@ from popper.scientific.runtime.data.inputs import (
     prepare_description,
     promote_foundation,
 )
+from popper.scientific.runtime.lifecycle.contracts import Disposition, StageAdmission
 from popper.scientific.runtime.lifecycle.requests import CapabilityRequest
-from popper.scientific.runtime.projections.output import StudyOutput, partial_study
+from popper.scientific.runtime.lifecycle.transitions import (
+    EligibilityError,
+    admit_stage,
+    bind_stage_output,
+    complete_stage,
+    defer_stage,
+    selected_move,
+    stage_outputs,
+)
+from popper.scientific.runtime.projections.output import StudyOutput, build_study, partial_study
 from popper.scientific.runtime.projections.state import rebuild_state
 from popper.scientific.runtime.projections.views import (
     foundation_view,
@@ -34,7 +44,8 @@ from popper.scientific.runtime.projections.views import (
 )
 from popper.scientific.runtime.settings import load_options
 from popper.scientific.runtime.store import ScienceStore
-from popper.scientific.scientist.episode import EpisodeContext, next_step
+from popper.scientific.scientist.episode import EpisodeContext, finish_episode, next_step
+from popper.scientific.scientist.feedback import synthesize_state
 from popper.stages.communicate.paper import publish_study
 from popper.stages.discover.explore import explore
 from popper.stages.ground.steward import ground
@@ -47,9 +58,10 @@ from popper.stages.understand.review import (
     load_review,
     write_review,
 )
+from popper.stages.verify.audit import audit_evidence
 from popper.strategies.treesearch.engine import StageFailed
 from popper.workflow.discovery import dispatch_discovery
-from popper.workflow.resources import resource_view
+from popper.workflow.resources import admit_move, resource_view
 
 
 @dataclass(frozen=True)
@@ -211,6 +223,89 @@ def _accept_review(h: Harness, answered: ReviewOutcome | None, source: ArtifactR
         commit_review(h, answered, report)
 
 
+def dispatch_selected(h: Harness, request: CapabilityRequest) -> CapabilityRequest | None:
+    science = ScienceStore(h.run)
+    assert request.selection is not None
+    move = selected_move(science, request.selection)
+    if move.action == "stop":
+        disposition = science.commit("disposition", Disposition(kind="stopped", reason=move.stopping_condition, sources=[request.selection]), key=move.id)
+        return finish_episode(science, move.stopping_condition, key=f"finish:{disposition.record_id}")
+    deferred_name = f"science:disposition:admission:{request.selection.record_id}"
+    if h.run.committed(deferred_name):
+        ref = h.run.artifact_ref(deferred_name)
+        disposition_record = Disposition.model_validate(science.read(ref))
+        return finish_episode(science, disposition_record.reason, "budget_exceeded" if disposition_record.resource else "completed", key=f"finish:{ref.record_id}")
+    admission = request.admission
+    if admission is None and h.run.committed(f"science:admission:{request.selection.record_id}"):
+        admission = h.run.artifact_ref(f"science:admission:{request.selection.record_id}")
+    if admission is None:
+        try:
+            state = rebuild_state(science)
+            admit_move(resource_view(h, load_options(h.run), state), state, move)
+            admission = admit_stage(science, request.selection)
+        except (BudgetExceeded, EligibilityError) as exc:
+            disposition = defer_stage(science, request.selection, str(exc))
+            return finish_episode(science, str(exc), "budget_exceeded" if isinstance(exc, BudgetExceeded) else "completed", key=f"finish:{disposition.record_id}")
+    request = replace(request, admission=admission)
+    work = StageAdmission.model_validate(science.read(admission))
+    outputs = stage_outputs(science, admission)
+    options = load_options(h.run)
+    if outputs is None:
+        _phase(h, {"frame": "framing", "publish": "publication"}.get(request.kind, request.kind))
+        try:
+            match request.kind:
+                case "audit":
+                    outputs = [audit_evidence(science, work.snapshot)]
+                case "synthesize":
+                    outputs = [synthesize_state(h, science, work.snapshot)]
+                case "publish":
+                    study = build_study(science, move.stopping_condition, key=f"publication:{admission.record_id}")
+                    publish_study(h, study)
+                    outputs = [h.run.artifact_ref("report")]
+                case "frame":
+                    research, report = prepare_description(science)
+                    if request.guidance:
+                        research = reviewed_frame(science).research
+                        prepared = foundation_view(science, request.subject)
+                        h.journal.write("reframe", concerns=[c["type"] for c in prepared.facts["concerns"] if c["kind"] == "frame"])
+                    understand(h, research, report, limits=options.understand, guidance=request.guidance, admission=admission)
+                    outputs = [h.run.artifact_ref("frame")]
+                case "ground":
+                    frame = reviewed_frame(science, request.subject)
+                    ground(h, frame.research, frame.framing, limits=options.ground, admission=admission)
+                    outputs = [h.run.artifact_ref("foundation")]
+                case "explore":
+                    promote_foundation(science, request.subject)
+                    frame, prepared = reviewed_frame(science), foundation_view(science, request.subject)
+                    node = explore(h, frame.research, frame.framing, prepared.facts, admission=admission)
+                    outputs = [record_exploration(science, node_ref(science, node.dir / "meta.json"), admission=admission)]
+                case "candidates" | "challenge" | "experiment":
+                    dispatch_discovery(h, request)
+                    outputs = stage_outputs(science, admission)
+                    if outputs is None:
+                        complete_stage(science, admission, "deferred", [], "Scientific feedback unavailable")
+                        return finish_episode(science, "Scientific feedback unavailable")
+                case _:
+                    raise ValueError("selected request has no capability")
+            if stage_outputs(science, admission) is None:
+                bind_stage_output(science, admission, outputs)
+            outputs = stage_outputs(science, admission)
+            assert outputs is not None
+        except StageFailed:
+            complete_stage(science, admission, "failed", [], f"No accepted {request.kind} output")
+            raise
+    if request.kind in {"frame", "ground"}:
+        alias = "frame" if request.kind == "frame" else "foundation"
+        accepted = resolve_artifact(h.run, outputs[0])
+        if h.run.committed(alias) != accepted:
+            h.run.commit_artifact(alias, accepted)
+    completed_status: Literal["completed", "failed"] = "failed" if request.kind == "experiment" and science.read(outputs[0]).get("status") == "failed" else "completed"
+    complete_stage(science, admission, completed_status, outputs, f"Accepted {request.kind} output")
+    if request.kind == "publish":
+        return finish_episode(science, move.stopping_condition, key=f"finish:{admission.record_id}")
+    return None
+
+
 def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     store = h.run
     failed_stage: str | None = None
@@ -220,7 +315,8 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     tex = pdf = None
     missing: list[str] = []
     try:
-        if h.spent_usd >= h.config.budget.max_usd:
+        policy = decode_policy(json.loads(store.path("run.json").read_text("utf-8")))
+        if not policy.stage_aware and h.spent_usd >= h.config.budget.max_usd:
             raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
         science = ScienceStore(store)
         program, episode = load_episode(store)
@@ -236,6 +332,9 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             if request is not None and request.subject is not None:
                 resolve_artifact(store, request.subject)
             if request is None:
+                continue
+            if policy.stage_aware and request.selection is not None:
+                pending = dispatch_selected(h, request)
                 continue
             match request.kind:
                 case "frame":
@@ -278,6 +377,14 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                     pending = dispatch_discovery(h, request)
                 case "candidates" | "challenge":
                     pending = dispatch_discovery(h, request)
+                case "finish" if policy.stage_aware:
+                    assert request.subject is not None and request.outcome is not None
+                    output = StudyOutput.model_validate(science.read(request.subject))
+                    status, message = request.outcome, output.stop_reason
+                    if report_path := store.committed("report"):
+                        record = json.loads(report_path.read_text("utf-8"))
+                        missing = record["missing"]
+                    break
                 case "publish" | "finish":
                     assert request.subject is not None
                     study = store.path(request.subject.path)
@@ -298,11 +405,15 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     except StageFailed as exc:
         failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
-        if partial := partial_study(ScienceStore(h.run), message, "failed"):
+        if policy.stage_aware:
+            build_study(ScienceStore(h.run), message, "failed")
+        elif partial := partial_study(ScienceStore(h.run), message, "failed"):
             tex, pdf, missing = publish_study(h, partial)
     except BudgetExceeded as exc:
         status, message = "budget_exceeded", str(exc)
-        if partial := partial_study(ScienceStore(h.run), message, status):
+        if policy.stage_aware:
+            build_study(ScienceStore(h.run), message, status)
+        elif partial := partial_study(ScienceStore(h.run), message, status):
             tex, pdf, missing = publish_study(h, partial)
     except Exception as exc:
         message = repr(exc)

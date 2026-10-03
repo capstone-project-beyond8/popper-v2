@@ -4,7 +4,7 @@ import json
 import random
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -367,7 +367,7 @@ def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> li
         code_file = node_dir / "execution" / "code.py"
         nodes.append(
             Node(
-                **metadata,
+                **{key: value for key, value in metadata.items() if key in {item.name for item in fields(Node)}},
                 dir=node_dir,
                 code=code_file.read_text("utf-8") if code_file.exists() else "",
                 results=_read_results(node_dir / "execution") if metadata["status"] == "ok" else {},

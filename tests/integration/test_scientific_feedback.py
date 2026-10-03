@@ -22,10 +22,15 @@ pytestmark = pytest.mark.integration
 
 
 def candidate_state(tmp_path: Path) -> Harness:
+    from popper.harness.storage.recovery import Journal
+    from popper.harness.storage.store import file_hash
+    from popper.scientific.runtime.projections.views import node_ref, record_exploration
+
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    source = h.run.write_json("exploration.json", {"question": "What explains the association?"})
-    h.run.commit_artifact("exploration", source)
-    ref = h.run.artifact_ref("exploration")
+    result = h.run.write_json("tree/explore/explore-000/execution/results.json", {"rows": {"value": 3}})
+    meta = h.run.write_json("tree/explore/explore-000/meta.json", {"id": "explore-000", "status": "ok", "outputs": {result.relative_to(h.run.root).as_posix(): file_hash(result)}})
+    Journal(h.run.path("journal.jsonl")).write("node_commit", stage="explore", node="explore-000", path=meta.relative_to(h.run.root).as_posix(), sha256=file_hash(meta), record_id="node-explore-000")
+    ref = record_exploration(ScienceStore(h.run), node_ref(ScienceStore(h.run), meta))
     spec = spec_payload()
     candidates = [Candidate(
         id=f"h{i}", statement=f"Explanation {i}", rationale="Observed association",
@@ -173,3 +178,69 @@ def test_interpretation_requires_result_and_preserves_execution_outcome(tmp_path
     assert any(e["event"] == "tool_call" and e.get("status") == "error" for e in read_events(tmp_path))
     h.llm = FakeLLM(lambda _: pytest.fail("committed interpretation must not replay"))
     assert interpret_result(h, ScienceStore(h.run), result_ref) == interpretation
+
+
+@pytest.mark.parametrize("action", ["audit", "synthesize", "communicate", "stop"])
+@pytest.mark.parametrize("exhausted", [False, True])
+def test_selected_non_experimental_work_retains_sources_and_questions(tmp_path: Path, action: str, exhausted: bool) -> None:
+    from popper.scientific.runtime.lifecycle.contracts import MoveProposal, Question
+    from popper.scientific.runtime.projections.output import StudyOutput
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.episode import request_move
+    from popper.scientific.scientist.moves import propose_moves, select_move
+    from popper.workflow.resources import resource_view
+    from popper.workflow.run import dispatch_selected
+
+    h = candidate_state(tmp_path)
+    science = ScienceStore(h.run)
+    source = h.run.artifact_ref("science:candidates:initial")
+    science.commit("question", Question(hypothesis_id="h1", text="Which rival needs new data?", author="theorist", sources=[source]))
+    snapshot = commit_snapshot(science, rebuild_state(science))
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag == "research_moves":
+            return (ToolCall("move", "submit_moves", {"moves": [MoveProposal.model_validate({
+                "action": action, "objective": "Preserve unresolved rivals", "trigger_refs": [source.model_dump(mode="json")],
+                "cost_usd": 0, "stopping_condition": "Useful bounded episode",
+            }).model_dump(mode="json")], "omitted": {"h1": "Need additional data", "h2": "Rival retained"}}),)
+        if req.tag == "select_move":
+            proposals = science.read(h.run.artifact_ref(f"science:proposals:{snapshot.record_id}"))
+            return json.dumps({"proposal_id": proposals["moves"][0]["id"], "rationale": "Resolve the recorded question"})
+        if req.tag == "synthesize_state":
+            return (ToolCall("synthesis", "submit_synthesis", {"summary": "Existing evidence leaves selection unresolved", "rivals": ["Selection"], "limitations": ["Need new data"], "questions": ["Which rival needs new data?"], "sources": [source.model_dump(mode="json")]}),)
+        pytest.fail(f"unexpected model call: {req.tag}")
+    h.llm = FakeLLM(respond)
+    proposals = propose_moves(h, science, snapshot, resource_view(h, load_options(h.run), rebuild_state(science)))
+    selection = select_move(h, science, snapshot, proposals)
+    request = request_move(science, selection)
+    assert request.selection == selection
+    if exhausted:
+        h.spent_usd = h.config.budget.max_usd
+    before_calls = len(h.llm.calls)
+    result = dispatch_selected(h, request)
+    state = rebuild_state(science)
+    assert state.questions[0].record.text == "Which rival needs new data?"
+    assert not state.questions[0].record.resolved
+    if exhausted and action != "stop":
+        assert not state.stage_admissions
+        assert state.dispositions[-1].record.sources == [selection]
+        assert len(h.llm.calls) == before_calls
+        assert dispatch_selected(h, request) == result
+        assert len(rebuild_state(science).dispositions) == 1
+    elif action == "stop":
+        assert result is not None and result.kind == "finish"
+        assert not state.stage_admissions and h.run.committed("report") is None
+        assert state.dispositions[-1].record.sources == [selection]
+    else:
+        assert len(state.stage_history) == 1 and not state.pending_admissions
+        assert source in state.stage_admissions[0].record.inputs
+        assert state.stage_history[0].record.status == "completed"
+        if action == "audit":
+            audit = science.read(state.stage_history[0].record.outputs[0])
+            assert audit["validation_standing"] == "unavailable"
+        if action == "synthesize":
+            synthesis = science.read(state.stage_history[0].record.outputs[0])
+            assert synthesis["sources"] == [source.model_dump(mode="json")]
+    if result is not None and result.kind == "finish":
+        assert result.subject is not None
+        output = StudyOutput.model_validate(science.read(result.subject))
+        assert output.validation_standing == "unavailable"

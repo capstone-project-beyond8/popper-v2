@@ -25,6 +25,11 @@ Action = Literal[
     "audit",
     "communicate",
     "synthesize",
+    "frame",
+    "ground",
+    "explore",
+    "candidates",
+    "challenge",
 ]
 
 
@@ -126,6 +131,7 @@ class Challenge(ChallengeProposal):
     snapshot: ArtifactRef
     candidates: ArtifactRef
     author: Text
+    admission: ArtifactRef | None = None
 
 
 class InterpretationProposal(Record):
@@ -140,6 +146,12 @@ class Interpretation(InterpretationProposal):
     version: Literal[1] = 1
     hypothesis_id: Text
     result: ArtifactRef
+    snapshot: ArtifactRef
+    author: Text
+
+
+class Synthesis(InterpretationProposal):
+    version: Literal[1] = 1
     snapshot: ArtifactRef
     author: Text
 
@@ -232,7 +244,7 @@ class Diagnosis(Record):
 
 class Question(Record):
     version: Literal[1] = 1
-    hypothesis_id: Text
+    hypothesis_id: Text | None = None
     text: Text
     author: Text
     sources: list[ArtifactRef] = Field(min_length=1)
@@ -266,7 +278,7 @@ class MoveProposal(Record):
 
     @model_validator(mode="after")
     def executable_fields(self) -> Self:
-        if self.action in {"audit", "communicate", "synthesize", "stop"}:
+        if self.action in {"audit", "communicate", "synthesize", "stop", "frame", "ground", "explore", "candidates", "challenge"}:
             if self.test is not None or self.test_proposal is not None or self.discriminating_outcomes:
                 raise ValueError("non-experimental moves cannot carry empirical commitments")
         elif self.action not in {"pivot", "reframe", "acquisition"}:
@@ -342,6 +354,7 @@ class AcceptedMeasurement(Record):
 class AttemptResult(Record):
     version: Literal[1] = 1
     attempt: ArtifactRef
+    admission: ArtifactRef | None = None
     hypothesis_id: Text
     test: ArtifactRef
     measurements: list[AcceptedMeasurement]

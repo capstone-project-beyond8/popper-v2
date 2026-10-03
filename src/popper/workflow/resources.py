@@ -1,6 +1,9 @@
 """Current operational resource admission, independent of saved scientific snapshots."""
 
+import json
+
 from popper.harness.session import BudgetExceeded, Harness
+from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.lifecycle.contracts import ResearchMove, RunResources
 from popper.scientific.runtime.lifecycle.transitions import EligibilityError
 from popper.scientific.runtime.projections.state import ResearchState
@@ -24,6 +27,7 @@ def _candidate_limit_reason(state: ResearchState, hypothesis_id: str, max_moves:
 
 
 def resource_view(h: Harness, options: ScientificOptions, state: ResearchState) -> RunResources:
+    stage_aware = not h.run.path("run.json").exists() or decode_policy(json.loads(h.run.path("run.json").read_text("utf-8"))).stage_aware
     return RunResources(
         spent_usd=h.spent_usd,
         max_usd=h.config.budget.max_usd,
@@ -32,6 +36,7 @@ def resource_view(h: Harness, options: ScientificOptions, state: ResearchState) 
         max_reframes=options.understand.max_reframes,
         available_routes=frozenset(
             {"test", "refine", "technical_repair", "measurement_repair", "stop"}
+            | ({"audit", "synthesize", "communicate"} if stage_aware else set())
         ),
         eligible_hypotheses=frozenset(eligible_candidates(state, options.discovery)),
     )
@@ -42,8 +47,12 @@ def admit_move(resources: RunResources, state: ResearchState, move: ResearchMove
         raise BudgetExceeded("discovery resource cap reached")
     if move.action == "stop":
         return
+    if move.action in {"frame", "ground", "explore", "candidates", "challenge"}:
+        return
     if move.action not in resources.available_routes:
         raise EligibilityError(f"{move.action} route is deferred")
+    if move.action in {"audit", "synthesize", "communicate", "frame", "ground", "explore", "candidates", "challenge"}:
+        return
     reason = _candidate_limit_reason(state, move.hypothesis_id or "", resources.max_moves, resources.max_revisits)
     if reason is not None:
         raise EligibilityError(reason)

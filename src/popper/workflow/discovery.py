@@ -2,7 +2,7 @@
 
 import json
 
-from popper.harness.session import Harness
+from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.storage.records import IntegrityError, resolve_artifact
 from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.data.research import render_fields
@@ -10,6 +10,7 @@ from popper.scientific.runtime.lifecycle.contracts import Attempt
 from popper.scientific.runtime.lifecycle.requests import CapabilityRequest, ExperimentRequest
 from popper.scientific.runtime.lifecycle.transitions import (
     EligibilityError,
+    bind_stage_output,
     schedule_attempt,
     selected_move,
 )
@@ -48,11 +49,15 @@ def dispatch_discovery(h: Harness, request: CapabilityRequest) -> CapabilityRequ
             propose_hypothesis(h, science, request.subject)
         else:
             policy = decode_policy(json.loads(h.run.path("run.json").read_text("utf-8")))
-            generate_candidates(h, science, request.subject, policy)
+            output = generate_candidates(h, science, request.subject, policy, admission=request.admission)
+            if request.admission:
+                bind_stage_output(science, request.admission, [output])
         return None
     if request.kind == "challenge":
         assert request.snapshot is not None
-        challenge_candidates(h, science, request.subject, request.snapshot)
+        challenge_output = challenge_candidates(h, science, request.subject, request.snapshot, admission=request.admission)
+        if challenge_output and request.admission:
+            bind_stage_output(science, request.admission, [challenge_output])
         return None
     if request.strategy == "historical":
         frame, prepared = reviewed_frame(science), foundation_view(science)
@@ -75,7 +80,8 @@ def dispatch_discovery(h: Harness, request: CapabilityRequest) -> CapabilityRequ
         if move.test != request.subject:
             raise IntegrityError("request subject differs from the selected test")
         try:
-            admit_move(resource_view(h, load_options(h.run), state), state, move)
+            if request.admission is None:
+                admit_move(resource_view(h, load_options(h.run), state), state, move)
             parent = next(
                 (
                     a.ref
@@ -85,20 +91,25 @@ def dispatch_discovery(h: Harness, request: CapabilityRequest) -> CapabilityRequ
                 None,
             )
             subject = schedule_attempt(science, move, parent)
-        except EligibilityError as exc:
+        except (EligibilityError, BudgetExceeded) as exc:
             return unavailable(science, request, str(exc))
         state = rebuild_state(science)
     frame, prepared = reviewed_frame(science), foundation_view(science)
     attempt = Attempt.model_validate(science.read(subject))
     hypothesis = next(c.record for c in state.candidates if c.record.id == attempt.hypothesis_id)
-    experiment(
+    output_path = experiment(
         h,
         frame.framing,
         hypothesis.model_dump(mode="json"),
         prepared.preparation,
         frame.research.notes.get("experiment", ""),
         render_fields(frame.research, "design"),
-        request=ExperimentRequest(attempt.test, subject),
+        request=ExperimentRequest(attempt.test, subject, request.admission),
     )
+    if request.admission:
+        output = h.run.artifact_ref(f"science:result:{attempt.id}")
+        if resolve_artifact(h.run, output) != output_path:
+            raise IntegrityError("experiment output differs from its accepted result")
+        bind_stage_output(science, request.admission, [output])
 
     return None

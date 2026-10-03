@@ -12,6 +12,7 @@ from popper.scientific.runtime.lifecycle.contracts import (
     Disposition,
     Interpretation,
     InterpretationProposal,
+    Synthesis,
 )
 from popper.scientific.runtime.projections.state import (
     compact_state,
@@ -20,6 +21,34 @@ from popper.scientific.runtime.projections.state import (
     validate_sources,
 )
 from popper.scientific.runtime.store import ScienceStore
+
+
+def synthesize_state(h: Harness, science: ScienceStore, snapshot: ArtifactRef) -> ArtifactRef:
+    name = f"science:synthesis:{snapshot.record_id}"
+    if h.run.committed(name):
+        ref = h.run.artifact_ref(name)
+        validate_sources(science, science.read(ref))
+        return ref
+    state = load_snapshot(science, snapshot)
+    allowed = reachable_refs(h.run, snapshot)
+    collected: list[InterpretationProposal] = []
+
+    def submit(proposal: InterpretationProposal) -> str:
+        validate_sources(science, proposal.model_dump(mode="json"))
+        if any(ref not in allowed for ref in proposal.sources):
+            raise ValueError("synthesis source is outside the input frontier")
+        collected[:] = [proposal]
+        return "Attributed synthesis accepted; recorded evidence standing is unchanged."
+
+    response = agent_loop(
+        h, "theorist", tag="synthesize_state", system="Synthesize sourced understanding and retain unresolved questions.",
+        task=load_prompt("popper.scientific.scientist", "synthesize_state.md", state=fence(json.dumps(compact_state(state))), snapshot=snapshot.model_dump_json()),
+        tools=[read_artifact_tool(h, allowed), Tool.from_model("submit_synthesis", "Submit sourced understanding, limitations and open questions.", InterpretationProposal, submit, terminal=True)],
+        max_turns=h.config.search.max_turns, max_submits=2,
+    )
+    if response is None:
+        raise ValueError("bounded synthesis correction exhausted")
+    return science.commit("synthesis", Synthesis(**collected[0].model_dump(), snapshot=snapshot, author="theorist"), key=snapshot.record_id)
 
 
 def interpret_result(h: Harness, science: ScienceStore, result: ArtifactRef) -> ArtifactRef | None:

@@ -203,6 +203,7 @@ def run_experiment_stage(
     *,
     instance_id: str | None = None,
     test: ArtifactRef | None = None,
+    admission: ArtifactRef | None = None,
 ) -> Node:
     estimand = hypothesis["primary_estimand"]
     goal = (
@@ -260,7 +261,7 @@ def run_experiment_stage(
                 purpose=name,
             ),
             instance_id=instance_id,
-            binding=execution_binding(ScienceStore(h.run), test) if test else None,
+            binding=execution_binding(ScienceStore(h.run), test, admission) if test else None,
             artifact_roots={name: h.run.root for name in ("results.json", "analysis.md", "changes.json", "framing.json", "hypotheses.json")},
         ),
     )
@@ -411,6 +412,7 @@ def _scoped_experiment(
                     design,
                     instance_id=attempt.stage_instances[role],
                     test=effective_test,
+                    admission=request.admission,
                 )
             except StageFailed:
                 break
@@ -430,7 +432,7 @@ def _scoped_experiment(
                     pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
                     purpose="robustness",
                 ),
-                execution_binding(science, ref),
+                execution_binding(science, ref, request.admission),
             )
         )
     if "main" in selected and attempts:
@@ -470,5 +472,6 @@ def _scoped_experiment(
     result = assemble_result(
         science, plan, outcomes, stage_capacity=h.config.search.steps_for("robustness")
     )
+    result = result.model_copy(update={"admission": request.admission})
     ref = science.commit("result", result, key=attempt.id)
     return resolve_artifact(h.run, ref)

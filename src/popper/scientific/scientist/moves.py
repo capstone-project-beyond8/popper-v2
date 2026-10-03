@@ -62,6 +62,8 @@ def propose_moves(
     collected: list[ResearchMove] = []
 
     def submit(proposal: Proposals) -> str:
+        if any(m.action in {"frame", "ground", "explore", "candidates", "challenge"} for m in proposal.moves):
+            raise ValueError("prerequisite actions are selected by the bootstrap playbook")
         eligible = resources.eligible_hypotheses
         proposed = {m.hypothesis_id for m in proposal.moves}
         missing = set(eligible) - proposed - proposal.omitted.keys()

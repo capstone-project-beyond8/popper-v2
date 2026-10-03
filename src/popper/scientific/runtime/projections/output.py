@@ -60,6 +60,7 @@ class StudyOutput(Record):
     interpretations: list[dict[str, Any]] = Field(default_factory=list)
     stale_interpretations: list[ArtifactRef] = Field(default_factory=list)
     selections: list[ArtifactRef] = Field(default_factory=list)
+    syntheses: list[dict[str, Any]] = Field(default_factory=list)
     selection_history: list[dict[str, Any]] = Field(default_factory=list)
     audits: list[dict[str, Any]] = Field(default_factory=list)
     validation_standing: Literal["unavailable"] = "unavailable"
@@ -79,6 +80,7 @@ def build_study(
     *,
     adaptive: bool = True,
     evidence: ArtifactRef | None = None,
+    key: str | None = None,
 ) -> Path:
     state = rebuild_state(science)
     selections = [ref for name, ref in science.commits() if name.startswith("science:selection:")]
@@ -100,6 +102,7 @@ def build_study(
     study = StudyOutput(
         adaptive=adaptive,
         frontier=state.frontier,
+        syntheses=[s.model_dump(mode="json") for s in state.syntheses],
         audits=[{"ref": ref.model_dump(mode="json"), "record": EvidenceAudit.model_validate(science.read(ref)).model_dump(mode="json")} for name, ref in science.commits() if name.startswith("science:audit:")],
         frame=upstream(science, "frame_reviewed"),
         foundation=upstream(science, "foundation"),
@@ -154,9 +157,10 @@ def build_study(
         operational_status=status,
         historical_evidence=evidence,
     )
-    ref = science.commit("study", study)
+    ref = science.commit("study", study, key=key)
     # Public transport name is a pointer to the exact same immutable record.
-    science.run.commit_artifact("study", resolve_artifact(science.run, ref))
+    if science.run.committed("study") != resolve_artifact(science.run, ref):
+        science.run.commit_artifact("study", resolve_artifact(science.run, ref))
     return resolve_artifact(science.run, ref)
 
 

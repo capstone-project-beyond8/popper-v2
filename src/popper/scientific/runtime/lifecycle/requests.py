@@ -10,11 +10,12 @@ from popper.harness.storage.records import ArtifactRef
 class ExperimentRequest:
     test: ArtifactRef
     attempt: ArtifactRef
+    admission: ArtifactRef | None = None
 
 
 @dataclass(frozen=True)
 class CapabilityRequest:
-    kind: Literal["frame", "ground", "explore", "candidates", "challenge", "experiment", "publish", "await_review", "finish"]
+    kind: Literal["frame", "ground", "explore", "candidates", "challenge", "experiment", "publish", "audit", "synthesize", "await_review", "finish"]
     subject: ArtifactRef | None = None
     selection: ArtifactRef | None = None
     guidance: str = ""
@@ -22,18 +23,20 @@ class CapabilityRequest:
     schedule: ArtifactRef | None = None
     implementation_only: bool = False
     snapshot: ArtifactRef | None = None
+    admission: ArtifactRef | None = None
+    outcome: Literal["completed", "failed", "budget_exceeded"] | None = None
 
     def __post_init__(self) -> None:
         if (
-            self.kind in {"ground", "explore", "candidates", "challenge", "experiment", "publish", "await_review", "finish"}
+            self.kind in {"ground", "explore", "candidates", "challenge", "experiment", "publish", "audit", "synthesize", "await_review", "finish"}
             and self.subject is None
         ):
             raise ValueError(f"{self.kind} requires a committed subject")
         if self.guidance and (self.kind != "frame" or self.subject is None):
             raise ValueError("framing guidance requires its foundation subject")
-        if self.selection and self.kind != "experiment":
-            raise ValueError("selection is only valid for experiment dispatch")
         if self.kind == "challenge" and self.snapshot is None:
             raise ValueError("challenge requires a committed snapshot")
-        if self.snapshot is not None and self.kind != "challenge":
-            raise ValueError("snapshot is only valid for challenge dispatch")
+        if self.snapshot is not None and self.kind not in {"challenge", "audit", "synthesize"} and self.selection is None and self.admission is None:
+            raise ValueError("snapshot requires a selected stage dispatch")
+        if self.snapshot is not None and self.kind not in {"challenge", "audit", "synthesize", "publish", "experiment", "frame", "ground", "explore", "candidates", "finish"}:
+            raise ValueError("snapshot is not valid for this dispatch")

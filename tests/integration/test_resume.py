@@ -314,7 +314,9 @@ def test_resume_after_node_commit_reconstructs_stage_end(
         original_write(event, **fields)
 
     monkeypatch.setattr(h.journal, "write", interrupted)
-    spec = StageSpec("stage", "goal", "context", {}, ("results.json",), instance_id=instance_id)
+    from popper.harness.execution.bindings import ExecutionBinding
+    spec = StageSpec("stage", "goal", "context", {}, ("results.json",), instance_id=instance_id,
+                     binding=ExecutionBinding(None, {}, {"owner_note": "declared work"}))
     with pytest.raises(KeyboardInterrupt):
         run_stage(h, spec)
     original = {p: p.read_bytes() for p in store.path("tree").rglob("*") if p.is_file()}
@@ -322,6 +324,7 @@ def test_resume_after_node_commit_reconstructs_stage_end(
     node = run_stage(Harness(cfg, no_calls, store), spec)
     assert node.id == f"{spec.execution_id}-000"
     assert node.stage == "stage" and node.stage_instance == spec.execution_id
+    assert json.loads((node.dir / "meta.json").read_text("utf-8"))["owner_note"] == "declared work"
     assert all(p.read_bytes() == content for p, content in original.items())
     events = read_events(store.root)
     assert len([e for e in events if e["event"] == "node_start"]) == 1
@@ -339,3 +342,64 @@ def test_locked_run_cannot_be_resumed_and_journal_is_untouched(tmp_path: Path) -
             resume(store.root, llm=FakeLLM(lambda req: pytest.fail("no model calls expected")))
         assert read_events(store.root) == before
     assert not store.path("run.lock").exists()
+
+
+@pytest.mark.parametrize("action", ["stop", "audit"])
+def test_resume_after_selected_stop_or_admission_exhaustion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str) -> None:
+    from dataclasses import replace
+
+    from popper.harness.llm import Completion
+    from popper.harness.storage.recovery import recorded_spend
+    from popper.scientific.runtime.data.inputs import load_episode
+    from popper.scientific.runtime.lifecycle.contracts import MoveProposal, Question
+    from popper.scientific.runtime.lifecycle.transitions import validate_moves
+    from popper.scientific.runtime.projections.output import StudyOutput
+    from popper.scientific.runtime.projections.state import commit_snapshot, rebuild_state
+    from popper.scientific.runtime.store import ScienceStore
+    from popper.scientific.scientist.episode import request_move
+    from popper.scientific.scientist.moves import select_move
+    from popper.workflow.run import dispatch_selected
+
+    cfg = _config()
+    cfg.budget.max_usd = 0.000001
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg, auto=True)
+    original_intent = store.path("research.md").read_bytes()
+    assert load_episode(store)[1].format_version == 6
+    science = ScienceStore(store)
+    source = store.artifact_ref("inputs")
+    science.commit("intent", {"inputs": source.model_dump(mode="json")})
+    science.commit("question", Question(text="Which measurement needs additional data?", author="theorist", sources=[source]))
+    snapshot = commit_snapshot(science, rebuild_state(science))
+    moves = validate_moves(science, snapshot, [MoveProposal.model_validate({"action": action, "objective": "Preserve the missing measurement question", "trigger_refs": [source.model_dump(mode="json")], "cost_usd": 0, "stopping_condition": "Bounded episode retains an unresolved question"})])
+    proposals = science.commit("proposals", {"snapshot": snapshot.model_dump(mode="json"), "moves": [m.model_dump(mode="json") for m in moves]})
+    class MeteredFake(FakeLLM):
+        def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
+            return replace(super().complete(req, max_tokens), input_tokens=1)
+    h = Harness(cfg, MeteredFake(lambda _: json.dumps({"proposal_id": moves[0].id, "rationale": "A sourced question justifies this choice"})), store)
+    selection = select_move(h, science, snapshot, proposals)
+    assert h.spent_usd >= cfg.budget.max_usd
+    original = RunStore.commit_artifact
+    def commit(run_store: RunStore, name: str, path: Path) -> None:
+        original(run_store, name, path)
+        if name.startswith("science:disposition:"):
+            raise KeyboardInterrupt()
+    monkeypatch.setattr(RunStore, "commit_artifact", commit)
+    with pytest.raises(KeyboardInterrupt):
+        dispatch_selected(h, request_move(science, selection))
+    monkeypatch.setattr(RunStore, "commit_artifact", original)
+    no_calls = FakeLLM(lambda _: pytest.fail("stopped or exhausted run must finish without another model call"))
+    outcome = resume(store.root, llm=no_calls)
+    first_state = rebuild_state(science)
+    assert outcome.status == ("completed" if action == "stop" else "budget_exceeded")
+    assert not first_state.stage_admissions and not first_state.stage_history
+    assert first_state.dispositions[-1].record.sources == [selection]
+    assert first_state.questions[0].record.resolved is False
+    assert store.committed("report") is None and store.committed("frame_reviewed") is None
+    assert store.path("research.md").read_bytes() == original_intent
+    summary = StudyOutput.model_validate(science.read(store.artifact_ref("study")))
+    assert summary.validation_standing == "unavailable"
+    assert summary.questions[0]["record"]["text"] == "Which measurement needs additional data?"
+    spend = recorded_spend(store)
+    assert resume(store.root, llm=no_calls).status == outcome.status
+    assert rebuild_state(science).dispositions == first_state.dispositions
+    assert recorded_spend(store) == spend == h.spent_usd
