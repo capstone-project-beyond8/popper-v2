@@ -6,8 +6,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from pydantic import JsonValue, TypeAdapter
+
 from popper.harness.storage.recovery import load_state, read_events
 from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.projections.output import episode_summary
+from popper.scientific.runtime.store import ScienceStore
 
 _TOKENS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 
@@ -94,6 +98,10 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def scientific_trace(run: RunStore) -> dict[str, JsonValue]:
+    return TypeAdapter(dict[str, JsonValue]).validate_python(episode_summary(ScienceStore(run)))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", nargs="+", type=Path)
@@ -102,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         store = RunStore(root)
         report = summarize(read_events(store.root))
         report.update(run=str(store.root), status=load_state(store).get("status", "unknown"))
+        report["scientific"] = scientific_trace(store)
         print(json.dumps(report, indent=2))
     return 0
 

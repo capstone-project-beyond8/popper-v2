@@ -4,7 +4,7 @@ Popper is developing toward a persistent AI Scientist backed by Scientific Runti
 
 `scientific.scientist` owns scientific decisions and the current playbook. `scientific.runtime` owns scientific records, evidence and state; `stages` owns specialist capabilities, Harness/code search executes declared work, and `workflow` handles dispatch and resources. Scientific snapshots exclude live budgets; resume takes spend and cap raises from the journal.
 
-Reports distinguish coverage, attributed fidelity, sensitivity and computed prospective support, and retain scientific feedback beside the evidence. Negative, incomplete and untested work remain visible. Challenge and interpretation are attributed reasoning; standing remains exploratory and reserved data is not used for validation.
+Reports distinguish coverage, attributed fidelity, sensitivity and computed prospective support, and retain scientific feedback beside the evidence. Negative, incomplete and untested work remain visible. Challenge, interpretation and synthesis are attributed reasoning. Evidence audits check committed discovery records; validation standing remains `unavailable`, and reserved data is not used for validation.
 
 Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Contributing: [AGENTS.md](AGENTS.md)
 
@@ -42,7 +42,7 @@ discovery:
   max_revisits: 1   # nonnegative; each later move on a hypothesis counts
 ```
 
-Repair retains the intended test; changed inference effort, seed or operational slice requires refinement. Pivot, reframe and acquisition requests are retained as deferred routes. When resources stop work, a partial or diagnostic LaTeX source still reports the committed state; the run remains `budget_exceeded`.
+Repair retains the intended test; changed inference effort, seed or operational slice requires refinement. Pivot, reframe and acquisition requests are retained as deferred routes. The Scientist can select an evidence audit, synthesis, communication or stop. A stop or exhausted budget preserves a deterministic episode summary, including questions and pending work; a paper is produced when communication is selected. Budget exhaustion remains `budget_exceeded`.
 
 ```sh
 uv run popper resume runs/<run_id> --quiet
@@ -51,7 +51,15 @@ uv run python -m examples.student_performance_null.make_data
 uv run --env-file .env popper run examples/student_performance_null
 ```
 
-Resume uses the saved config and all recorded costs; it never resets step or monetary budgets. Incomplete attempts remain preserved and consume limits; committed work is not replayed. New runs use format 5. Format-4 runs retain their original single-hypothesis policy, global names and legacy stability labels; older unsupported formats cannot resume, but their `report/paper.tex` can still be built. Raise a stopped run's cap explicitly with `popper resume runs/<run_id> --max-usd <cap>`. Provider cost incurred immediately before process death may not have reached the journal.
+Resume uses the saved config and all recorded costs; it never resets step or monetary budgets. Incomplete attempts remain preserved and consume limits; committed work is not replayed. New runs use format 6, with sourced stage admissions and terminal outcomes. Formats 4/5 retain their saved execution policies; format 4 also retains its global names and legacy stability labels. Historical runs have unavailable stage history rather than invented completions. Older unsupported formats cannot resume, but their `report/paper.tex` can still be built. Raise a stopped run's cap explicitly with `popper resume runs/<run_id> --max-usd <cap>`. Provider cost incurred immediately before process death may not have reached the journal.
+
+Read recorded costs and the scientific trace without model calls or run mutations:
+
+```sh
+uv run popper-metrics runs/<run_id>
+```
+
+The separate `scientific` section shows ordered stage outcomes, pending admissions, selected and displaced moves with rationale, exact source identities, audit limitations and the recorded stop reason. A missing stop reason is `null`; operational completion does not imply validation. Use the [case review rubric](evals/cases/README.md) to assess whether a decision changed understanding.
 
 Generated Python uses a local access guard: mounted discovery files and Python/library resources may be read; only the current execution folder may be written. Holdout, sibling evidence and ordinary credential files are denied; credentials are removed from script environments. This guards accidental Python file access, not hostile native code, network access or multi-user use. Code-assessment sessions receive masked source/structural results and code-generated sample-count diagnostics, never result plots or estimates; original figures remain available to reporting. Scientific challenge uses a separate fresh, read-only session over exact committed records. Interpretations may read accepted named results; neither assessment can change empirical values or evidence standing.
 

@@ -320,7 +320,6 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
         science = ScienceStore(store)
         program, episode = load_episode(store)
-        policy = decode_policy(json.loads(store.path("run.json").read_text("utf-8")))
         options = load_options(store)
         pending: CapabilityRequest | None = None
         while True:

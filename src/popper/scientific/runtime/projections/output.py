@@ -7,13 +7,18 @@ from typing import Any, Literal
 from pydantic import Field
 
 from popper.harness.storage.records import ArtifactRef, IntegrityError, Record, resolve_artifact
+from popper.harness.storage.recovery import load_state
 from popper.harness.storage.store import file_hash
 from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.evidence.outcomes import EvidenceAudit
 from popper.scientific.runtime.evidence.references import MeasurementRef
-from popper.scientific.runtime.lifecycle.contracts import MoveSelection
+from popper.scientific.runtime.lifecycle.contracts import MoveSelection, ResearchMove
 from popper.scientific.runtime.lifecycle.transitions import selected_move
-from popper.scientific.runtime.projections.state import rebuild_state
+from popper.scientific.runtime.projections.state import (
+    ResearchState,
+    rebuild_state,
+    validate_sources,
+)
 from popper.scientific.runtime.store import ScienceStore
 
 
@@ -62,6 +67,9 @@ class StudyOutput(Record):
     selections: list[ArtifactRef] = Field(default_factory=list)
     syntheses: list[dict[str, Any]] = Field(default_factory=list)
     selection_history: list[dict[str, Any]] = Field(default_factory=list)
+    stage_history: list[dict[str, Any]] | None = None
+    pending_work: list[dict[str, Any]] | None = None
+    sources: list[ArtifactRef] = Field(default_factory=list)
     audits: list[dict[str, Any]] = Field(default_factory=list)
     validation_standing: Literal["unavailable"] = "unavailable"
     stop_reason: str
@@ -71,6 +79,54 @@ class StudyOutput(Record):
 
 def upstream(science: ScienceStore, name: str) -> ArtifactRef | None:
     return science.run.artifact_ref(name) if science.run.committed(name) else None
+
+
+def episode_summary(science: ScienceStore, state: ResearchState | None = None) -> dict[str, Any]:
+    """Read committed decisions and work without inventing historical stage records."""
+    state = state if state is not None else rebuild_state(science)
+    metadata = science.run.path("run.json")
+    stage_aware = metadata.exists() and decode_policy(json.loads(metadata.read_text("utf-8"))).stage_aware
+    decisions = []
+    sources = list(state.frontier)
+    audits = []
+    for name, ref in science.commits():
+        if name.startswith("science:selection:"):
+            selection = MoveSelection.model_validate(science.read(ref))
+            proposals = science.read(selection.proposals)
+            validate_sources(science, proposals)
+            moves = [ResearchMove.model_validate(move) for move in proposals["moves"]]
+            selected = next(move for move in moves if move.id == selection.proposal_id)
+            decisions.append({"ref": ref.model_dump(mode="json"),
+                **selection.model_dump(mode="json"), "selected": selected.model_dump(mode="json"),
+                "displaced": [move.model_dump(mode="json") for move in moves if move.id != selected.id]})
+            sources.extend([ref, selection.snapshot, selection.proposals, *selected.trigger_refs])
+        elif name.startswith("science:audit:"):
+            audits.append({"ref": ref.model_dump(mode="json"),
+                "record": EvidenceAudit.model_validate(science.read(ref)).model_dump(mode="json")})
+    admissions = {item.ref: item for item in state.stage_admissions}
+    for item in state.stage_admissions:
+        sources.extend([item.ref, item.record.move, item.record.snapshot, *item.record.inputs])
+    checkpoint = load_state(science.run)
+    stop_reason = None
+    if study_ref := upstream(science, "study"):
+        study = StudyOutput.model_validate(science.read(study_ref))
+        if (study.frontier == state.frontier
+            and checkpoint.get("status") == study.operational_status):
+            stop_reason = study.stop_reason
+    return {
+        "stage_history": [{**item.model_dump(mode="json"),
+            "work": admissions[item.record.admission].model_dump(mode="json")}
+            for item in state.stage_history] if stage_aware else None,
+        "pending_work": [item.model_dump(mode="json") for item in state.pending_admissions] if stage_aware else None,
+        "decisions": decisions,
+        "sources": [ref.model_dump(mode="json") for ref in dict.fromkeys(sources)],
+        "stop_reason": stop_reason,
+        "operational_status": checkpoint.get("status", "unknown"),
+        "questions": [item.model_dump(mode="json") for item in state.questions],
+        "syntheses": [item.model_dump(mode="json") for item in state.syntheses],
+        "audits": audits,
+        "validation_standing": "unavailable",
+    }
 
 
 def build_study(
@@ -83,6 +139,7 @@ def build_study(
     key: str | None = None,
 ) -> Path:
     state = rebuild_state(science)
+    summary = episode_summary(science, state)
     selections = [ref for name, ref in science.commits() if name.startswith("science:selection:")]
     attempted_ids = {a.record.hypothesis_id for a in state.attempts}
     selected_ids = {selected_move(science, ref).hypothesis_id for ref in selections}
@@ -102,8 +159,11 @@ def build_study(
     study = StudyOutput(
         adaptive=adaptive,
         frontier=state.frontier,
-        syntheses=[s.model_dump(mode="json") for s in state.syntheses],
-        audits=[{"ref": ref.model_dump(mode="json"), "record": EvidenceAudit.model_validate(science.read(ref)).model_dump(mode="json")} for name, ref in science.commits() if name.startswith("science:audit:")],
+        syntheses=summary["syntheses"],
+        audits=summary["audits"],
+        stage_history=summary["stage_history"],
+        pending_work=summary["pending_work"],
+        sources=summary["sources"],
         frame=upstream(science, "frame_reviewed"),
         foundation=upstream(science, "foundation"),
         exploration=upstream(science, "exploration"),
@@ -135,15 +195,7 @@ def build_study(
         ],
         attempts=[a.ref for a in state.attempts],
         selections=selections,
-        selection_history=[
-            {
-                "ref": ref.model_dump(mode="json"),
-                **MoveSelection.model_validate_json(
-                    resolve_artifact(science.run, ref).read_text("utf-8")
-                ).model_dump(mode="json"),
-            }
-            for ref in selections
-        ],
+        selection_history=summary["decisions"],
         usable_measurements=[m for m in history if m.active],
         measurement_history=history,
         coverage=[r.record.coverage for r in state.results],

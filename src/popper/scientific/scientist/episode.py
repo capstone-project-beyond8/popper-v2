@@ -380,11 +380,6 @@ def _bootstrap(science: ScienceStore, request: CapabilityRequest, source: Artifa
 
 def _stage_decision(h: Harness, science: ScienceStore, resources: RunResources) -> CapabilityRequest:
     store = science.run
-    state = rebuild_state(science)
-    if state.pending_admissions:
-        admission = state.pending_admissions[0]
-        selection = next(r for r in admission.record.inputs if r.producer.startswith("science:selection:"))
-        return replace(request_move(science, selection), admission=admission.ref)
     if store.committed("science:intent:initial") is None:
         prepared = foundation_view(science)
         preparation = preparation_manifest(science, prepared.preparation)
@@ -405,9 +400,6 @@ def _stage_decision(h: Harness, science: ScienceStore, resources: RunResources) 
             return finish_episode(science, disposition.record.reason, key=f"finish:{disposition.ref.record_id}")
         if disposition.record.resource and h.spent_usd >= h.config.budget.max_usd:
             return finish_episode(science, disposition.record.reason, "budget_exceeded", key=f"finish:{disposition.ref.record_id}")
-    pending_choice = pending_selection(science, state)
-    if pending_choice:
-        return request_move(science, pending_choice)
     try:
         if h.spent_usd >= h.config.budget.max_usd:
             raise BudgetExceeded("resource cap reached before scientific decision")
