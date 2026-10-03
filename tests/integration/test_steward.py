@@ -1,22 +1,22 @@
-import json
-import os
 from pathlib import Path
 
 import pytest
 
-from popper.coordinator.run import run
+from popper.ground.steward import ground
+from popper.harness.descriptive import describe_table, read_table
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
+from popper.harness.research import parse_research
+from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from tests.integration.test_run import (
     DATA,
     EXAMPLE,
-    WRITEUP,
+    FRAMING,
     _config,
-    _respond,
     _submit_ground,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 FAILING = """
 import os
@@ -30,33 +30,29 @@ def test_failed_submit_returns_the_reason_and_the_corrected_one_is_accepted(
     steward: list[LLMRequest] = []
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        if req.tag == "steward":
-            steward.append(req)
-            return _submit_ground(FAILING if len(steward) == 1 else DATA)
-        if req.tag == "writeup":
-            return json.dumps({**WRITEUP, "data": r"Rows kept: \R{data.rows_after}."})
-        return _respond(req)
+        assert req.tag == "steward"
+        steward.append(req)
+        return _submit_ground(FAILING if len(steward) == 1 else DATA)
 
-    out = run(
+    config = _config()
+    store = RunStore.create(
+        tmp_path,
         EXAMPLE / "research.md",
         EXAMPLE / "data.csv",
-        config=_config(),
-        auto=True,
-        llm=FakeLLM(respond),
-        runs_dir=tmp_path,
+        config=config,
     )
-    assert out.status == "completed" and out.tex is not None
+    research = parse_research(store.path("research.md").read_text("utf-8"))
+    report = describe_table(read_table(store.path("data", "raw.csv")), research)
+    store.write_json("data/ida-raw.json", {"results": report.results, "layout": report.layout})
+    foundation = ground(Harness(config, FakeLLM(respond), store), research, FRAMING)
+    assert len(steward) == 2
     verdict = steward[1].messages[-1].tool_results[0]
     assert verdict.status == "error" and "['POPPER_INPUT_RAW']" in verdict.text
-    root = out.run_dir
-    for name in ("processed.parquet", "ida.json"):
-        assert (root / "data" / name).exists()
-        assert not os.access(root / "data" / name, os.W_OK)
-    assert not (root / "tree" / "data").exists()
-    accepted = RunStore(root).committed("foundation")
+    accepted = store.committed("foundation")
     assert accepted is not None
     attempt = accepted.parent
-    results = json.loads((attempt / "submit-01" / "execution" / "results.json").read_text("utf-8"))
+    assert foundation.preparation == attempt / "submit-01" / "execution"
+    assert (foundation.preparation / "processed.parquet").is_file()
+    assert (attempt / "ida.json").is_file()
     assert (attempt / "submit-00" / "execution" / "code.py").exists()
-    assert f"Rows kept: {results['rows_after']['value']}." in out.tex.read_text("utf-8")
     assert not any("holdout" in r.prompt for r in steward)

@@ -210,6 +210,7 @@ def test_provider_error_marks_node_buggy(tmp_path: Path) -> None:
     assert analysis.read_text(encoding="utf-8").startswith("model call failed")
 
 
+@pytest.mark.slow
 def test_judge_receives_figures_and_persists_quality_reason(tmp_path: Path) -> None:
     code = _submit("""
 import json, os

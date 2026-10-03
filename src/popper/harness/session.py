@@ -149,29 +149,6 @@ class Harness:
         )
         return done
 
-    def ask(
-        self,
-        role: Role,
-        *,
-        tag: str,
-        system: str,
-        prompt: str,
-        images: Sequence[Path] = (),
-        max_tokens: int = 32000,
-        output_schema: dict[str, Any] | None = None,
-    ) -> str:
-        done = self.converse(
-            role,
-            tag=tag,
-            system=system,
-            messages=(Message("user", prompt, images=tuple(images)),),
-            max_tokens=max_tokens,
-            output_schema=output_schema,
-        )
-        if done.stop_reason == "max_tokens":
-            raise ValueError("reply truncated at max_tokens")
-        return done.text
-
     def ask_model(
         self,
         role: Role,

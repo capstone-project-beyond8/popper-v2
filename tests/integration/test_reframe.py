@@ -8,7 +8,7 @@ from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.store import RunStore
 from tests.integration.test_run import DATA, EXAMPLE, _config, _respond
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 CONCERN = {
     "type": "unmeasured_concept",

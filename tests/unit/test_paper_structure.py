@@ -111,7 +111,12 @@ def test_figure_references_are_identity_based_bounded_known_and_exploration_firs
     ]
     explore = cast(Node, SimpleNamespace(id="explore-000", stage="explore", figures=["raw.png"]))
     refs = [FigureRef(node_id=n.id, file="fit.png", caption="fit", section="main") for n in nodes]
-    assert len(_select_figures(refs + refs, nodes)) == 3
+    selected = _select_figures([refs[0], refs[0], *refs[1:]], nodes)
+    assert [(node.id, ref.file) for node, ref in selected] == [
+        ("main-000", "fit.png"),
+        ("main-001", "fit.png"),
+        ("main-002", "fit.png"),
+    ]
     raw = FigureRef(node_id="explore-000", file="raw.png", caption="raw", section="data_methods")
     assert _select_figures([*refs, raw], [*nodes, explore])[0][0] is explore
     escape = FigureRef(node_id="main-000", file="../secret.png", caption="x", section="main")

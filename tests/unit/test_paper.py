@@ -29,7 +29,7 @@ def _writeup(results: str, figures: list[FigureRef] | None = None) -> Writeup:
     )
 
 
-def test_best_attempt_prefers_fewest_problems_then_later_and_skips_violations() -> None:
+def test_best_attempt_prefers_fewest_problems_then_later_and_rejects_empty_candidates() -> None:
     w = _writeup("x")
     first, second, third = (Path(f"w{i}.json") for i in range(3))
     assert _best_attempt([(2, 0, w, first), (1, 1, w, second), (3, 2, w, third)], [])[3] == second

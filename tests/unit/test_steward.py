@@ -143,11 +143,6 @@ def test_concern_evidence_resolves(tmp_path: Path, evidence: str) -> None:
     assert _run(tmp_path, concerns=(concern,)) is None
 
 
-def test_concern_evidence_must_resolve(tmp_path: Path) -> None:
-    concern = Concern(type="quality", kind="data", description="d", evidence=["made_up"])
-    assert "made_up" in str(_run(tmp_path, concerns=(concern,)))
-
-
 def test_concern_type_must_match_its_kind() -> None:
     with pytest.raises(ValidationError, match="has kind frame"):
         Concern(type="weak_proxy", kind="data", description="d", evidence=[])

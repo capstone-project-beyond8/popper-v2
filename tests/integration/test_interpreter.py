@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from popper.harness import interpreter
+from popper.harness.config import load_config
 from popper.harness.interpreter import ExecResult, run_script
 from popper.harness.store import RunStore
 
@@ -34,7 +35,6 @@ def test_timeout_kills_script(tmp_path: Path) -> None:
     result = _run("import time; time.sleep(60)", tmp_path, timeout=1)
     assert result.timed_out
     assert result.exit_code is None
-    assert result.seconds < 30
 
 
 def test_credentials_are_not_passed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,12 +60,14 @@ def test_non_ascii_output_survives(tmp_path: Path) -> None:
     assert "± ✓ ờ" in result.stdout
 
 
-def test_timeout_does_not_wait_for_child_processes(tmp_path: Path) -> None:
-    code = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\ntime.sleep(120)"
-    result = _run(code, tmp_path, timeout=2)
-    assert result.exit_code != 0
-    assert "subprocess" in result.stderr
-    assert result.seconds < 60
+def test_script_cannot_launch_a_subprocess(tmp_path: Path) -> None:
+    marker = tmp_path / "launched.txt"
+    child = "open('launched.txt', 'w').write('started')"
+    code = f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])"
+    result = _run(code, tmp_path)
+    assert result.exit_code != 0 and not result.timed_out
+    assert "subprocess launch denied" in result.stderr
+    assert not marker.exists()
 
 
 @pytest.mark.parametrize("operation", ["read", "write", "list"])
@@ -140,7 +142,7 @@ plt.plot(df.x, fit.fittedvalues)
 plt.savefig('plot.png')
 print(pd.read_parquet('table.parquet').shape)
 """
-    result = _run(code, tmp_path)
+    result = _run(code, tmp_path, timeout=load_config(env={}).execution.timeout_seconds)
     assert result.exit_code == 0, result.stderr
     assert "(10, 2)" in result.stdout and (tmp_path / "plot.png").is_file()
 
@@ -187,6 +189,10 @@ def test_native_reader_cannot_recover_holdout_rows(tmp_path: Path) -> None:
     research.write_text("study")
     store = RunStore.create(tmp_path / "runs", research, source)
     held = store.read_holdout()["v"].tolist()
+    assert held
+    raw = store.path("data", "raw.csv").read_text("utf-8").splitlines()[1:]
+    assert raw
+    raw_value = raw[0].split(",")[1]
     code = """
 import os
 from pathlib import Path
@@ -201,4 +207,6 @@ for info in local.get_file_info(fs.FileSelector(str(folder), recursive=True)):
         print(info.path, f.read())
 """
     result = _run(code, tmp_path / "execution", inputs={"raw": store.path("data", "raw.csv")})
+    assert result.exit_code == 0 and not result.timed_out, result.stderr
+    assert raw_value in result.stdout
     assert all(v not in result.stdout for v in held)

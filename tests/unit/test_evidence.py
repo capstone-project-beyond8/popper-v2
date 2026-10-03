@@ -96,16 +96,21 @@ def test_all_successful_attempts_keep_equal_estimates_and_unique_keys(tmp_path: 
 
 
 def test_evidence_rejects_escaped_reference_and_unknown_version(tmp_path: Path) -> None:
-    path = _manifest(tmp_path)
+    root = tmp_path / "run"
+    root.mkdir()
+    (tmp_path / "outside.json").write_text("{}")
+    path = _manifest(root)
     manifest = json.loads(path.read_text())
-    manifest["nodes"][0]["results"] = "../outside.json"
-    path.write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="reference"):
-        load_evidence(path, tmp_path)
+    for reference in ("../outside.json", str((root / "main-000.json").resolve())):
+        manifest["nodes"][0]["results"] = reference
+        path.write_text(json.dumps(manifest))
+        with pytest.raises(ValueError, match="reference"):
+            load_evidence(path, root)
+    manifest["nodes"][0]["results"] = "main-000.json"
     manifest["format_version"] = 99
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="version"):
-        load_evidence(path, tmp_path)
+        load_evidence(path, root)
 
 
 def test_secondary_placebo_cannot_replace_primary_and_repair_keeps_identity(tmp_path: Path) -> None:

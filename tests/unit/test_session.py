@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from popper.harness.config import load_config
 from popper.harness.context import UNTRUSTED_NOTE
-from popper.harness.llm import Completion, FakeLLM, LLMRequest, TransientLLMError
+from popper.harness.llm import Completion, FakeLLM, LLMRequest, Message, TransientLLMError
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 
@@ -18,10 +18,10 @@ def _harness(tmp_path: Path, fake: FakeLLM) -> Harness:
     return Harness(load_config(env={}), fake, run)
 
 
-def test_ask_journals_each_call(tmp_path: Path) -> None:
+def test_converse_journals_each_call(tmp_path: Path) -> None:
     fake = FakeLLM(lambda req: "ok")
     h = _harness(tmp_path, fake)
-    assert h.ask("analyst", tag="t1", system="s", prompt="p") == "ok"
+    assert h.converse("analyst", tag="t1", system="s", messages=(Message("user", "p"),)).text == "ok"
     lines = h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     entry = json.loads(lines[0])
@@ -37,7 +37,7 @@ def test_budget_blocks_further_calls(tmp_path: Path) -> None:
     h = _harness(tmp_path, fake)
     h.config.budget.max_usd = 0
     with pytest.raises(BudgetExceeded):
-        h.ask("analyst", tag="t", system="s", prompt="p")
+        h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     assert fake.calls == []
 
 
@@ -69,11 +69,6 @@ def test_store_is_write_once(tmp_path: Path) -> None:
         run.write_json("x.json", {})
 
 
-class _Failing:
-    def complete(self, req: LLMRequest, max_tokens: int) -> Completion:
-        raise RuntimeError("boom")
-
-
 class _Costly:
     def __init__(self) -> None:
         self.n = 0
@@ -85,39 +80,20 @@ class _Costly:
         )
 
 
-def test_failed_call_is_journaled(tmp_path: Path) -> None:
-    h = _harness(tmp_path, FakeLLM(lambda req: ""))
-    h.llm = _Failing()
-    with pytest.raises(RuntimeError):
-        h.ask("analyst", tag="t", system="s", prompt="p")
-    lines = h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1
-    assert json.loads(lines[0])["event"] == "llm_error"
-
-
 def test_cost_is_accounted_and_capped(tmp_path: Path) -> None:
     stub = _Costly()
     h = _harness(tmp_path, FakeLLM(lambda req: ""))
     h.llm = stub
     h.config.budget.max_usd = 10
-    h.ask("analyst", tag="t", system="s", prompt="p")
+    h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     expected = 3.0 + 15.0 + 3.0 * 1.25 + 3.0 * 0.1  # sonnet price, cache write and read
     assert h.spent_usd == pytest.approx(expected)
     entry = json.loads(h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert entry["usd"] == pytest.approx(expected)
     assert (entry["cache_read_tokens"], entry["cache_write_tokens"]) == (1_000_000, 1_000_000)
     with pytest.raises(BudgetExceeded):
-        h.ask("analyst", tag="t", system="s", prompt="p")
+        h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     assert stub.n == 1
-
-
-def test_ask_model_retries_once_on_schema_mismatch(tmp_path: Path) -> None:
-    replies = iter(['{"a": "x"}', '{"a": 3}'])
-    fake = FakeLLM(lambda req: next(replies))
-    h = _harness(tmp_path, fake)
-    assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 3
-    assert len(fake.calls) == 2
-    assert "a" in fake.calls[1].prompt
 
 
 def test_schema_retry_keeps_previous_reply_and_compact_error(tmp_path: Path) -> None:
@@ -126,6 +102,7 @@ def test_schema_retry_keeps_previous_reply_and_compact_error(tmp_path: Path) -> 
     fake = FakeLLM(lambda req: next(replies))
     h = _harness(tmp_path, fake)
     assert h.ask_model("analyst", schema=Shape, tag="t", system="s", prompt="p").a == 3
+    assert len(fake.calls) == 2
     prompt = fake.calls[1].prompt
     assert previous in prompt
     assert "input_value=" not in prompt and "errors.pydantic.dev" not in prompt
@@ -171,7 +148,7 @@ def _events(h: Harness) -> list[str]:
 
 def test_retries_transient_errors_with_backoff(tmp_path: Path) -> None:
     h, delays = _flaky_harness(tmp_path, _Flaky([TransientLLMError("x"), TransientLLMError("y")]))
-    assert h.ask("analyst", tag="t", system="s", prompt="p") == "ok"
+    assert h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),)).text == "ok"
     assert delays == [2.0, 4.0]
     assert _events(h) == ["llm_retry", "llm_retry", "llm_call"]
 
@@ -179,7 +156,7 @@ def test_retries_transient_errors_with_backoff(tmp_path: Path) -> None:
 def test_gives_up_after_five_attempts(tmp_path: Path) -> None:
     h, delays = _flaky_harness(tmp_path, _Flaky([TransientLLMError("x")] * 5))
     with pytest.raises(TransientLLMError):
-        h.ask("analyst", tag="t", system="s", prompt="p")
+        h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     assert delays == [2, 4, 8, 16]
     assert _events(h).count("llm_error") == 1
 
@@ -187,7 +164,7 @@ def test_gives_up_after_five_attempts(tmp_path: Path) -> None:
 def test_non_transient_error_is_not_retried(tmp_path: Path) -> None:
     h, delays = _flaky_harness(tmp_path, _Flaky([RuntimeError("boom")]))
     with pytest.raises(RuntimeError):
-        h.ask("analyst", tag="t", system="s", prompt="p")
+        h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     assert delays == []
     assert _events(h) == ["llm_error"]
 
@@ -195,7 +172,7 @@ def test_non_transient_error_is_not_retried(tmp_path: Path) -> None:
 def test_system_prompt_carries_untrusted_note(tmp_path: Path) -> None:
     llm = _Flaky([])
     h, _ = _flaky_harness(tmp_path, llm)
-    h.ask("analyst", tag="t", system="s", prompt="p")
+    h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     assert llm.requests[0].system.endswith(UNTRUSTED_NOTE)
 
 

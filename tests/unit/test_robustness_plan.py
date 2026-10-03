@@ -69,10 +69,19 @@ def test_specification_estimand_replaces_only_population() -> None:
 
 def test_schedule_requires_minimum_variants_adversary_and_dimension_reasons() -> None:
     context = {"steps": 6, "min_variants": 3}
-    for indexes in ([0, 1, 4], [0, 1, 2, 3], [0, 1, 2, 4]):
+    for indexes, reasons, message in (
+        (
+            [0, 1, 4],
+            {"subgroup": "No valid subgroup", "resampling": "No valid resampling design"},
+            "requires ordinary variants",
+        ),
+        ([0, 1, 2, 3], {}, "at least one adversarial check"),
+        ([0, 1, 2, 4], {}, "missing resampling"),
+    ):
         bad = schedule()
         bad["attempts"] = [bad["attempts"][i] for i in indexes]
-        with pytest.raises(ValueError):
+        bad["inapplicable"] = reasons
+        with pytest.raises(ValueError, match=message):
             RobustnessPlan.model_validate(bad, context=context)
     good = schedule()
     good["attempts"].pop(3)

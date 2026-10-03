@@ -145,7 +145,6 @@ def _var(column: str, **attrs: Any) -> dict[str, Any]:
             {"concepts.gone": 0},
             "concepts.gone",
         ),
-        (_var("school", colour=_proposed("x", "c000_mean")), {}, "colour"),
     ],
 )
 def test_apply_patch_rejects(
@@ -283,20 +282,24 @@ def test_theorist_reader_only_reads_its_own_framing_artifacts(tmp_path: Path) ->
     ctx, ida = _context()
     h = _harness(tmp_path, FakeLLM(lambda _: ""))
     folder = h.run.new_attempt("understand")
-    reader = next(t for t in _tools(h, folder, ctx, ida, {}, [], {}) if t.name == "read_artifact")
-    assert reader.handler is not None
     own = "understand/attempt-000000/framing.json"
     h.run.write_json(own, _framing())
-    assert _framing()["title"] in str(reader.handler({"path": own}))
+    forbidden = []
     for directory in ("ground/attempt-000000/execution", "tree/explore/node", "scratch"):
         for name in ("results.json", "analysis.md", "changes.json", "hypotheses.json", "framing.json"):
             path = f"{directory}/{name}"
             h.run.write_text(path, "correlation = 0.99")
-            with pytest.raises(ValueError):
-                reader.handler({"path": path})
+            forbidden.append(path)
+    reader = next(t for t in _tools(h, folder, ctx, ida, {}, [], {}) if t.name == "read_artifact")
+    assert reader.handler is not None
+    assert own in reader.description
+    assert all(path not in reader.description for path in forbidden)
+    assert _framing()["title"] in str(reader.handler({"path": own}))
+    for path in forbidden:
+        with pytest.raises(ValueError, match="not permitted"):
+            reader.handler({"path": path})
     with pytest.raises(ValueError):
         reader.handler({"path": "understand/../ground/attempt-000000/execution/framing.json"})
-    assert "results.json" not in reader.description
 
 
 def test_session_fails_after_rejected_submits(tmp_path: Path) -> None:

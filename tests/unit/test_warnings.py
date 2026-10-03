@@ -93,7 +93,7 @@ def test_exposure_measured_before_outcome_is_silent() -> None:
     assert not any("measured after" in w for w in _warn(front))
 
 
-def test_limitations_list_concerns_readiness_and_fixed_sentence() -> None:
+def test_limitations_include_concerns_readiness_and_preparation_disclosure() -> None:
     foundation = {
         "concerns": [
             {"kind": "frame", "type": "unmeasured_concept", "description": "no effort"},
