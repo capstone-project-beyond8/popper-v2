@@ -100,7 +100,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
         "methods": payload["methods"],
         "planned_test": "contrast",
     }
-    experiment(h, {}, hypothesis, tmp_path, request=ExperimentRequest(intended, parent_ref))
+    experiment(h, {}, hypothesis, request=ExperimentRequest(intended, parent_ref))
     state = rebuild_state(ScienceStore(h.run))
     bad = next(m.record.ref for m in state.history if m.record.role == affected_role)
     assert resolve_measurement(h.run, bad).value == (200 if affected_role == "main" else 2)
@@ -159,7 +159,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     else:
         assert child.reuse == {}
     repairing = True
-    experiment(h, {}, hypothesis, tmp_path, request=ExperimentRequest(intended, child_ref))
+    experiment(h, {}, hypothesis, request=ExperimentRequest(intended, child_ref))
     final = rebuild_state(ScienceStore(h.run))
     assert len(final.observations) == (1 if other_defect else 2)
     assert len(final.history) == (3 if affected_role == "main" else 4)

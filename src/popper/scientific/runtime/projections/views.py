@@ -72,21 +72,6 @@ def node_ref(science: ScienceStore, path: Path) -> ArtifactRef:
     return ref
 
 
-def stage_outcome(science: ScienceStore, stage: str) -> ArtifactRef | None:
-    events = read_events(science.run.root)
-    end = next(
-        (
-            e
-            for e in reversed(events)
-            if e["event"] == "stage_end" and e["stage_instance"] == stage
-        ),
-        None,
-    )
-    if not end or not end.get("best"):
-        return None
-    return node_ref(science, science.run.path("tree", stage, end["best"], "meta.json"))
-
-
 def node_results(science: ScienceStore, ref: ArtifactRef) -> dict[str, Any]:
     metadata = science.read(ref)
     path = (Path(ref.path).parent / "execution" / "results.json").as_posix()

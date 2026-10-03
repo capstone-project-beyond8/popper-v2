@@ -11,7 +11,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from popper.harness.agents.loop import agent_loop
-from popper.harness.config import Search
+from popper.harness.config import ImplementationPolicy, Search
 from popper.harness.context.prompts import load_prompt
 from popper.harness.context.rendering import ARTIFACT_CHARS, CODE_CHARS, part
 from popper.harness.execution.bindings import ExecutionBinding
@@ -168,7 +168,7 @@ def choose_action(
     search: Search,
     rng: random.Random,
     steps: int,
-    policy: Literal["tree", "linear"] = "tree",
+    policy: ImplementationPolicy = "tree",
 ) -> tuple[NodeKind, Node | None]:
     if policy == "linear":
         return _linear_action(nodes, search)
@@ -524,7 +524,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
             rng_state=rng.getstate(),
         )
     else:
-        policy = started.get("implementation_policy", "tree")
+        policy = started["implementation_policy"]
     folders = [
         p
         for p in h.run.path("tree", spec.execution_id).glob(f"{spec.execution_id}-*")

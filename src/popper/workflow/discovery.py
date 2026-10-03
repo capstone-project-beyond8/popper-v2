@@ -13,7 +13,6 @@ from popper.scientific.runtime.lifecycle.transitions import (
 )
 from popper.scientific.runtime.projections.state import rebuild_state
 from popper.scientific.runtime.projections.views import (
-    foundation_view,
     reviewed_frame,
     validate_intent_inputs,
 )
@@ -70,14 +69,13 @@ def dispatch_discovery(h: Harness, request: CapabilityRequest) -> CapabilityRequ
         except (EligibilityError, BudgetExceeded) as exc:
             return unavailable(science, request, str(exc))
         state = rebuild_state(science)
-    frame, prepared = reviewed_frame(science), foundation_view(science)
+    frame = reviewed_frame(science)
     attempt = Attempt.model_validate(science.read(subject))
     hypothesis = next(c.record for c in state.candidates if c.record.id == attempt.hypothesis_id)
     output_path = experiment(
         h,
         frame.framing,
         hypothesis.model_dump(mode="json"),
-        prepared.preparation,
         frame.research.notes.get("experiment", ""),
         render_fields(frame.research, "design"),
         request=ExperimentRequest(attempt.test, subject, request.admission),

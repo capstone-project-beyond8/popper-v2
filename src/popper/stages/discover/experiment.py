@@ -112,7 +112,6 @@ def run_experiment_stage(
             ),
             inputs={"data": h.run.path("data", "processed.parquet")},
             required_outputs=("results.json", "estimand.json"),
-            min_figures=0,
             seed_code=seed.code if seed else None,
             seed_node=seed.id if seed else None,
             blind_estimates=True,
@@ -133,7 +132,6 @@ def experiment(
     h: Harness,
     framing: dict[str, Any],
     hypothesis: dict[str, Any],
-    preparation: Path,
     notes: str = "",
     design: str = "",
     *,
@@ -212,7 +210,6 @@ def experiment(
                     seed_code=selected["main"].code,
                     describe_input=describe_input,
                     validate_results=validate_results,
-                    min_figures=0,
                     blind_estimates=True,
                     seed_node=selected["main"].id,
                     attempts=tuple(attempts[:capacity]),
@@ -222,7 +219,7 @@ def experiment(
             )
         except StageFailed:
             pass
-    measured_nodes = [(role, node) for role, node in selected.items()]
+    measured_nodes = list(selected.items())
     measured_nodes.extend(
         ("robustness", n)
         for n in load_nodes(h, attempt.stage_instances["robustness"])

@@ -1,7 +1,7 @@
 """Scientific identity and transition contracts."""
 
 import json
-from typing import Any
+from typing import Any, NoReturn
 
 from popper.harness.storage.records import (
     ArtifactRef,
@@ -34,6 +34,21 @@ from popper.scientific.runtime.store import ScienceStore
 
 class EligibilityError(ValueError):
     pass
+
+
+def raise_if_deferred(science: ScienceStore, key: str) -> None:
+    """Replay a recorded deferral of this work instead of attempting it again."""
+    name = f"science:disposition:{key}"
+    if science.run.committed(name):
+        deferred = Disposition.model_validate(science.read(science.run.artifact_ref(name)))
+        validate_sources(science, deferred.model_dump(mode="json"))
+        raise EligibilityError(deferred.reason)
+
+
+def defer(science: ScienceStore, key: str, reason: str, sources: list[ArtifactRef]) -> NoReturn:
+    """Record that this work is unavailable and report it as ineligible."""
+    science.commit("disposition", Disposition(kind="deferred", reason=reason, sources=sources), key=key)
+    raise EligibilityError(reason)
 
 
 def selected_move(science: ScienceStore, selection: ArtifactRef) -> ResearchMove:

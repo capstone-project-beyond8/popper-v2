@@ -47,7 +47,7 @@ class CandidateSetProposal(Record):
         count = context.get("count", 3)
         if len(self.candidates) > count:
             raise ValueError("candidate set exceeds the configured count")
-        elif len(self.candidates) < count and not (self.omission and self.omission.strip()):
+        if len(self.candidates) < count and not (self.omission and self.omission.strip()):
             raise ValueError("fewer candidates than the configured count need a non-empty omission reason")
         return self
 
@@ -76,7 +76,7 @@ def processed_table(h: Harness, science: ScienceStore, preparation: ArtifactRef)
 def candidate_warnings(item: CandidateProposal, context: CandidateContext, processed: pd.DataFrame) -> list[str]:
     return hypothesis_warnings(
         item.model_dump(mode="json"), context.research, context.foundation["operationalization"],
-        processed, list(context.raw_columns),
+        processed, context.raw_columns,
     )
 
 

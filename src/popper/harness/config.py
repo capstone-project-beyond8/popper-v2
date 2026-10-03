@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Role = Literal["theorist", "analyst", "steward", "judge", "writer"]
+ImplementationPolicy = Literal["tree", "linear"]
 _NonnegativeFinite = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
@@ -35,7 +36,7 @@ class Search(_Strict):
     max_turns: int = Field(ge=1)
     good_score: float = 7
     patience: int = 2
-    implementation_policy: Literal["tree", "linear"] = "tree"
+    implementation_policy: ImplementationPolicy = "tree"
     stage_steps: dict[
         Literal["data", "explore", "baseline", "main", "robustness"], Annotated[int, Field(ge=1)]
     ] = Field(default_factory=dict)

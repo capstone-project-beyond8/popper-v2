@@ -69,7 +69,7 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         h.llm = FakeLLM(respond)
         hypothesis: dict[str, Any] = {"primary_estimand": payload["primary_estimand"], "methods": payload["methods"], "planned_test": "compare"}
         request = ExperimentRequest(test=test, attempt=attempt)
-        path = experiment(h, {}, hypothesis, prep.parent, request=request)
+        path = experiment(h, {}, hypothesis, request=request)
         result = AttemptResult.model_validate_json(path.read_text("utf-8"))
         assert result.status == ("partial" if failed_variant or overflow else "complete")
         assert len(result.variant_tests) == (3 if overflow else int(failed_variant))
@@ -91,7 +91,7 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         assert state.questions[-1].record.text == "What explains the opposing association?"
         assert not state.stale_interpretations
         h.llm = FakeLLM(lambda req: (_ for _ in ()).throw(AssertionError(req.tag)))
-        assert experiment(h, {}, hypothesis, prep.parent, request=request) == path
+        assert experiment(h, {}, hypothesis, request=request) == path
         results.append(result)
     assert results[0].stages["main"] != results[1].stages["main"]
     assert results[0].measurements[1].ref.test_id == "t1"
@@ -123,7 +123,7 @@ def test_failed_main_retains_declared_missing_coverage(tmp_path: Path, monkeypat
     monkeypatch.setattr(module, "run_experiment_stage", fail)
     # No execution can satisfy either alternative once a prerequisite fails.
     monkeypatch.setattr(module.pd, "read_parquet", lambda _: pd.DataFrame(columns=["x", "y"]))
-    path = experiment(h, {}, {}, tmp_path, request=ExperimentRequest(test, attempt))
+    path = experiment(h, {}, {}, request=ExperimentRequest(test, attempt))
     result = AttemptResult.model_validate_json(path.read_text())
     assert result.status == "failed"
     assert result.coverage["requested"] == 2 and result.coverage["completed"] == 0
@@ -162,7 +162,7 @@ def _run_scoped(tmp_path: Path, **declared: Any) -> tuple[AttemptResult, list[st
 
     h.llm = FakeLLM(respond)
     hypothesis: dict[str, Any] = {"primary_estimand": payload["primary_estimand"], "methods": payload["methods"], "planned_test": "compare"}
-    path = experiment(h, {}, hypothesis, prep.parent, request=ExperimentRequest(test=test, attempt=attempt))
+    path = experiment(h, {}, hypothesis, request=ExperimentRequest(test=test, attempt=attempt))
     return AttemptResult.model_validate_json(path.read_text("utf-8")), roles
 
 

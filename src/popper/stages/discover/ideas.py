@@ -23,8 +23,9 @@ from popper.scientific.runtime.lifecycle.ideas import (
 )
 from popper.scientific.runtime.lifecycle.ideas import promote_idea as commit_promotion
 from popper.scientific.runtime.lifecycle.transitions import (
-    EligibilityError,
     bind_stage_output,
+    defer,
+    raise_if_deferred,
     stage_outputs,
 )
 from popper.scientific.runtime.projections.state import (
@@ -82,11 +83,7 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
     if bound is not None:
         return bound
     deferral_key = f"evolve_ideas:{work.id}"
-    deferral_name = f"science:disposition:{deferral_key}"
-    if h.run.committed(deferral_name):
-        deferred = Disposition.model_validate(science.read(h.run.artifact_ref(deferral_name)))
-        validate_sources(science, deferred.model_dump(mode="json"))
-        raise EligibilityError(deferred.reason)
+    raise_if_deferred(science, deferral_key)
 
     outputs = _committed(h, work)
     allowed = [*reachable_refs(h.run, snapshot), *outputs]
@@ -189,8 +186,6 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
         max_turns=h.config.search.max_turns, max_submits=2,
     )
     if not outputs:
-        reason = "Idea round produced no committed work; scientific feedback unavailable"
-        science.commit("disposition", Disposition(kind="deferred", reason=reason, sources=[snapshot]), key=deferral_key)
-        raise EligibilityError(reason)
+        defer(science, deferral_key, "Idea round produced no committed work; scientific feedback unavailable", [snapshot])
     bind_stage_output(science, admission, outputs)
     return outputs
