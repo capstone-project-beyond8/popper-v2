@@ -53,9 +53,16 @@ class Operationalization(_Model):
 
 class Concern(_Model):
     type: FrameConcern | DataConcern
-    kind: Literal["frame", "data"]
+    kind: Literal["frame", "data"] = Field(
+        description="Use frame for unmeasured_concept, weak_proxy, unit_mismatch, "
+        "missing_variable or scope_conflict; use data for quality, sample, structure or other.",
+    )
     description: str
-    evidence: list[str]
+    evidence: list[str] = Field(
+        description="Exact names of existing results.json entries, changes.json steps or raw "
+        "descriptive result keys. Never use research-body quotes, prose, column names or "
+        "invented keys. For example, use rows_after only if your script reports that entry.",
+    )
 
     @model_validator(mode="after")
     def _kind_matches_type(self) -> "Concern":
@@ -66,7 +73,13 @@ class Concern(_Model):
 
 
 class SubmitGroundInput(_Model):
-    code: str = Field(pattern=r"\S", description="Complete Python preparation script.")
+    code: str = Field(
+        pattern=r"\S",
+        description="Complete Python preparation script writing processed.parquet, changes.json "
+        "and results.json. Every result is an object with a value field, for example "
+        '{"rows_before": {"value": 10}, "rows_after": {"value": 8}}, not bare numbers. '
+        "changes.json rows_affected names one of these reported integer count entries.",
+    )
     operationalization: list[Operationalization]
     concerns: list[Concern]
 
