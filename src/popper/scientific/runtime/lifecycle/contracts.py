@@ -11,6 +11,8 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Standing = Literal["supported", "not_supported", "inconclusive", "unavailable", "post_hoc"]
 Fidelity = Literal["consistent", "defect", "unresolved"]
+MacroStage = Literal["understand", "ground", "discover", "verify", "communicate"]
+WorkStatus = Literal["completed", "failed", "deferred", "stopped"]
 Action = Literal[
     "test",
     "technical_repair",
@@ -20,6 +22,9 @@ Action = Literal[
     "pivot",
     "reframe",
     "acquisition",
+    "audit",
+    "communicate",
+    "synthesize",
 ]
 
 
@@ -261,7 +266,10 @@ class MoveProposal(Record):
 
     @model_validator(mode="after")
     def executable_fields(self) -> Self:
-        if self.action not in {"stop", "pivot", "reframe", "acquisition"}:
+        if self.action in {"audit", "communicate", "synthesize", "stop"}:
+            if self.test is not None or self.test_proposal is not None or self.discriminating_outcomes:
+                raise ValueError("non-experimental moves cannot carry empirical commitments")
+        elif self.action not in {"pivot", "reframe", "acquisition"}:
             if (
                 not self.hypothesis_id
                 or not self.discriminating_outcomes
@@ -286,6 +294,23 @@ class MoveSelection(Record):
     proposals: ArtifactRef
     author: Text
     rationale: Text
+
+
+class StageAdmission(Record):
+    version: Literal[1] = 1
+    id: Text
+    stage: MacroStage
+    move: ArtifactRef
+    snapshot: ArtifactRef
+    inputs: list[ArtifactRef] = Field(min_length=1)
+
+
+class StageWork(Record):
+    version: Literal[1] = 1
+    admission: ArtifactRef
+    status: WorkStatus
+    outputs: list[ArtifactRef]
+    reason: Text
 
 
 class Attempt(Record):
@@ -355,7 +380,7 @@ class Program(Record):
 class Run(Record):
     id: Text
     program_id: Text
-    format_version: Literal[4, 5]
+    format_version: Literal[4, 5, 6]
     inputs: ArtifactRef
     initial_intent: ArtifactRef
     auto: bool

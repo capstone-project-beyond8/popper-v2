@@ -12,11 +12,15 @@ from popper.harness.storage.records import (
 from popper.scientific.runtime.lifecycle.contracts import (
     Attempt,
     Diagnosis,
+    Disposition,
     ExperimentSpec,
     Invalidation,
     MoveProposal,
     MoveSelection,
     ResearchMove,
+    StageAdmission,
+    StageWork,
+    WorkStatus,
     classify_change,
 )
 from popper.scientific.runtime.projections.state import (
@@ -39,6 +43,44 @@ def selected_move(science: ScienceStore, selection: ArtifactRef) -> ResearchMove
     return next(
         ResearchMove.model_validate(m) for m in data["moves"] if m["id"] == choice.proposal_id
     )
+
+
+def admit_stage(science: ScienceStore, selection: ArtifactRef) -> ArtifactRef:
+    move = selected_move(science, selection)
+    validate_sources(science, move.model_dump(mode="json"))
+    name = f"science:admission:{selection.record_id}"
+    if science.run.committed(name):
+        ref = science.run.artifact_ref(name)
+        validate_sources(science, science.read(ref))
+        return ref
+    state = rebuild_state(science)
+    if load_snapshot(science, move.snapshot).frontier != state.frontier:
+        raise EligibilityError("stale scientific frontier")
+    if move.action == "stop" or move.action in {"pivot", "reframe", "acquisition"}:
+        raise EligibilityError("selected move has no executable stage")
+    stage = "verify" if move.action == "audit" else "communicate" if move.action == "communicate" else "discover"
+    move_ref = science.commit("move", move, key=move.id)
+    return science.commit("admission", StageAdmission(
+        id=move.id, stage=stage, move=move_ref, snapshot=move.snapshot,
+        inputs=list(dict.fromkeys([selection, *move.trigger_refs, *([move.test] if move.test else [])])),
+    ), key=selection.record_id)
+
+
+def defer_stage(science: ScienceStore, selection: ArtifactRef, reason: str) -> ArtifactRef:
+    selected_move(science, selection)
+    return science.commit("disposition", Disposition(
+        kind="deferred", reason=reason, sources=[selection], resource="cap" in reason,
+    ), key=f"admission:{selection.record_id}")
+
+
+def complete_stage(
+    science: ScienceStore, admission: ArtifactRef, status: WorkStatus,
+    outputs: list[ArtifactRef], reason: str,
+) -> ArtifactRef:
+    StageAdmission.model_validate(science.read(admission))
+    record = StageWork(admission=admission, status=status, outputs=outputs, reason=reason)
+    validate_sources(science, record.model_dump(mode="json"))
+    return science.commit("work", record, key=admission.record_id)
 
 
 def validate_moves(

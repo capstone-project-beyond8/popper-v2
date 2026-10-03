@@ -12,7 +12,8 @@ from popper.scientific.runtime.projections.state import (
 from popper.scientific.runtime.store import ScienceStore
 
 
-def test_projection_frontier_and_corruption(tmp_path: Path) -> None:
+@pytest.mark.parametrize("version", [1, 2])
+def test_projection_frontier_and_corruption(tmp_path: Path, version: int) -> None:
     store = RunStore(tmp_path)
     science = ScienceStore(store)
     source = store.write_json("intent.json", {"objective": "compare"})
@@ -23,8 +24,12 @@ def test_projection_frontier_and_corruption(tmp_path: Path) -> None:
     state = rebuild_state(science)
     assert "budget" not in state.model_dump()
     snap = commit_snapshot(science, state)
-    assert science.read(snap)["version"] == 2
-    old = science.commit("snapshot", {**state.model_dump(mode="json"), "version": 1, "budget": {"spent_usd": 100, "max_usd": 1}})
+    assert science.read(snap)["version"] == 3
+    payload = state.model_dump(mode="json", exclude={"stage_history", "stage_admissions", "pending_admissions"})
+    payload["version"] = version
+    if version == 1:
+        payload["budget"] = {"spent_usd": 100, "max_usd": 1}
+    old = science.commit("snapshot", payload)
     before = store.path(old.path).read_bytes()
     assert load_snapshot(science, old) == state
     assert store.path(old.path).read_bytes() == before
@@ -69,3 +74,51 @@ def test_pending_decisions_use_newest_unconsumed_current_frontier(tmp_path: Path
     science.commit("selection", MoveSelection(proposal_id="used", snapshot=current, proposals=consumed, author="scientist", rationale="already attempted"), key="used")
     assert pending_selection(science, state) == chosen
     assert pending_proposal(science, state) == (first, current)
+
+
+def test_stage_admission_completion_and_deferral(tmp_path: Path) -> None:
+    from popper.harness.storage.records import IntegrityError
+    from popper.scientific.runtime.lifecycle.contracts import MoveProposal, MoveSelection
+    from popper.scientific.runtime.lifecycle.transitions import (
+        admit_stage,
+        complete_stage,
+        defer_stage,
+        validate_moves,
+    )
+
+    science = ScienceStore(RunStore(tmp_path))
+    intent = science.commit("intent", {"objective": "compare"})
+    snapshot = commit_snapshot(science, rebuild_state(science))
+    moves = validate_moves(science, snapshot, [MoveProposal(
+        action="audit", objective="check evidence", trigger_refs=[intent],
+        cost_usd=0, stopping_condition="scope checked",
+    )])
+    proposals = science.commit("proposals", {"snapshot": snapshot.model_dump(mode="json"), "moves": [m.model_dump(mode="json") for m in moves]})
+    selection = science.commit("selection", MoveSelection(
+        proposal_id=moves[0].id, snapshot=snapshot, proposals=proposals,
+        author="scientist", rationale="check gaps before reporting",
+    ))
+    admission = admit_stage(science, selection)
+    assert admit_stage(science, selection) == admission
+    pending = rebuild_state(science)
+    assert [a.ref for a in pending.pending_admissions] == [admission]
+    assert pending.stage_history == []
+    output = science.commit("audit", {"sources": [intent.model_dump(mode="json")]})
+    terminal = complete_stage(science, admission, "completed", [output], "checked scope")
+    assert complete_stage(science, admission, "completed", [output], "checked scope") == terminal
+    with pytest.raises(IntegrityError, match="conflicting"):
+        complete_stage(science, admission, "failed", [], "different outcome")
+    final = rebuild_state(science)
+    assert final.pending_admissions == []
+    assert final.stage_history[0].record.outputs == [output]
+    with pytest.raises(IntegrityError):
+        complete_stage(science, admission, "completed", [output.model_copy(update={"sha256": "a" * 64})], "checked scope")
+    # A distinct selection can be refused without claiming that its stage ran.
+    snapshot = commit_snapshot(science, final)
+    selection = science.commit("selection", MoveSelection(
+        proposal_id=moves[0].id, snapshot=snapshot, proposals=proposals,
+        author="scientist", rationale="resource check",
+    ))
+    disposition = defer_stage(science, selection, "resource cap reached")
+    assert defer_stage(science, selection, "resource cap reached") == disposition
+    assert len(rebuild_state(science).stage_admissions) == 1

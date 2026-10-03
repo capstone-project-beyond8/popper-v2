@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -21,8 +22,14 @@ from popper.workflow.resources import admit_move, eligible_candidates, resource_
 
 
 def test_invalid_move_cannot_be_executable() -> None:
-    base = {"action": "stop", "objective": "stop", "trigger_refs": [{"path": "x.json", "sha256": "a"*64, "producer": "x", "record_id": "r1"}], "cost_usd": 0, "stopping_condition": "no justified action"}
+    base: dict[str, Any] = {"action": "stop", "objective": "stop", "trigger_refs": [{"path": "x.json", "sha256": "a"*64, "producer": "x", "record_id": "r1"}], "cost_usd": 0, "stopping_condition": "no justified action"}
     assert MoveProposal.model_validate(base).action == "stop"
+    for action in ("audit", "communicate", "synthesize"):
+        assert MoveProposal.model_validate({**base, "action": action}).action == action
+        empirical_fields: list[dict[str, Any]] = [{"test": base["trigger_refs"][0]}, {"discriminating_outcomes": ["positive"]}, {"measurements": []}]
+        for empirical in empirical_fields:
+            with pytest.raises(ValidationError):
+                MoveProposal.model_validate({**base, "action": action, **empirical})
     for changes in ({"cost_usd": -1}, {"cost_usd": float("inf")}, {"action": "test"}, {"stopping_condition": ""}):
         with pytest.raises(ValidationError):
             MoveProposal.model_validate({**base, **changes})

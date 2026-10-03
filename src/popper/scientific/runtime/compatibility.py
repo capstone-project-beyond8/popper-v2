@@ -37,15 +37,16 @@ class StudyPolicy:
     hypothesis_count: int
     adaptive: bool
     legacy_labels: bool
+    stage_aware: bool = False
 
 
 def decode_policy(metadata: Mapping[str, Any]) -> StudyPolicy:
     version = metadata.get("format_version")
     if version == 4:
         return StudyPolicy(4, 1, False, True)
-    if version == 5:
+    if version in {5, 6}:
         limits = Discovery.model_validate(metadata.get("config", {}).get("discovery", {}))
-        return StudyPolicy(5, limits.hypotheses, True, False)
+        return StudyPolicy(version, limits.hypotheses, True, False, version == 6)
     raise ValueError(f"unsupported run format: {version!r}")
 
 

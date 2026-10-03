@@ -19,6 +19,8 @@ from popper.scientific.runtime.lifecycle.contracts import (
     Invalidation,
     MoveSelection,
     Question,
+    StageAdmission,
+    StageWork,
 )
 from popper.scientific.runtime.store import ScienceStore
 
@@ -29,7 +31,10 @@ class Sourced[T](Record):
 
 
 class ResearchState(Record):
-    version: Literal[2] = 2
+    version: Literal[3] = 3
+    stage_admissions: list[Sourced[StageAdmission]] = Field(default_factory=list)
+    stage_history: list[Sourced[StageWork]] = Field(default_factory=list)
+    pending_admissions: list[Sourced[StageAdmission]] = Field(default_factory=list)
     frontier: list[ArtifactRef] = Field(default_factory=list)
     candidates: list[Sourced[Candidate]] = Field(default_factory=list)
     challenges: list[Sourced[Challenge]] = Field(default_factory=list)
@@ -73,6 +78,8 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
     dispositions: list[Sourced[Disposition]] = []
     invalidated: set[str] = set()
     exposure: list[ArtifactRef] = []
+    admissions: list[Sourced[StageAdmission]] = []
+    work: list[Sourced[StageWork]] = []
     kinds = {
         "intent",
         "candidates",
@@ -84,6 +91,8 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         "question",
         "invalidation",
         "disposition",
+        "admission",
+        "work",
     }
     for name, ref in science.commits():
         kind = name.split(":")[1] if name.startswith("science:") else ""
@@ -93,7 +102,11 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         payload = json.loads(path.read_text("utf-8"))
         validate_sources(science, payload)
         frontier.append(ref)
-        if kind == "candidates":
+        if kind == "admission":
+            admissions.append(Sourced(ref=ref, record=StageAdmission.model_validate(payload)))
+        elif kind == "work":
+            work.append(Sourced(ref=ref, record=StageWork.model_validate(payload)))
+        elif kind == "candidates":
             candidates.extend(
                 Sourced(ref=ref, record=Candidate.model_validate(c)) for c in payload["candidates"]
             )
@@ -160,6 +173,9 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         key = attempt.record.hypothesis_id
         counters[key] = counters.get(key, 0) + 1
     return ResearchState(
+        stage_admissions=admissions,
+        stage_history=work,
+        pending_admissions=[a for a in admissions if not any(w.record.admission == a.ref for w in work)],
         frontier=frontier,
         candidates=candidates,
         challenges=challenges,
@@ -211,8 +227,9 @@ def load_snapshot(science: ScienceStore, ref: ArtifactRef) -> ResearchState:
     version = payload.get("version", 1)
     if version == 1:
         payload.pop("budget", None)
-        payload["version"] = 2
-    elif version != 2:
+    if version in {1, 2}:
+        payload["version"] = 3
+    elif version != 3:
         raise ValueError(f"unsupported scientific snapshot version: {version!r}")
     return ResearchState.model_validate(payload)
 
@@ -225,6 +242,7 @@ def current_frontier(
 
 def pending_selection(science: ScienceStore, state: ResearchState) -> ArtifactRef | None:
     used = {attempt.record.move_id for attempt in state.attempts}
+    used.update(science.read(a.record.move)["id"] for a in state.stage_admissions)
     for name, ref in reversed(science.commits()):
         if name.startswith("science:selection:"):
             selection = MoveSelection.model_validate(science.read(ref))

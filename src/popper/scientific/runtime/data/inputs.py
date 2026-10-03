@@ -94,7 +94,7 @@ def ingest(
     store.write_json(
         "run.json",
         {
-            "format_version": 5,
+            "format_version": 6,
             "status": "running",
             "auto": auto,
             "config": config_data,
