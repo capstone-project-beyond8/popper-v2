@@ -35,6 +35,7 @@ class Search(_Strict):
     max_turns: int = Field(ge=1)
     good_score: float = 7
     patience: int = 2
+    implementation_policy: Literal["tree", "linear"] = "tree"
     stage_steps: dict[
         Literal["data", "explore", "baseline", "main", "robustness"], Annotated[int, Field(ge=1)]
     ] = Field(default_factory=dict)

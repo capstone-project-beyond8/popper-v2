@@ -179,7 +179,8 @@ def assemble_result(
     diagnoses: list[ArtifactRef] = []
     checks: list[CheckObservation] = []
     variants = plan.variants
-    for role in ("baseline", "main"):
+    required: tuple[str, ...] = tuple(r for r in ("baseline", "main") if r in intended.components)
+    for role in required:
         if role not in {o.role for o in outcomes}:
             diagnoses.append(
                 science.commit(

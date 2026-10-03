@@ -35,6 +35,7 @@ def test_open_methods_and_custom_algorithm() -> None:
 
 @pytest.mark.parametrize(("change", "expected"), [
     ({"id": "child"}, "same_test"),
+    ({"components": ["main"]}, "refine"),
     ({"inference": {"bootstrap": 100, "interval_level": .95}}, "refine"),
     ({"selection": {"slice": "age > 30", "assumptions": ["same target"]}}, "refine"),
     ({"primary_estimand": {**spec_payload()["primary_estimand"], "population": "children"}}, "pivot"),
@@ -57,3 +58,22 @@ def test_alternatives_require_procedure_patch_objects(alternatives: Any) -> None
     payload["requested_coverage"]["alternatives"] = alternatives
     with pytest.raises(ValidationError, match="alternatives must be a list of procedure patch objects"):
         ScientificTest.model_validate(payload)
+
+
+def test_components_default_and_legacy_records() -> None:
+    every = ["baseline", "main", "robustness"]
+    assert ScientificTest.model_validate(spec_payload()).components == every
+    legacy = ScientificTest.model_validate({**spec_payload(), "version": 1})
+    assert legacy.components == every
+    assert ScientificTest.model_validate({**spec_payload(), "components": ["main"]}).version == 2
+
+
+@pytest.mark.parametrize(("version", "components"), [
+    (1, ["main"]),
+    (2, ["baseline", "robustness"]),
+    (2, []),
+    (2, ["main", "main"]),
+])
+def test_components_must_include_main_once_and_match_legacy_version(version: int, components: list[str]) -> None:
+    with pytest.raises(ValidationError):
+        ScientificTest.model_validate({**spec_payload(), "version": version, "components": components})

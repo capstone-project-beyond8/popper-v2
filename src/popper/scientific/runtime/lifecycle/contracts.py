@@ -11,6 +11,8 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Standing = Literal["supported", "not_supported", "inconclusive", "unavailable", "post_hoc"]
 Fidelity = Literal["consistent", "defect", "unresolved"]
+Component = Literal["baseline", "main", "robustness"]
+
 MacroStage = Literal["understand", "ground", "discover", "verify", "communicate"]
 WorkStatus = Literal["completed", "failed", "deferred", "stopped"]
 Action = Literal[
@@ -183,6 +185,10 @@ class Synthesis(InterpretationProposal):
     author: Text
 
 
+def _every_component() -> list[Component]:
+    return ["baseline", "main", "robustness"]
+
+
 class TestProposal(Record):
     primary_estimand: PrimaryEstimand = Field(
         description=(
@@ -206,9 +212,18 @@ class TestProposal(Record):
     outputs: list[Text] = Field(min_length=1)
     support_rule: SupportRule | None = None
     sources: list[ArtifactRef] = Field(default_factory=list)
+    components: list[Component] = Field(
+        default_factory=_every_component,
+        description=(
+            "Work components this test needs. Defaults to baseline, main and robustness; "
+            "main is required."
+        ),
+    )
 
     @model_validator(mode="after")
     def valid_outputs(self) -> Self:
+        if "main" not in self.components or len(set(self.components)) != len(self.components):
+            raise ValueError("components must be unique and include main")
         alternatives = self.requested_coverage.get("alternatives", [])
         if not isinstance(alternatives, list) or any(
             not isinstance(item, dict) for item in alternatives
@@ -224,10 +239,16 @@ class TestProposal(Record):
 
 
 class ExperimentSpec(TestProposal):
-    version: Literal[1] = 1
+    version: Literal[1, 2] = 2
     id: Text
     hypothesis_id: Text
     parent_test: ArtifactRef | None = None
+
+    @model_validator(mode="after")
+    def legacy_components(self) -> Self:
+        if self.version == 1 and set(self.components) != {"baseline", "main", "robustness"}:
+            raise ValueError("version 1 tests always declare every component")
+        return self
 
 
 def classify_change(

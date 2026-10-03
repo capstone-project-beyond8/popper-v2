@@ -130,3 +130,65 @@ def test_failed_main_retains_declared_missing_coverage(tmp_path: Path, monkeypat
     missing = result.coverage["missing"]
     assert result.coverage["status"] == "partial" and isinstance(missing, list) and len(missing) == 2
     assert len(result.variant_tests) == 2
+
+
+def _run_scoped(tmp_path: Path, **declared: Any) -> tuple[AttemptResult, list[str]]:
+    """Execute one scoped test; returns its result and the stage roles that asked for code."""
+    cfg = load_config(env={})
+    cfg.search.stage_steps["robustness"] = declared.pop("capacity", 6)
+    h = Harness(cfg, FakeLLM(lambda _: ""), RunStore(tmp_path))
+    pd.DataFrame({"x": [1, 2], "y": [2, 3]}).to_parquet(h.run.path("processed.parquet"))
+    prep = h.run.write_json("preparation/changes.json", {})
+    h.run.commit_artifact("prep", prep)
+    h.run.path("data").mkdir()
+    h.run.copy_once(h.run.path("processed.parquet"), "data/processed.parquet")
+    payload = {**spec_payload(), "preparation": h.run.artifact_ref("prep").model_dump(), **declared}
+    test = ScienceStore(h.run).commit("test", ScientificTest.model_validate(payload), key="t1")
+    move = ScienceStore(h.run).commit("move", {"id": "m1"})
+    attempt = ScienceStore(h.run).commit("attempt", Attempt(id="a1", move=move, move_id="m1", hypothesis_id="h1", test=test, parent=None, diagnosis=None, changed_fields=[], stage_instances={role: f"h1-a1-{role}" for role in ("baseline", "main", "robustness")}, move_count=1, revisit_count=0, exposure=[]), key="m1")
+    roles: list[str] = []
+
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag.startswith("judge:"):
+            return json.dumps({"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "valid", "fidelity_status": "consistent", "fidelity_reason": "Code computes declared contrast", "fidelity_requirements": ["contrast"], "fidelity_evidence": ["code: means"]})
+        roles.append(req.tag.rsplit("-", 1)[-1])
+        code = (
+            "import json\n"
+            "json.dump({'primary_estimate': {'value': 1., 'ci': [.5, 1.5], 'n': 2}}, open('results.json','w'))\n"
+            f"json.dump({payload['primary_estimand']!r}, open('estimand.json','w'))\n"
+            "json.dump({'seeds':[7], 'interval_level':.95, 'effect_scale':'points'}, open('coverage.json','w'))"
+        )
+        return (ToolCall("submit", "submit", {"code": code}),)
+
+    h.llm = FakeLLM(respond)
+    hypothesis: dict[str, Any] = {"primary_estimand": payload["primary_estimand"], "methods": payload["methods"], "planned_test": "compare"}
+    path = experiment(h, {}, hypothesis, prep.parent, request=ExperimentRequest(test=test, attempt=attempt))
+    return AttemptResult.model_validate_json(path.read_text("utf-8")), roles
+
+
+@pytest.mark.parametrize("descriptive", [False, True])
+def test_main_only_test_runs_and_records_only_main(tmp_path: Path, descriptive: bool) -> None:
+    declared: dict[str, Any] = {"components": ["main"]}
+    if descriptive:
+        declared["support_rule"] = {"kind": "descriptive", "result_key": "primary_estimate", "interval_level": .95, "description": "Report the estimate without a directional claim"}
+    result, roles = _run_scoped(tmp_path, **declared)
+    assert set(roles) == {"main"}
+    assert set(result.stages) == {"main"} and {m.role for m in result.measurements} == {"main"}
+    assert result.status == "complete" and result.variant_tests == []
+    assert result.coverage["requested"] == 0 and result.coverage["missing"] == []
+
+
+def test_declared_variants_beyond_stage_capacity_are_reported_missing(tmp_path: Path) -> None:
+    alternatives = [{"inference": {"bootstrap": count, "interval_level": .95}} for count in (100, 200, 300)]
+    result, roles = _run_scoped(
+        tmp_path,
+        components=["main", "robustness"],
+        requested_coverage={"seeds": [7], "alternatives": alternatives},
+        capacity=1,
+    )
+    assert "baseline" not in roles and "baseline" not in result.stages
+    assert len(result.variant_tests) == 3
+    missing = result.coverage["missing"]
+    assert isinstance(missing, list) and len(missing) == 2
+    assert result.coverage["completed"] == 1 and result.status == "partial"
+    assert set(missing) < {ref.path for ref in result.variant_tests}

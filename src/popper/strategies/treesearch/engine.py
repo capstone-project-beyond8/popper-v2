@@ -151,9 +151,27 @@ def _draft_limit(search: Search, steps: int) -> int:
     return max(1, min(search.num_drafts, steps - 1))
 
 
+def _linear_action(nodes: Sequence[Node], search: Search) -> tuple[NodeKind, Node | None]:
+    live = [n for n in nodes if n.reason != "interrupted"]
+    if not live:
+        return "draft", None
+    latest = live[-1]
+    if latest.status == "ok":
+        return "improve", latest
+    if latest.debug_depth < search.max_debug_depth:
+        return "debug", latest
+    return "draft", None
+
+
 def choose_action(
-    nodes: Sequence[Node], search: Search, rng: random.Random, steps: int
+    nodes: Sequence[Node],
+    search: Search,
+    rng: random.Random,
+    steps: int,
+    policy: Literal["tree", "linear"] = "tree",
 ) -> tuple[NodeKind, Node | None]:
+    if policy == "linear":
+        return _linear_action(nodes, search)
     if sum(n.parent is None for n in nodes) < _draft_limit(search, steps):
         return "draft", None
     parents = {n.parent for n in nodes}
@@ -493,15 +511,20 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
     states = [e["rng_state"] for e in events if e.get("rng_state") is not None]
     if states:
         rng.setstate(cast(tuple[Any, ...], _tuple_state(states[-1])))
-    if not any(e["event"] == "stage_start" for e in events):
+    started = next((e for e in events if e["event"] == "stage_start"), None)
+    if started is None:
+        policy = h.config.search.implementation_policy
         h.journal.write(
             "stage_start",
             stage=spec.name,
             stage_instance=spec.execution_id,
             steps=steps,
             seed=7,
+            implementation_policy=policy,
             rng_state=rng.getstate(),
         )
+    else:
+        policy = started.get("implementation_policy", "tree")
     folders = [
         p
         for p in h.run.path("tree", spec.execution_id).glob(f"{spec.execution_id}-*")
@@ -550,7 +573,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
             )
             reason = f"{kind} specification {attempt.id}"
         else:
-            kind, parent = choose_action(nodes, h.config.search, rng, steps)
+            kind, parent = choose_action(nodes, h.config.search, rng, steps, policy)
             reason = _reason(kind, parent, nodes, h.config.search, steps)
         node = _step(h, effective, i, kind, parent, reason, attempt, rng.getstate())
         nodes.append(node)

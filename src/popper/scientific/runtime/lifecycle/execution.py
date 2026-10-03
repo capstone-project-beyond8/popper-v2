@@ -119,7 +119,7 @@ def observe_declared_output(
 class ExecutionPlan(Record):
     attempt: ArtifactRef
     main: ArtifactRef
-    baseline: ArtifactRef
+    baseline: ArtifactRef | None = None
     variants: list[ArtifactRef] = Field(default_factory=list)
 
 
@@ -129,28 +129,34 @@ def prepare_execution(science: ScienceStore, attempt_ref: ArtifactRef) -> Execut
     if science.run.committed(name):
         return ExecutionPlan.model_validate(science.read(science.run.artifact_ref(name)))
     intended = ExperimentSpec.model_validate(science.read(attempt.test))
-    baseline = ExperimentSpec.model_validate(
-        {
-            **intended.model_dump(mode="json"),
-            "id": f"{intended.id}-baseline",
-            "parent_test": attempt.test.model_dump(mode="json"),
-            "support_rule": None,
-            "methods": [
-                {
-                    "family": "difference_in_means",
-                    "description": "Transparent baseline contrast",
-                    "inputs": [
-                        intended.primary_estimand.exposure,
-                        intended.primary_estimand.outcome,
-                    ],
-                    "outputs": ["primary_estimate"],
-                    "effect_scale": intended.primary_estimand.unit,
-                }
-            ],
-        }
+    baseline_ref = None
+    if "baseline" in intended.components:
+        baseline = ExperimentSpec.model_validate(
+            {
+                **intended.model_dump(mode="json"),
+                "id": f"{intended.id}-baseline",
+                "parent_test": attempt.test.model_dump(mode="json"),
+                "support_rule": None,
+                "methods": [
+                    {
+                        "family": "difference_in_means",
+                        "description": "Transparent baseline contrast",
+                        "inputs": [
+                            intended.primary_estimand.exposure,
+                            intended.primary_estimand.outcome,
+                        ],
+                        "outputs": ["primary_estimate"],
+                        "effect_scale": intended.primary_estimand.unit,
+                    }
+                ],
+            }
+        )
+        baseline_ref = science.commit("test", baseline, key=f"{attempt.id}-baseline")
+    payloads = (
+        intended.requested_coverage.get("alternatives", [])
+        if "robustness" in intended.components
+        else []
     )
-    baseline_ref = science.commit("test", baseline, key=f"{attempt.id}-baseline")
-    payloads = intended.requested_coverage.get("alternatives", [])
     if not isinstance(payloads, list):
         raise IntegrityError("declared alternatives must be a list")
     variants = []

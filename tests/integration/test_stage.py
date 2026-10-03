@@ -2,6 +2,7 @@
 import json
 import random
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -313,3 +314,49 @@ def test_scheduled_attempts_run_before_debug_and_ignore_early_goal(tmp_path: Pat
     ]
     assert [n["attempt_id"] for n in nodes] == ["v0", "v1", "v2", "v3", "v4", "v0"]
     assert [n["kind"] for n in nodes] == ["variant"] * 5 + ["debug"]
+
+
+@pytest.mark.parametrize("policy", ["tree", "linear"])
+def test_failed_then_repaired_implementation_under_each_policy(
+    tmp_path: Path, policy: Literal["tree", "linear"]
+) -> None:
+    h = _harness(tmp_path, [_submit("raise SystemExit(3)"), _OK_CODE], [FEEDBACK])
+    h.config.search.implementation_policy = policy
+    best = run_stage(h, SPEC)
+    nodes = load_nodes(h, SPEC.execution_id)
+    assert best.status == "ok" and best.kind == "debug" and best.parent == nodes[0].id
+    assert best.execution_id and best.results == {"m": {"value": 1}}
+    assert len(nodes) == 2 <= h.config.search.steps_per_stage
+    assert [n.stage_instance for n in nodes] == [SPEC.execution_id] * 2
+    starts = [e for e in read_events(h.run.root) if e["event"] == "stage_start"]
+    assert [(e["implementation_policy"], e["seed"]) for e in starts] == [(policy, 7)]
+
+
+class _Interrupted(Exception):
+    pass
+
+
+def test_resumed_stage_keeps_recorded_policy(tmp_path: Path) -> None:
+    calls = {"analyst": 0}
+
+    def interrupt(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag.startswith("judge:"):
+            return FEEDBACK
+        calls["analyst"] += 1
+        if calls["analyst"] > 1:
+            raise _Interrupted
+        return _submit("raise SystemExit(3)")
+
+    h = _harness(tmp_path, [])
+    h.llm = FakeLLM(interrupt)
+    h.config.search.num_drafts = 2
+    h.config.search.implementation_policy = "linear"
+    with pytest.raises(_Interrupted):
+        run_stage(h, SPEC)
+    h.llm = FakeLLM(lambda req: FEEDBACK if req.tag.startswith("judge:") else _OK_CODE)
+    h.config.search.implementation_policy = "tree"
+    best = run_stage(h, SPEC)
+    # A tree policy with a second draft still owed would draft again; linear repairs the failed node.
+    assert best.kind == "debug" and best.parent == f"{SPEC.execution_id}-000"
+    starts = [e for e in read_events(h.run.root) if e["event"] == "stage_start"]
+    assert [e["implementation_policy"] for e in starts] == ["linear"]

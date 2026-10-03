@@ -13,6 +13,7 @@ search:
   max_turns: 12          # model turns per node agent
   good_score: 7          # stop once the best node reaches this score...
   patience: 2            # ...and has not improved for this many steps
+  implementation_policy: tree  # tree: scored node selection; linear: debug or improve the latest node
   stage_steps:
     baseline: 3
     main: 6

@@ -393,7 +393,7 @@ def _scoped_experiment(
     if attempt.test != request.test or attempt.hypothesis_id != intended.hypothesis_id:
         raise IntegrityError("attempt/test ownership mismatch")
     selected: dict[str, Node] = {}
-    for role in ("baseline", "main"):
+    for role in (r for r in ("baseline", "main") if r in intended.components):
         effective_test = plan.baseline if role == "baseline" else plan.main
         if role in attempt.reuse:
             ref = attempt.reuse[role]
