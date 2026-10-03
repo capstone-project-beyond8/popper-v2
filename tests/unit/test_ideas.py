@@ -324,3 +324,29 @@ def test_direction_supersedes_the_latest(world: World) -> None:
     directions = rebuild_state(world.science).directions
     assert [d.ref for d in directions] == [first, second]
     assert [d.record.supersedes for d in directions] == [None, first]
+
+
+def test_retiring_a_tested_idea_keeps_its_candidate(world: World) -> None:
+    world.exploration()
+    revision = world.conjecture()
+    testable = world.promote(revision, world.challenge(revision))
+    before = rebuild_state(world.science)
+    parent = before.ideas[-1].record
+    retired = world.commit(world.idea(
+        "retire", "testable", idea_id=parent.idea_id, parents=[testable],
+        explanation="Hours of study raise scores", limitations=["Self-reported hours"],
+    ))
+    after = rebuild_state(world.science)
+    record = after.ideas[-1].record
+    assert after.ideas[-1].ref == retired and record.status == "retired" and record.maturity == "testable"
+    assert (record.candidate, record.candidate_id, record.predictions) == (
+        parent.candidate, parent.candidate_id, parent.predictions,
+    )
+    assert after.candidates == before.candidates and after.history == before.history
+    with pytest.raises(IntegrityError):
+        world.commit(world.idea(
+            "retire", "testable", idea_id=parent.idea_id, parents=[retired],
+            explanation="Hours of study raise scores", limitations=["Self-reported hours"],
+        ))
+    with pytest.raises(ValidationError):
+        world.idea("continue", "testable", idea_id=parent.idea_id, parents=[retired])

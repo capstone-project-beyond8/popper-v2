@@ -58,7 +58,7 @@ class IdeaProposal(Record):
 
     @model_validator(mode="after")
     def proposable(self) -> Self:
-        if self.maturity == "testable":
+        if self.maturity == "testable" and self.change != "retire":
             raise ValueError("testable ideas come only from promotion")
         _check_maturity(self)
         _check_parents(self.change, self.parents)
@@ -187,8 +187,14 @@ def commit_idea(
         raise ValueError("a retired idea keeps its maturity")
     if proposal.question is not None and proposal.question not in {q.ref for q in state.questions}:
         raise IntegrityError("question is not a projected research question")
+    inherited = (
+        {k: parents[0].record.model_dump()[k] for k in ("candidate", "candidate_id", "predictions")}
+        if proposal.change == "retire"
+        else {}
+    )
     revision = IdeaRevision.model_validate({
         **proposal.model_dump(),
+        **inherited,
         "id": f"rev-{work.id}-{index:03d}",
         "idea_id": idea_id,
         "author": author,
