@@ -297,7 +297,7 @@ class Question(Record):
 
 class Disposition(Record):
     version: Literal[1] = 1
-    kind: Literal["deferred", "stopped", "rejected"]
+    kind: Literal["deferred", "stopped", "rejected", "unchanged"]
     reason: Text
     sources: list[ArtifactRef] = Field(default_factory=list)
     hypothesis_id: str | None = None

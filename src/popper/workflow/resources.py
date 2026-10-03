@@ -7,6 +7,7 @@ from popper.scientific.runtime.lifecycle.contracts import (
     ResearchMove,
     RunResources,
 )
+from popper.scientific.runtime.lifecycle.ideas import inactive_candidates
 from popper.scientific.runtime.lifecycle.transitions import EligibilityError
 from popper.scientific.runtime.projections.state import ResearchState
 from popper.scientific.runtime.settings import Discovery, ScientificOptions
@@ -14,10 +15,12 @@ from popper.scientific.runtime.store import ScienceStore
 
 
 def eligible_candidates(state: ResearchState, limits: Discovery) -> list[str]:
+    inactive = inactive_candidates(state)
     return [
         c.record.id
         for c in state.candidates
-        if _candidate_limit_reason(state, c.record.id, limits.max_moves, limits.max_revisits) is None
+        if c.record.id not in inactive
+        and _candidate_limit_reason(state, c.record.id, limits.max_moves, limits.max_revisits) is None
     ]
 
 

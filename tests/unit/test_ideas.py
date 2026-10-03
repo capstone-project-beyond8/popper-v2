@@ -17,14 +17,18 @@ from popper.scientific.runtime.lifecycle.ideas import (
     IdeaChallengeProposal,
     IdeaProposal,
     PromotionProposal,
+    active_ideas,
     commit_direction,
     commit_idea,
     commit_idea_challenge,
+    inactive_candidates,
     promote_idea,
 )
 from popper.scientific.runtime.lifecycle.transitions import EligibilityError
 from popper.scientific.runtime.projections.state import commit_snapshot, rebuild_state
+from popper.scientific.runtime.settings import Discovery
 from popper.scientific.runtime.store import ScienceStore
+from popper.workflow.resources import eligible_candidates
 
 COLUMNS = ["score", "hours"]
 
@@ -144,10 +148,13 @@ def test_split_and_merge_preserve_lineage(world: World) -> None:
     ideas = rebuild_state(world.science).ideas
     assert len({i.record.idea_id for i in ideas}) == 3
     assert [i.record.parents for i in ideas[1:]] == [[parent], [parent]]
-    merged = world.commit(world.idea("merge", parents=[left, right]))
-    assert rebuild_state(world.science).ideas[-1].ref == merged
     with pytest.raises(ValueError, match="distinct"):
         world.commit(world.idea("merge", parents=[left, left]))
+    merged = world.commit(world.idea("merge", parents=[left, right]))
+    assert rebuild_state(world.science).ideas[-1].ref == merged
+    assert active_ideas(rebuild_state(world.science)) == 1
+    with pytest.raises(ValueError, match="latest revision"):
+        world.commit(world.idea("split", parents=[left]))
 
 
 def test_retirement_keeps_measurements_visible(world: World) -> None:
@@ -186,6 +193,8 @@ def test_identity_changes_only_with_replacement(world: World) -> None:
     replaced = world.commit(world.idea("replace", "conjecture", parents=[latest]))
     ideas = rebuild_state(world.science).ideas
     assert ideas[-1].ref == replaced and ideas[-1].record.idea_id != idea_id
+    with pytest.raises(ValueError, match="latest revision"):
+        world.commit(world.idea("continue", "conjecture", idea_id=idea_id, parents=[latest]))
 
     world.exploration()
     first = world.promote(other, world.challenge(other))
@@ -350,3 +359,17 @@ def test_retiring_a_tested_idea_keeps_its_candidate(world: World) -> None:
         ))
     with pytest.raises(ValidationError):
         world.idea("continue", "testable", idea_id=parent.idea_id, parents=[retired])
+
+
+def test_testable_idea_changes_only_by_retirement_or_replacement(world: World) -> None:
+    world.exploration()
+    revision = world.conjecture()
+    testable = world.promote(revision, world.challenge(revision))
+    idea_id = rebuild_state(world.science).ideas[-1].record.idea_id
+    with pytest.raises(ValueError, match="retirement or replacement"):
+        world.commit(world.idea("continue", "conjecture", idea_id=idea_id, parents=[testable]))
+    world.commit(world.idea("replace", "conjecture", parents=[testable]))
+    state = rebuild_state(world.science)
+    assert inactive_candidates(state) == {f"hypothesis-{idea_id}"}
+    assert eligible_candidates(state, Discovery()) == ["seed"]
+    assert active_ideas(state) == 1

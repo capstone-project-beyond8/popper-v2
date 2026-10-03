@@ -408,10 +408,9 @@ def test_evolve_beyond_idea_round_cap_is_not_proposable(tmp_path: Path) -> None:
     h, science, source = _idea_world(tmp_path, max_idea_rounds=1)
     _, selection = _select_move(h, science, source, "evolve")
     h.llm = FakeLLM(lambda _: (ToolCall("done", "finish_ideas", {"summary": "Nothing justified"}),))
-    assert dispatch_selected(h, request_move(science, selection)) is not None
+    assert dispatch_selected(h, request_move(science, selection)) is None
     state = rebuild_state(science)
-    assert state.stage_history[0].record.status == "deferred"
-    assert state.stage_history[0].record.reason == "Idea round produced no committed work; scientific feedback unavailable"
+    assert state.stage_history[0].record.status == "completed"
     resources = resource_view(h, load_options(h.run), state)
     assert (resources.idea_rounds, resources.max_idea_rounds) == (1, 1)
     assert "evolve" not in resources.available_routes
@@ -652,22 +651,21 @@ def test_interrupted_round_resumes_without_duplicating_records(tmp_path: Path, m
     assert len(resumed.llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
 
 
-def test_empty_round_is_a_sourced_deferral(tmp_path: Path) -> None:
+def test_empty_round_records_that_no_idea_changed(tmp_path: Path) -> None:
     from popper.workflow.run import dispatch_selected
 
     h, science, source = _idea_world(tmp_path)
     request = _evolve(h, science, source)
     round_ = _Round(h, science, [_finish])
-    outcome = dispatch_selected(h, request)
-    assert outcome is not None and outcome.kind == "finish"
+    assert dispatch_selected(h, request) is None
     state = rebuild_state(science)
     work, admission = state.stage_history[0].record, state.stage_admissions[0]
-    assert work.status == "deferred" and work.outputs == []
-    deferral = h.run.artifact_ref(f"science:disposition:evolve_ideas:{admission.record.id}")
-    assert state.dispositions[-1].ref == deferral
-    assert state.dispositions[-1].record.sources == [admission.record.snapshot]
+    unchanged = h.run.artifact_ref(f"science:disposition:{admission.record.id}:unchanged")
+    assert work.status == "completed" and work.outputs == [unchanged]
+    record = state.dispositions[-1].record
+    assert (record.kind, record.reason, record.sources) == ("unchanged", "Nothing further is justified", [admission.record.snapshot])
     calls = len(round_.llm.calls)
-    assert dispatch_selected(h, request) == outcome
+    assert dispatch_selected(h, request) is None
     assert len(round_.llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
 
 

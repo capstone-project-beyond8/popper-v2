@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 Maturity = Literal["observation", "question", "conjecture", "testable"]
 IdeaChange = Literal["new", "continue", "split", "merge", "replace", "retire"]
 NEW_IDENTITY: frozenset[IdeaChange] = frozenset({"new", "split", "merge", "replace"})
+SUPERSEDING: frozenset[IdeaChange] = frozenset({"split", "merge", "replace"})
 CONFLICT = "conflicting scientific record for a committed key"
 
 
@@ -138,10 +139,42 @@ def _same(existing: Record, expected: Record, ignore: frozenset[str] = frozenset
         raise IntegrityError(CONFLICT)
 
 
-def _heads(state: "ResearchState") -> dict[str, "Sourced[IdeaRevision]"]:
-    """Latest revision of every idea that is still active, by idea identity."""
+def _superseded(state: "ResearchState") -> dict[str, IdeaChange]:
+    """Revision record ids that a split, merge or replacement superseded, with that change."""
+    return {
+        parent.record_id: item.record.change
+        for item in state.ideas
+        if item.record.change in SUPERSEDING
+        for parent in item.record.parents
+    }
+
+
+def _heads(state: "ResearchState", *, splitting: bool = False) -> dict[str, "Sourced[IdeaRevision]"]:
+    """Latest revision of every idea that is still active, by idea identity.
+
+    A split parent stays available to further split children.
+    """
+    superseded = _superseded(state)
     latest = {item.record.idea_id: item for item in state.ideas}
-    return {k: v for k, v in latest.items() if v.record.status == "active"}
+    return {
+        k: v
+        for k, v in latest.items()
+        if v.record.status == "active"
+        and (
+            v.ref.record_id not in superseded
+            or splitting and superseded[v.ref.record_id] == "split"
+        )
+    }
+
+
+def inactive_candidates(state: "ResearchState") -> set[str]:
+    """Candidate ids whose owning idea is retired or superseded."""
+    heads = _heads(state)
+    return {
+        item.record.candidate_id
+        for item in state.ideas
+        if item.record.candidate_id and item.record.idea_id not in heads
+    }
 
 
 def active_ideas(state: "ResearchState") -> int:
@@ -176,7 +209,7 @@ def commit_idea(
             raise IntegrityError(CONFLICT)
         return ref
     state = rebuild_state(science)
-    heads = _heads(state)
+    heads = _heads(state, splitting=proposal.change == "split")
     parents = [_head(heads, ref) for ref in proposal.parents]
     if proposal.change in NEW_IDENTITY:
         idea_id = f"idea-{work.id}-{index:03d}"
@@ -188,6 +221,8 @@ def commit_idea(
         raise ValueError("a merge needs parents from distinct ideas")
     if proposal.change == "continue" and proposal.meaning_changed:
         raise ValueError("a changed explanation needs a replacement idea")
+    if proposal.change == "continue" and parents[0].record.maturity == "testable":
+        raise ValueError("a testable idea changes only by retirement or replacement")
     if proposal.change == "retire" and proposal.maturity != parents[0].record.maturity:
         raise ValueError("a retired idea keeps its maturity")
     if proposal.question is not None and proposal.question not in {q.ref for q in state.questions}:

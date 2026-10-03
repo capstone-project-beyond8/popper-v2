@@ -13,7 +13,6 @@ from popper.harness.session import Harness
 from popper.harness.storage.records import ArtifactRef, Record, reachable_refs
 from popper.scientific.runtime.lifecycle.contracts import Disposition, StageAdmission, Text
 from popper.scientific.runtime.lifecycle.ideas import (
-    NEW_IDENTITY,
     IdeaChallengeProposal,
     IdeaProposal,
     PromotionProposal,
@@ -84,6 +83,11 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
         return bound
     deferral_key = f"evolve_ideas:{work.id}"
     raise_if_deferred(science, deferral_key)
+    unchanged = f"{work.id}:unchanged"
+    if h.run.committed(f"science:disposition:{unchanged}"):
+        outputs = [h.run.artifact_ref(f"science:disposition:{unchanged}")]
+        bind_stage_output(science, admission, outputs)
+        return outputs
 
     outputs = _committed(h, work)
     allowed = [*reachable_refs(h.run, snapshot), *outputs]
@@ -105,7 +109,7 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
 
     def submit_idea(proposal: IdeaProposal) -> str:
         checked(proposal.sources)
-        if proposal.change in NEW_IDENTITY and active_ideas(rebuild_state(science)) >= capacity:
+        if proposal.change in {"new", "split"} and active_ideas(rebuild_state(science)) >= capacity:
             raise ValueError("retire an idea before adding another")
         return record(commit_idea(science, proposal, admission, len(outputs), "theorist"))
 
@@ -164,7 +168,10 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
         disposition = Disposition(kind="deferred", reason=request.reason, sources=request.sources)
         return record(science.commit("disposition", disposition, key=f"{work.id}:need:{len(outputs):03d}"))
 
+    finished: list[str] = []
+
     def finish(request: FinishRequest) -> str:
+        finished[:] = [request.summary]
         return "Idea round finished."
 
     agent_loop(
@@ -185,6 +192,9 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
         ],
         max_turns=h.config.search.max_turns, max_submits=2,
     )
+    if not outputs and finished:
+        disposition = Disposition(kind="unchanged", reason=finished[0], sources=[snapshot])
+        outputs = [science.commit("disposition", disposition, key=unchanged)]
     if not outputs:
         defer(science, deferral_key, "Idea round produced no committed work; scientific feedback unavailable", [snapshot])
     bind_stage_output(science, admission, outputs)
