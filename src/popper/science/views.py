@@ -39,15 +39,15 @@ def latest(science: ScienceStore, *names: str) -> str | None:
     return next((name for name, _ in reversed(science.commits()) if name in names), None)
 
 
-def reviewed_frame(science: ScienceStore) -> ReviewedFrame:
-    ref = science.run.artifact_ref("frame_reviewed")
+def reviewed_frame(science: ScienceStore, source: ArtifactRef | None = None) -> ReviewedFrame:
+    ref = source or science.run.artifact_ref("frame_reviewed")
     path = resolve_artifact(science.run, ref)
     research = ResearchContext.model_validate_json((path.parent / "research.json").read_bytes())
     return ReviewedFrame(ref, research, science.read(ref))
 
 
-def foundation_view(science: ScienceStore) -> FoundationView:
-    ref = science.run.artifact_ref("foundation")
+def foundation_view(science: ScienceStore, source: ArtifactRef | None = None) -> FoundationView:
+    ref = source or science.run.artifact_ref("foundation")
     path = resolve_artifact(science.run, ref)
     record = science.read(ref)
     facts = {
@@ -148,6 +148,10 @@ def record_exploration(science: ScienceStore, ref: ArtifactRef) -> ArtifactRef:
                 p.relative_to(science.run.root).as_posix(): file_hash(p)
                 for p in folder.rglob("*")
                 if p.is_file()
+                and (
+                    p.is_relative_to(folder / "execution")
+                    or p in {folder / "meta.json", folder / "analysis.md"}
+                )
             },
             "node": science.read(ref)["id"],
         },

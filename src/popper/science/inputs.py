@@ -153,10 +153,10 @@ def prepare_description(science: ScienceStore) -> tuple[ResearchContext, Descrip
     return research, report
 
 
-def promote_foundation(science: ScienceStore) -> None:
-    prepared = foundation_view(science)
-    for source in (
+def promote_foundation(science: ScienceStore, source: ArtifactRef | None = None) -> None:
+    prepared = foundation_view(science, source)
+    for artifact in (
         prepared.preparation / "processed.parquet",
         science.run.path("ground", prepared.facts["attempt"], "ida.json"),
     ):
-        science.run.copy_once(source, f"data/{source.name}").chmod(stat.S_IREAD)
+        science.run.copy_once(artifact, f"data/{artifact.name}").chmod(stat.S_IREAD)

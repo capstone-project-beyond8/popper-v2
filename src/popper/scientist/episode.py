@@ -6,14 +6,14 @@ from typing import Literal
 
 from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.session import BudgetExceeded, Harness
-from popper.science.compatibility import StudyPolicy, decode_policy
+from popper.science.compatibility import StudyPolicy
 from popper.science.contracts import Disposition, MoveSelection, Program, Run, RunResources
 from popper.science.descriptive import read_table
 from popper.science.historical import schedule_context
 from popper.science.output import StudyOutput, build_study, preparation_manifest, upstream
 from popper.science.requests import CapabilityRequest
-from popper.science.settings import ScientificOptions, load_options
-from popper.science.state import commit_snapshot, load_snapshot, rebuild_state
+from popper.science.settings import ScientificOptions
+from popper.science.state import commit_snapshot, current_frontier, rebuild_state
 from popper.science.store import ScienceStore
 from popper.science.transitions import EligibilityError, selected_move
 from popper.science.views import (
@@ -76,20 +76,16 @@ def next_step(
         return CapabilityRequest("frame", prepared.source, guidance="\n".join(lines))
     if store.committed("exploration") is None:
         return CapabilityRequest("explore", prepared.source)
-    return discovery_step(h, science, context.resources)
-
-
-def _current_frontier(
-    science: ScienceStore, snapshot: ArtifactRef, frontier: list[ArtifactRef]
-) -> bool:
-    recorded = load_snapshot(science, snapshot)
-    return recorded.frontier == frontier
+    return discovery_step(h, science, context.resources, context.policy, context.options)
 
 
 def discovery_step(
-    h: Harness, science: ScienceStore, resources: RunResources
+    h: Harness,
+    science: ScienceStore,
+    resources: RunResources,
+    policy: StudyPolicy,
+    options: ScientificOptions,
 ) -> CapabilityRequest | None:
-    policy = decode_policy(json.loads(science.run.path("run.json").read_text("utf-8")))
     if policy.adaptive and (completed_study := h.run.committed("science:study")):
         output = StudyOutput.model_validate_json(completed_study.read_text("utf-8"))
         if (
@@ -115,7 +111,7 @@ def discovery_step(
             )
             return CapabilityRequest("publish", h.run.artifact_ref("study"))
         if not h.run.committed("robustness_plan"):
-            schedule_context(h.config.search, load_options(h.run).robustness)
+            schedule_context(h.config.search, options.robustness)
         propose_hypothesis(
             h,
             science,
@@ -173,20 +169,38 @@ def discovery_step(
                     terminal.kind == "rejected"
                     and len(terminal.sources) == 1
                     and terminal.sources[0].producer == "science:snapshot"
-                    and _current_frontier(science, terminal.sources[0], state.frontier[:-1])
+                    and current_frontier(science, terminal.sources[0], state.frontier[:-1])
                 ):
                     return _publication(science, terminal.reason)
+                if (
+                    terminal.kind == "deferred"
+                    and len(terminal.sources) == 1
+                    and terminal.sources[0].producer.startswith("science:proposals:")
+                ):
+                    proposal = science.read(terminal.sources[0])
+                    if current_frontier(
+                        science,
+                        ArtifactRef.model_validate(proposal["snapshot"]),
+                        state.frontier[:-1],
+                    ):
+                        return _publication(science, terminal.reason)
                 if len(terminal.sources) == 1 and terminal.sources[0].producer.startswith(
                     "science:selection:"
                 ):
                     move = selected_move(science, terminal.sources[0])
                     if (
-                        (terminal.kind == "stopped" and move.action == "stop")
+                        (
+                            terminal.kind == "deferred"
+                            and state.dispositions[-1].ref.producer.startswith(
+                                "science:disposition:admission:"
+                            )
+                        )
+                        or (terminal.kind == "stopped" and move.action == "stop")
                         or (
                             terminal.kind == "deferred"
                             and move.action in {"pivot", "reframe", "acquisition"}
                         )
-                    ) and _current_frontier(science, move.snapshot, state.frontier[:-1]):
+                    ) and current_frontier(science, move.snapshot, state.frontier[:-1]):
                         return _publication(science, terminal.reason)
             completed = {r.record.attempt.record_id for r in state.results}
             pending = next((a for a in state.attempts if a.ref.record_id not in completed), None)
@@ -231,7 +245,7 @@ def discovery_step(
                         resolve_artifact(h.run, ref).read_text("utf-8")
                     ).proposal_id
                     not in used
-                    and _current_frontier(
+                    and current_frontier(
                         science,
                         MoveSelection.model_validate_json(
                             resolve_artifact(h.run, ref).read_text("utf-8")
@@ -258,7 +272,7 @@ def discovery_step(
                             == ref
                             for s in selections
                         )
-                        and _current_frontier(
+                        and current_frontier(
                             science,
                             ArtifactRef.model_validate(
                                 json.loads(resolve_artifact(h.run, ref).read_text("utf-8"))[
@@ -279,7 +293,15 @@ def discovery_step(
                     proposals = propose_moves(h, science, snapshot, resources)
                 if h.spent_usd >= h.config.budget.max_usd:
                     raise BudgetExceeded("resource cap reached before move selection")
-                selection = select_move(h, science, snapshot, proposals)
+                try:
+                    selection = select_move(h, science, snapshot, proposals)
+                except EligibilityError as exc:
+                    science.commit(
+                        "disposition",
+                        Disposition(kind="deferred", reason=str(exc), sources=[proposals]),
+                        key=f"decision:{proposals.record_id}",
+                    )
+                    return _publication(science, str(exc))
             move = selected_move(science, selection)
             if move.action == "stop":
                 science.commit(
@@ -308,9 +330,18 @@ def discovery_step(
             return CapabilityRequest("experiment", move.test, selection=selection)
     except BudgetExceeded as exc:
         return _publication(science, str(exc), "budget_exceeded")
-    except EligibilityError as exc:
-        science.commit(
-            "disposition",
-            Disposition(kind="deferred", reason=str(exc), sources=[], resource="cap" in str(exc)),
-        )
-        return _publication(science, str(exc))
+
+
+def unavailable(
+    science: ScienceStore, request: CapabilityRequest, reason: str
+) -> CapabilityRequest:
+    """The current playbook records an unavailable selected move and concludes the episode."""
+    assert request.selection is not None
+    science.commit(
+        "disposition",
+        Disposition(
+            kind="deferred", reason=reason, sources=[request.selection], resource="cap" in reason
+        ),
+        key=f"admission:{request.selection.record_id}",
+    )
+    return _publication(science, reason)

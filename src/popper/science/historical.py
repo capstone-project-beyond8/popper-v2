@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validat
 
 from popper.harness.config import Search
 from popper.harness.records import ArtifactRef, resolve_artifact
+from popper.harness.recovery import read_events
 from popper.science.compatibility import HistoricalMethod, Text
 from popper.science.results import ResultEntry
 from popper.science.settings import Robustness
@@ -146,14 +147,18 @@ def collect_historical_evidence(
     store = science.run
     plan_path = resolve_artifact(store, plan)
     schedule = load_robustness_plan(plan_path, search, policy)
-    main = ResultEntry.model_validate(node_results(science, selected["main"])["primary_estimate"])
+    main = ResultEntry.model_validate_json(
+        json.dumps(node_results(science, selected["main"])["primary_estimate"])
+    )
     variants: list[ResultEntry | None] = []
     adversarial: list[ResultEntry | None] = []
     outcomes = []
     for attempt in schedule.attempts:
         representative = representatives.get(attempt.id)
         entry = (
-            ResultEntry.model_validate(node_results(science, representative)[attempt.result_key])
+            ResultEntry.model_validate_json(
+                json.dumps(node_results(science, representative)[attempt.result_key])
+            )
             if representative
             else None
         )
@@ -185,6 +190,68 @@ def collect_historical_evidence(
     hypothesis_path = store.committed("hypothesis")
     if hypothesis_path is None:
         raise ValueError("selected hypothesis has not been committed")
+    recorded_nodes = [
+        {
+            "id": metadata["id"],
+            "stage": metadata["stage"],
+            "kind": metadata["kind"],
+            "attempt_id": metadata["attempt_id"],
+            "status": metadata["status"],
+            "results": f"{folder}/execution/results.json" if metadata["status"] == "ok" else None,
+            "code": f"{folder}/execution/code.py"
+            if store.path(folder, "execution", "code.py").exists()
+            else None,
+            "analysis": f"{folder}/analysis.md"
+            if store.path(folder, "analysis.md").exists()
+            else None,
+            "figures": [f"{folder}/execution/figures/{figure}" for figure in metadata["figures"]],
+        }
+        for ref in nodes
+        for metadata in [science.read(ref)]
+        for folder in [Path(ref.path).parent.as_posix()]
+    ]
+
+    events = read_events(store.root)
+    committed = {
+        (e.get("stage_instance", e.get("stage")), e["node"])
+        for e in events
+        if e["event"] == "node_commit"
+    }
+    order = {
+        (e.get("stage_instance", e.get("stage")), e["node"]): index
+        for index, e in enumerate(events)
+        if e["event"] == "node_start"
+    }
+    for event in events:
+        if event["event"] != "node_start" or event.get("stage") not in {
+            "baseline",
+            "main",
+            "robustness",
+        }:
+            continue
+        instance = event.get("stage_instance", event["stage"])
+        if (instance, event["node"]) in committed:
+            continue
+        folder = f"tree/{instance}/{event['node']}"
+        recorded_nodes.append(
+            {
+                "id": event["node"],
+                "stage": event["stage"],
+                "kind": event["kind"],
+                "attempt_id": event.get("attempt_id"),
+                "status": "buggy",
+                "results": None,
+                "code": f"{folder}/execution/code.py"
+                if store.path(folder, "execution", "code.py").exists()
+                else None,
+                "analysis": f"{folder}/analysis.md"
+                if store.path(folder, "analysis.md").exists()
+                else None,
+                "figures": [],
+            }
+        )
+    stages = {"baseline": 0, "main": 1, "robustness": 2}
+    recorded_nodes.sort(key=lambda n: (stages[n["stage"]], order.get((n["stage"], n["id"]), -1)))
     path = store.write_json(
         f"{destination}/evidence.json",
         {
@@ -198,30 +265,7 @@ def collect_historical_evidence(
             "stability": label,
             "reasons": reasons,
             "specifications": outcomes,
-            "nodes": [
-                {
-                    "id": metadata["id"],
-                    "stage": metadata["stage"],
-                    "kind": metadata["kind"],
-                    "attempt_id": metadata["attempt_id"],
-                    "status": metadata["status"],
-                    "results": f"{folder}/execution/results.json"
-                    if metadata["status"] == "ok"
-                    else None,
-                    "code": f"{folder}/execution/code.py"
-                    if store.path(folder, "execution", "code.py").exists()
-                    else None,
-                    "analysis": f"{folder}/analysis.md"
-                    if store.path(folder, "analysis.md").exists()
-                    else None,
-                    "figures": [
-                        f"{folder}/execution/figures/{figure}" for figure in metadata["figures"]
-                    ],
-                }
-                for ref in nodes
-                for metadata in [science.read(ref)]
-                for folder in [Path(ref.path).parent.as_posix()]
-            ],
+            "nodes": recorded_nodes,
         },
     )
     store.commit_artifact("evidence", path)

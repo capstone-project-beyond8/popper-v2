@@ -10,6 +10,7 @@ from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.compatibility import decode_policy
 from popper.science.contracts import Candidate
 from popper.science.settings import load_options
 from popper.science.state import commit_snapshot, rebuild_state
@@ -43,7 +44,9 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
     candidates = [candidate]
     if corrected:
         candidates.append(candidate.model_copy(update={"id": "hypothesis-002"}))
-    ScienceStore(h.run).commit("candidates", {"candidates": [c.model_dump(mode="json") for c in candidates]})
+    ScienceStore(h.run).commit(
+        "candidates", {"candidates": [c.model_dump(mode="json") for c in candidates]}
+    )
     snapshot = commit_snapshot(ScienceStore(h.run), rebuild_state(ScienceStore(h.run)))
     prep = h.run.write_json("prep.json", {})
     h.run.commit_artifact("prep", prep)
@@ -60,7 +63,13 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
             if len(req.messages) == 1:
                 return (ToolCall("read", "read_artifact", {"path": ref.path}),)
             submissions += 1
-            declared = {**proposal, "inference": {"bootstrap": 100 if submissions > 1 else 1000, "interval_level": .95}}
+            declared = {
+                **proposal,
+                "inference": {
+                    "bootstrap": 100 if submissions > 1 else 1000,
+                    "interval_level": 0.95,
+                },
+            }
             return (
                 ToolCall(
                     "submit",
@@ -78,7 +87,9 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
                                 "stopping_condition": "one accepted analysis",
                             }
                         ],
-                        "omitted": {"hypothesis-002": "reserve alternative"} if submissions > 1 else {},
+                        "omitted": {"hypothesis-002": "reserve alternative"}
+                        if submissions > 1
+                        else {},
                     },
                 ),
             )
@@ -92,7 +103,12 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
         )
 
     h.llm = FakeLLM(respond)
-    proposals = propose_moves(h, ScienceStore(h.run), snapshot, resource_view(h, load_options(h.run), rebuild_state(ScienceStore(h.run))))
+    proposals = propose_moves(
+        h,
+        ScienceStore(h.run),
+        snapshot,
+        resource_view(h, load_options(h.run), rebuild_state(ScienceStore(h.run))),
+    )
     selection = select_move(h, ScienceStore(h.run), snapshot, proposals)
     move = selected_move(ScienceStore(h.run), selection)
     first = schedule_attempt(ScienceStore(h.run), move, None)
@@ -108,7 +124,22 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "boundary",
-    ["science:challenge:", "science:selection:", "science:attempt:", "node_commit", "science:result:", "science:interpretation:", "science:disposition:", "deferred_disposition", "science:study", "science:proposals:", "correction_disposition"],
+    [
+        "science:challenge:",
+        "science:selection:",
+        "science:attempt:",
+        "node_commit",
+        "science:result:",
+        "science:interpretation:",
+        "science:disposition:",
+        "deferred_disposition",
+        "science:study",
+        "science:proposals:",
+        "correction_disposition",
+        "admission_refusal",
+        "request_subject",
+        "decision_refusal",
+    ],
 )
 def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
@@ -121,13 +152,32 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     def advance_discovery() -> Path:
         science = ScienceStore(h.run)
         while True:
-            request = discovery_step(h, science, resource_view(h, load_options(h.run), rebuild_state(science)))
+            options = load_options(h.run)
+            policy = decode_policy(json.loads(h.run.path("run.json").read_text("utf-8")))
+            request = discovery_step(
+                h, science, resource_view(h, options, rebuild_state(science)), policy, options
+            )
             if request is None:
                 continue
             if request.kind == "publish":
                 assert request.subject is not None
                 return resolve_artifact(h.run, request.subject)
-            dispatch_experiment(h, request)
+            if boundary == "request_subject" and request.selection:
+                from dataclasses import replace
+
+                from popper.harness.records import IntegrityError
+
+                assert request.subject is not None
+                invalid = request.subject.model_copy(update={"path": "uncommitted.json"})
+                before = len(rebuild_state(science).attempts)
+                with pytest.raises(IntegrityError):
+                    dispatch_experiment(h, replace(request, subject=invalid))
+                assert len(rebuild_state(science).attempts) == before
+            feedback = dispatch_experiment(h, request)
+            if feedback:
+                assert feedback.subject is not None
+                return resolve_artifact(h.run, feedback.subject)
+
     from popper.harness.recovery import Journal, read_events
     from popper.science.contracts import AttemptResult
     from popper.science.research import parse_research
@@ -135,7 +185,12 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     from tests.integration.test_run import EXAMPLE, FRAMING, _respond
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    h.run.write_json("run.json", {"format_version": 5, "config": h.config.model_dump(mode="json")})
+    if boundary in {"admission_refusal", "decision_refusal"}:
+        h.config.budget.max_usd = 100
+    saved_config = h.config.model_dump(mode="json")
+    if boundary == "admission_refusal":
+        saved_config["discovery"]["max_revisits"] = 0
+    h.run.write_json("run.json", {"format_version": 5, "config": saved_config})
     h.run.write_text("data/raw.csv", "x,y\n1,2\n2,3\n")
     h.run.path("preparation").mkdir()
     pd.DataFrame({"x": [1, 2], "y": [2, 3]}).to_parquet(h.run.path("preparation/processed.parquet"))
@@ -166,7 +221,8 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         )
         for i in (1, 2, 3)
     ]
-    ScienceStore(h.run).commit("candidates",
+    ScienceStore(h.run).commit(
+        "candidates",
         {"candidates": [c.model_dump(mode="json") for c in candidates]},
         key="initial",
     )
@@ -175,6 +231,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         Framing.model_validate(FRAMING),
     )
     from popper.understand.frame import save_frame
+
     save_frame(h.run, h.run.path("reviewed"), frame.research, frame.framing, [], [], review={})
     h.run.write_json("operationalization.json", [])
     h.run.write_json("concerns.json", [])
@@ -211,6 +268,17 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
                         k: v for k, v in payload.items() if k not in {"id", "hypothesis_id"}
                     },
                 }
+            if state.results and boundary == "admission_refusal":
+                move = {
+                    "action": "test",
+                    "objective": "revisit",
+                    "hypothesis_id": "hypothesis-001",
+                    "test": state.attempts[-1].record.test.model_dump(mode="json"),
+                    "trigger_refs": [state.results[-1].ref.model_dump(mode="json")],
+                    "cost_usd": 0,
+                    "stopping_condition": "another observation",
+                    "discriminating_outcomes": ["positive", "negative"],
+                }
             return (
                 ToolCall(
                     "submit",
@@ -226,7 +294,11 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
                 ),
             )
         if req.tag == "select_move":
-            proposal_path = h.run.committed(f"science:proposals:{h.run.artifact_ref('science:snapshot').record_id}")
+            if boundary == "decision_refusal" and state.results:
+                return json.dumps({"proposal_id": "unknown", "rationale": "unavailable"})
+            proposal_path = h.run.committed(
+                f"science:proposals:{h.run.artifact_ref('science:snapshot').record_id}"
+            )
             assert proposal_path is not None
             proposals = json.loads(proposal_path.read_text())
             return json.dumps(
@@ -265,7 +337,21 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     def commit(store: RunStore, name: str, path: Path) -> None:
         nonlocal interrupted
         original_commit(store, name, path)
-        commit_boundary = "science:disposition:" if boundary in {"deferred_disposition", "correction_disposition"} else boundary
+        commit_boundary = (
+            "science:disposition:"
+            if boundary
+            in {
+                "deferred_disposition",
+                "correction_disposition",
+                "admission_refusal",
+                "decision_refusal",
+            }
+            else boundary
+        )
+        if boundary == "request_subject":
+            commit_boundary = "science:selection:"
+        if boundary == "decision_refusal":
+            commit_boundary = "science:disposition"
         if name.startswith(commit_boundary) and not interrupted:
             interrupted = True
             raise KeyboardInterrupt()
@@ -281,8 +367,11 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     monkeypatch.setattr(Journal, "write", write)
     with pytest.raises(KeyboardInterrupt):
         advance_discovery()
+    selections_before_resume = len([r for r in h.llm.calls if r.tag == "select_move"])
     output = advance_discovery()
     assert output.is_file()
+    if boundary == "decision_refusal":
+        assert len([r for r in h.llm.calls if r.tag == "select_move"]) == selections_before_resume
     if boundary == "correction_disposition":
         assert len([r for r in h.llm.calls if r.tag == "research_moves"]) == 2
         assert not rebuild_state(ScienceStore(h.run)).attempts
@@ -296,17 +385,14 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     assert (
         len([e for e in events if e["event"] == "exec_start" and e["purpose"] == "submitted"]) == 2
     )
-    assert (
-        len(
-            [
-                e
-                for e in events
-                if e["event"] == "artifact_commit"
-                and str(e.get("name", "")).startswith("science:selection:")
-            ]
-        )
-        == 2
-    )
+    assert len(
+        [
+            e
+            for e in events
+            if e["event"] == "artifact_commit"
+            and str(e.get("name", "")).startswith("science:selection:")
+        ]
+    ) == (1 if boundary == "decision_refusal" else 2)
     assert (
         AttemptResult.model_validate_json(
             resolve_artifact(h.run, state.results[0].ref).read_text()

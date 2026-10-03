@@ -16,6 +16,7 @@ from popper.coordinator.resources import resource_view
 from popper.discover.explore import explore
 from popper.ground.steward import ground
 from popper.harness.llm import LLM
+from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
@@ -23,6 +24,7 @@ from popper.science.compatibility import decode_policy
 from popper.science.descriptive import read_table
 from popper.science.inputs import ingest, load_episode, prepare_description, promote_foundation
 from popper.science.output import StudyOutput, partial_study
+from popper.science.requests import CapabilityRequest
 from popper.science.settings import load_options
 from popper.science.state import rebuild_state
 from popper.science.store import ScienceStore
@@ -188,9 +190,8 @@ def _resume_locked(
     return _continue(h, outcome)
 
 
-def _accept_review(h: Harness, answered: ReviewOutcome | None) -> None:
-    pending = h.run.committed("frame")
-    assert pending is not None
+def _accept_review(h: Harness, answered: ReviewOutcome | None, source: ArtifactRef) -> None:
+    pending = resolve_artifact(h.run, source)
     if json.loads(h.run.path("run.json").read_text("utf-8")).get("auto"):
         h.run.commit_artifact("frame_reviewed", pending)
     elif answered is None:
@@ -215,11 +216,15 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
         program, episode = load_episode(store)
         policy = decode_policy(json.loads(store.path("run.json").read_text("utf-8")))
         options = load_options(store)
+        pending: CapabilityRequest | None = None
         while True:
             context = EpisodeContext(
                 program, episode, resource_view(h, options, rebuild_state(science)), policy, options
             )
-            request = next_step(h, science, context)
+            request = pending if pending is not None else next_step(h, science, context)
+            pending = None
+            if request is not None and request.subject is not None:
+                resolve_artifact(store, request.subject)
             if request is None:
                 continue
             match request.kind:
@@ -229,7 +234,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                     if request.guidance:
                         frame = reviewed_frame(science)
                         research = frame.research
-                        prepared = foundation_view(science)
+                        prepared = foundation_view(science, request.subject)
                         h.journal.write(
                             "reframe",
                             concerns=[
@@ -242,21 +247,25 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                         h, research, report, limits=options.understand, guidance=request.guidance
                     )
                 case "await_review":
-                    _accept_review(h, answered)
+                    assert request.subject is not None
+                    _accept_review(h, answered, request.subject)
                     answered = None
                 case "ground":
                     _phase(h, "ground")
-                    frame = reviewed_frame(science)
+                    frame = reviewed_frame(science, request.subject)
                     ground(h, frame.research, frame.framing, limits=options.ground)
                 case "explore":
                     _phase(h, "explore")
-                    promote_foundation(science)
-                    frame, prepared = reviewed_frame(science), foundation_view(science)
+                    promote_foundation(science, request.subject)
+                    frame, prepared = (
+                        reviewed_frame(science),
+                        foundation_view(science, request.subject),
+                    )
                     node = explore(h, frame.research, frame.framing, prepared.facts)
                     record_exploration(science, node_ref(science, node.dir / "meta.json"))
                 case "experiment":
                     _phase(h, "experiment")
-                    dispatch_experiment(h, request)
+                    pending = dispatch_experiment(h, request)
                 case "publish" | "finish":
                     assert request.subject is not None
                     study = store.path(request.subject.path)

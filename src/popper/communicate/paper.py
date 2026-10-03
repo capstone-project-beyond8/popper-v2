@@ -23,11 +23,11 @@ from popper.communicate.numbers import (
 )
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
-from popper.harness.records import ArtifactRef, resolve_artifact
+from popper.harness.records import resolve_artifact
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import next_sequence
 from popper.science.evidence import resolve_measurement
-from popper.science.output import StudyOutput
+from popper.science.output import StudyOutput, publication_inputs
 from popper.science.research import render_fields
 from popper.science.results import validate_results
 from popper.science.store import ScienceStore
@@ -612,17 +612,8 @@ def write_study(
     for source, alias in ((output.preparation, "data"), (output.exploration, "explore")):
         if source is None:
             continue
-        manifest = json.loads(resolve_artifact(h.run, source).read_text("utf-8"))
-        for rel, digest in manifest.get("files", {}).items():
-            if Path(rel).name not in {"results.json", "changes.json"}:
-                continue
-            child = ArtifactRef(
-                path=rel,
-                sha256=digest,
-                producer=source.producer,
-                record_id=source.record_id,
-                backing=source,
-            )
+        for child in publication_inputs(ScienceStore(h.run), source, alias):
+            rel = child.path
             content = json.loads(resolve_artifact(h.run, child).read_text("utf-8"))
             if Path(rel).name == "changes.json" and alias == "data":
                 changes = content
@@ -725,11 +716,13 @@ def publish_study(h: Harness, study: Path) -> tuple[Path, Path | None, list[str]
     if output.adaptive:
         notes = research = ""
         if output.frame:
-            frame = reviewed_frame(science)
+            frame = reviewed_frame(science, output.frame)
             notes = frame.research.notes.get("writing", "")
             research = render_fields(frame.research, "domain", "objectives", "assumptions")
         return write_study(h, study, notes=notes, research=research)
-    frame, prepared = reviewed_frame(science), foundation_view(science)
+    assert output.frame is not None and output.foundation is not None
+    frame = reviewed_frame(science, output.frame)
+    prepared = foundation_view(science, output.foundation)
     committed = h.run.committed("hypothesis")
     assert committed is not None and output.historical_evidence is not None
     hypothesis = json.loads(committed.read_text("utf-8"))[0]

@@ -69,6 +69,30 @@ def test_historical_stage_records_preserve_identity(
     assert node_results(science, stage_outcome(science, "main") or outcome) == {"m": {"value": 1.5}}
 
 
+def test_historical_evidence_retains_interrupted_work_without_accepting_results(
+    historical_stage: tuple[Harness, dict[Path, bytes]],
+) -> None:
+    from popper.discover.robustness import collect_evidence
+    from tests.unit.test_robustness_plan import schedule
+
+    h, _ = historical_stage
+    h.run.path("tree/main/main-000/execution/results.json").write_text('{"primary_estimate":{"value":1.5,"ci":[1,2],"n":2}}', encoding="utf-8")
+    selected = load_nodes(h, "main")[0]
+    journal = Journal(h.run.path("journal.jsonl"))
+    journal.write("node_start", stage="main", node="main-001", kind="improve", parent=selected.id)
+    h.run.write_json("tree/main/main-001/execution/results.json", {"m": {"value": 999}})
+    hypothesis = {"id": "hypothesis-001"}
+    h.run.commit_artifact("hypothesis", h.run.write_json("hypotheses.json", [hypothesis]))
+    plan = h.run.write_json("schedule.json", {"format_version": 2, "main_node": selected.id, "schedule": schedule()})
+    h.run.commit_artifact("robustness_plan", plan)
+    evidence = collect_evidence(h, hypothesis, {"main": selected}, plan)
+    recorded = json.loads(evidence.read_text("utf-8"))
+    assert recorded["standing"] == "exploratory" and recorded["stability"] == "fragile"
+    interrupted = next(n for n in recorded["nodes"] if n["id"] == "main-001")
+    assert interrupted["status"] == "buggy" and interrupted["results"] is None
+    assert "999" not in evidence.read_text("utf-8")
+
+
 @pytest.mark.parametrize("auto", [False, True])
 def test_resume_restores_researcher_for_interactive_runs_only(tmp_path: Path, auto: bool) -> None:
     def interrupt(req: LLMRequest) -> str:

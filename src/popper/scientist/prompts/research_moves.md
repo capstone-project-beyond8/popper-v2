@@ -1,4 +1,5 @@
 Propose at most one executable move per eligible candidate plus an optional stop.
+Current operational resources (not persisted scientific state): {resources}
 Snapshot reference: {snapshot}
 Sourced state: {state}
 Read omitted cited contents with read_artifact; only reachable committed records are available.

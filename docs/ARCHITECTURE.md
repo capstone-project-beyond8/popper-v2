@@ -66,7 +66,7 @@ These baseline protections have current enforcement paths. They do not certify g
 | Every model call, tool call, execution and decision is journaled | Harness (§7.5) |
 | Run files are write-once; a fix is a new node, attempt or assessment | Run store (§9) |
 | Accepted empirical measurements come from a fresh execution of the submitted script | Search engine and Ground submit (§4.3, §5.1) |
-| Evidence labels are computed from declared rules | Search and publication responsibilities (§5.5, §10) |
+| Evidence labels are computed from declared rules | Scientific domain (§4.7, §5.5); publication renders those labels (§10) |
 | Reported empirical numbers resolve to named results; unknown names are flagged | Renderer (§10) |
 | Research context, answers, dataset strings, outputs and retrieved text are untrusted data | Context assembly (§7.3) |
 | No credentials in run files or script environments | Sandbox and run store (§7.4, §7.5) |
@@ -106,6 +106,8 @@ Strategies do not substitute for core commitments. Added complexity must address
 | Evaluation | Independent inspection of recorded behavior | Scientific usefulness, evolution, selection, continuity, traceability, recovery and cost (§13.1). Production never imports evaluation. |
 
 **Current implementation.** `science` owns scientific contracts, ingest/options, immutable transitions, execution declarations, evidence assembly and deterministic state. `scientist` owns the current sequential playbook, including grounding-driven reframing, candidate/challenge/interpretation and sourced move selection. `coordinator` composes capabilities and admits work using current journal-backed spend and configured limits. Scientist reasoning that commits a new candidate set yields control so the controller refreshes resources before the next decision. Harness and code search receive opaque execution bindings plus injected validators. Saved format-4 strategy is decoded by the domain and planned by Scientist, then uses the same controller and execution capabilities. Program/Run identities currently bind one run; cross-run continuation remains a target contract.
+
+Capability dispatch resolves the exact requested subject before mutation. Unavailable selections become sourced Scientist dispositions; recovery replays them without repeating model work. Historical interrupted executions remain diagnostic observations without accepted results. Publication reads numeric inputs only from the accepted upstream execution, including when an older manifest contains scratch files.
 
 These are responsibility boundaries, not mandatory packages, agents or services. Existing framing, grounding, discovery and communication functions implement scientific capabilities; they do not define a required phase topology. The package placement and current execution trace live in [ROADMAP.md](ROADMAP.md).
 

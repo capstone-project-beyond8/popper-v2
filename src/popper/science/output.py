@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from popper.harness.records import ArtifactRef, Record, resolve_artifact
+from popper.harness.records import ArtifactRef, IntegrityError, Record, resolve_artifact
 from popper.harness.store import file_hash
 from popper.science.compatibility import decode_policy
 from popper.science.contracts import MoveSelection
@@ -190,3 +190,38 @@ def partial_study(
     if not decode_policy(metadata).adaptive:
         return None
     return build_study(science, reason, status)
+
+
+def publication_inputs(science: ScienceStore, source: ArtifactRef, kind: str) -> list[ArtifactRef]:
+    manifest = science.read(source)
+    files = manifest.get("files", {})
+    if kind == "explore":
+        roots = [
+            Path(path).parent / "execution"
+            for path in files
+            if Path(path).name == "meta.json" and Path(path).parent.name == manifest["node"]
+        ]
+    elif kind == "data":
+        mount = manifest.get("mounts", {}).get("data")
+        roots = (
+            [Path(mount["path"]).parent]
+            if mount
+            else [Path(path).parent for path in files if Path(path).name == "processed.parquet"]
+        )
+    else:
+        raise ValueError("unknown publication input kind")
+    if len(roots) != 1:
+        raise IntegrityError("publication requires one accepted upstream execution")
+    names = ("results.json", "changes.json") if kind == "data" else ("results.json",)
+    return [
+        ArtifactRef(
+            path=path,
+            sha256=files[path],
+            producer=source.producer,
+            record_id=source.record_id,
+            backing=source,
+        )
+        for name in names
+        for path in [(roots[0] / name).as_posix()]
+        if path in files
+    ]

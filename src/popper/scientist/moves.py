@@ -92,6 +92,7 @@ def propose_moves(
             "research_moves.md",
             state=fence(json.dumps(compact_state(state))),
             snapshot=snapshot.model_dump_json(),
+            resources=fence(resources.model_dump_json()),
         ),
         tools=tools,
         max_turns=h.config.search.max_turns,

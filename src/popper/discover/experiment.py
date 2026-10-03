@@ -13,7 +13,6 @@ from popper.discover.robustness import collect_evidence
 from popper.harness.context import RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
-from popper.harness.recovery import read_events
 from popper.harness.session import Harness
 from popper.science.contracts import (
     Attempt,
@@ -38,6 +37,7 @@ from popper.science.results import validate_results
 from popper.science.settings import load_options
 from popper.science.store import ScienceStore
 from popper.science.transitions import ensure_invalidation
+from popper.science.views import node_ref
 from popper.treesearch.engine import (
     AttemptSpec,
     Node,
@@ -361,18 +361,6 @@ def _attempt(
     )
 
 
-def _node_ref(h: Harness, node: Node) -> ArtifactRef:
-    path = (node.dir / "meta.json").relative_to(h.run.root).as_posix()
-    event = next(
-        e
-        for e in reversed(read_events(h.run.root))
-        if e["event"] == "node_commit" and e.get("path") == path
-    )
-    return ArtifactRef(
-        path=path, sha256=event["sha256"], producer="node", record_id=event["record_id"]
-    )
-
-
 def _scoped_experiment(
     h: Harness,
     framing: dict[str, Any],
@@ -382,23 +370,22 @@ def _scoped_experiment(
     design: str,
     request: ExperimentRequest,
 ) -> Path:
+    science = ScienceStore(h.run)
     attempt = Attempt.model_validate_json(
         resolve_artifact(h.run, request.attempt).read_text("utf-8")
     )
-    ensure_invalidation(ScienceStore(h.run), request.attempt)
+    ensure_invalidation(science, request.attempt)
     name = f"science:result:{attempt.id}"
     committed = h.run.committed(name)
     if committed:
         return committed
-    plan = prepare_execution(ScienceStore(h.run), request.attempt)
+    plan = prepare_execution(science, request.attempt)
     intended = ExperimentSpec.model_validate_json(
         resolve_artifact(h.run, request.test).read_text("utf-8")
     )
     if attempt.test != request.test or attempt.hypothesis_id != intended.hypothesis_id:
         raise IntegrityError("attempt/test ownership mismatch")
     selected: dict[str, Node] = {}
-    stages: dict[str, ArtifactRef] = {}
-    variants: list[ArtifactRef] = []
     for role in ("baseline", "main"):
         effective_test = plan.baseline if role == "baseline" else plan.main
         if role in attempt.reuse:
@@ -421,11 +408,9 @@ def _scoped_experiment(
                 )
             except StageFailed:
                 break
-        stages[role] = _node_ref(h, selected[role])
-    variants = plan.variants
     attempts: list[AttemptSpec] = []
-    for ref in variants:
-        variant = ExperimentSpec.model_validate(ScienceStore(h.run).read(ref))
+    for ref in plan.variants:
+        variant = ExperimentSpec.model_validate(science.read(ref))
         key = next(k for k in variant.outputs if not k.endswith(".json"))
         attempts.append(
             AttemptSpec(
@@ -439,7 +424,7 @@ def _scoped_experiment(
                     pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
                     purpose="robustness",
                 ),
-                execution_binding(ScienceStore(h.run), ref),
+                execution_binding(science, ref),
             )
         )
     if "main" in selected and attempts:
@@ -471,8 +456,10 @@ def _scoped_experiment(
         for n in load_nodes(h, attempt.stage_instances["robustness"])
         if n.status == "ok"
     )
-    science = ScienceStore(h.run)
-    outcomes = [RecordedStageOutcome(role, _node_ref(h, node)) for role, node in measured_nodes]
+    outcomes = [
+        RecordedStageOutcome(role, node_ref(science, node.dir / "meta.json"))
+        for role, node in measured_nodes
+    ]
     result = assemble_result(
         science, plan, outcomes, stage_capacity=h.config.search.steps_for("robustness")
     )

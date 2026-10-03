@@ -26,11 +26,11 @@ class ScienceStore:
                     path=e["path"],
                     sha256=e["sha256"],
                     producer=e.get("producer", e["name"]),
-                    record_id=e["record_id"],
+                    record_id=e.get("record_id", f"historical-{index:06d}"),
                 ),
             )
-            for e in read_events(self.run.root)
-            if e["event"] == "artifact_commit" and "record_id" in e
+            for index, e in enumerate(read_events(self.run.root))
+            if e["event"] == "artifact_commit"
         ]
 
     def commit(

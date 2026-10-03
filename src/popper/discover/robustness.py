@@ -20,7 +20,7 @@ def collect_evidence(
     nodes = [
         n
         for stage in ("baseline", "main", "robustness")
-        for n in load_nodes(h, stage, include_abandoned=True)
+        for n in load_nodes(h, stage)
     ]
     representatives = {
         a.id: select_best([n for n in nodes if n.attempt_id == a.id]) for a in schedule.attempts

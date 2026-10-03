@@ -73,4 +73,9 @@ def test_independently_encoded_historical_artifact_reference(tmp_path: Path) -> 
     store.write_text("journal.jsonl", json.dumps({"event": "artifact_commit", "name": "hypothesis", "path": "old.json", "sha256": file_hash(source)}) + "\n")
     before = source.read_bytes()
     assert resolve_artifact(store, store.artifact_ref("hypothesis")) == source
+    from popper.science.store import ScienceStore
+    from popper.science.views import latest
+    science = ScienceStore(store)
+    assert science.commits() == [("hypothesis", store.artifact_ref("hypothesis"))]
+    assert latest(science, "hypothesis") == "hypothesis"
     assert source.read_bytes() == before
