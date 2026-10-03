@@ -298,6 +298,8 @@ class MoveProposal(Record):
     stopping_condition: Text
     diagnosis: ArtifactRef | None = None
     changed_fields: list[Text] = Field(default_factory=list)
+    direction: ArtifactRef | None = None
+    contribution: Text | None = None
 
     @model_validator(mode="after")
     def executable_fields(self) -> Self:
@@ -416,7 +418,7 @@ class Program(Record):
 class Run(Record):
     id: Text
     program_id: Text
-    format_version: Literal[4, 5, 6]
+    format_version: Literal[4, 5, 6, 7]
     inputs: ArtifactRef
     initial_intent: ArtifactRef
     auto: bool

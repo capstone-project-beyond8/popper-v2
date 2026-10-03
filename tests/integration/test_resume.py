@@ -364,7 +364,7 @@ def test_resume_after_selected_stop_or_admission_exhaustion(tmp_path: Path, monk
     cfg.budget.max_usd = 0.000001
     store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg, auto=True)
     original_intent = store.path("research.md").read_bytes()
-    assert load_episode(store)[1].format_version == 6
+    assert load_episode(store)[1].format_version == 7
     science = ScienceStore(store)
     source = store.artifact_ref("inputs")
     science.commit("intent", {"inputs": source.model_dump(mode="json")})

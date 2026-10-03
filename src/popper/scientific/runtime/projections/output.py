@@ -85,7 +85,9 @@ def episode_summary(science: ScienceStore, state: ResearchState | None = None) -
     """Read committed decisions and work without inventing historical stage records."""
     state = state if state is not None else rebuild_state(science)
     metadata = science.run.path("run.json")
-    stage_aware = metadata.exists() and decode_policy(json.loads(metadata.read_text("utf-8"))).stage_aware
+    policy = decode_policy(json.loads(metadata.read_text("utf-8"))) if metadata.exists() else None
+    stage_aware = policy is not None and policy.stage_aware
+    idea_evolution = policy is not None and policy.idea_evolution
     decisions = []
     sources = list(state.frontier)
     audits = []
@@ -106,6 +108,11 @@ def episode_summary(science: ScienceStore, state: ResearchState | None = None) -
     admissions = {item.ref: item for item in state.stage_admissions}
     for item in state.stage_admissions:
         sources.extend([item.ref, item.record.move, item.record.snapshot, *item.record.inputs])
+    if idea_evolution:
+        for revision in state.ideas:
+            sources.extend([revision.ref, *revision.record.parents, *([revision.record.candidate] if revision.record.candidate else [])])
+        sources.extend(item.ref for item in state.idea_challenges)
+        sources.extend(item.ref for item in state.directions)
     checkpoint = load_state(science.run)
     stop_reason = None
     if study_ref := upstream(science, "study"):
@@ -118,6 +125,9 @@ def episode_summary(science: ScienceStore, state: ResearchState | None = None) -
             "work": admissions[item.record.admission].model_dump(mode="json")}
             for item in state.stage_history] if stage_aware else None,
         "pending_work": [item.model_dump(mode="json") for item in state.pending_admissions] if stage_aware else None,
+        "ideas": [item.model_dump(mode="json") for item in state.ideas] if idea_evolution else None,
+        "idea_challenges": [item.model_dump(mode="json") for item in state.idea_challenges] if idea_evolution else None,
+        "directions": [item.model_dump(mode="json") for item in state.directions] if idea_evolution else None,
         "decisions": decisions,
         "sources": [ref.model_dump(mode="json") for ref in dict.fromkeys(sources)],
         "stop_reason": stop_reason,

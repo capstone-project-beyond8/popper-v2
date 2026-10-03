@@ -23,6 +23,7 @@ from popper.scientific.runtime.lifecycle.contracts import (
     StageWork,
     Synthesis,
 )
+from popper.scientific.runtime.lifecycle.ideas import IdeaChallenge, IdeaRevision, ResearchDirection
 from popper.scientific.runtime.store import ScienceStore
 
 
@@ -32,7 +33,7 @@ class Sourced[T](Record):
 
 
 class ResearchState(Record):
-    version: Literal[3] = 3
+    version: Literal[4] = 4
     stage_admissions: list[Sourced[StageAdmission]] = Field(default_factory=list)
     stage_history: list[Sourced[StageWork]] = Field(default_factory=list)
     pending_admissions: list[Sourced[StageAdmission]] = Field(default_factory=list)
@@ -40,6 +41,9 @@ class ResearchState(Record):
     frontier: list[ArtifactRef] = Field(default_factory=list)
     candidates: list[Sourced[Candidate]] = Field(default_factory=list)
     challenges: list[Sourced[Challenge]] = Field(default_factory=list)
+    ideas: list[Sourced[IdeaRevision]] = Field(default_factory=list)
+    idea_challenges: list[Sourced[IdeaChallenge]] = Field(default_factory=list)
+    directions: list[Sourced[ResearchDirection]] = Field(default_factory=list)
     interpretations: list[Sourced[Interpretation]] = Field(default_factory=list)
     stale_interpretations: list[ArtifactRef] = Field(default_factory=list)
     attempts: list[Sourced[Attempt]] = Field(default_factory=list)
@@ -83,6 +87,9 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
     admissions: list[Sourced[StageAdmission]] = []
     work: list[Sourced[StageWork]] = []
     syntheses: list[Sourced[Synthesis]] = []
+    ideas: list[Sourced[IdeaRevision]] = []
+    idea_challenges: list[Sourced[IdeaChallenge]] = []
+    directions: list[Sourced[ResearchDirection]] = []
     kinds = {
         "intent",
         "candidates",
@@ -98,6 +105,9 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         "work",
         "synthesis",
         "audit",
+        "idea",
+        "idea_challenge",
+        "direction",
     }
     for name, ref in science.commits():
         kind = name.split(":")[1] if name.startswith("science:") else ""
@@ -117,10 +127,15 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
             syntheses.append(Sourced(ref=ref, record=synthesis))
             questions.extend(Sourced(ref=ref, record=Question(text=text, author=synthesis.author, sources=synthesis.sources)) for text in synthesis.questions)
         elif kind == "candidates":
-            candidates.extend(
-                Sourced(ref=ref, record=Candidate.model_validate(c)) for c in payload["candidates"]
-            )
-            exposure = candidates[0].record.exposure if candidates else []
+            added: list[Sourced[Candidate]] = [Sourced(ref=ref, record=Candidate.model_validate(c)) for c in payload["candidates"]]
+            candidates.extend(added)
+            exposure = list(dict.fromkeys([*exposure, *(r for c in added for r in c.record.exposure)]))
+        elif kind == "idea":
+            ideas.append(Sourced(ref=ref, record=IdeaRevision.model_validate(payload)))
+        elif kind == "idea_challenge":
+            idea_challenges.append(Sourced(ref=ref, record=IdeaChallenge.model_validate(payload)))
+        elif kind == "direction":
+            directions.append(Sourced(ref=ref, record=ResearchDirection.model_validate(payload)))
         elif kind == "attempt":
             attempts.append(Sourced(ref=ref, record=Attempt.model_validate(payload)))
         elif kind == "challenge":
@@ -190,6 +205,9 @@ def rebuild_state(science: ScienceStore) -> ResearchState:
         frontier=frontier,
         candidates=candidates,
         challenges=challenges,
+        ideas=ideas,
+        idea_challenges=idea_challenges,
+        directions=directions,
         interpretations=interpretations,
         stale_interpretations=stale_interpretations,
         attempts=attempts,
@@ -222,6 +240,8 @@ def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any
         "diagnoses",
         "questions",
         "challenges",
+        "ideas",
+        "idea_challenges",
         "interpretations",
     ):
         if len(json.dumps(view)) <= max_chars:
@@ -241,9 +261,9 @@ def load_snapshot(science: ScienceStore, ref: ArtifactRef) -> ResearchState:
     version = payload.get("version", 1)
     if version == 1:
         payload.pop("budget", None)
-    if version in {1, 2}:
-        payload["version"] = 3
-    elif version != 3:
+    if version in {1, 2, 3}:
+        payload["version"] = 4
+    elif version != 4:
         raise ValueError(f"unsupported scientific snapshot version: {version!r}")
     return ResearchState.model_validate(payload)
 
