@@ -15,6 +15,9 @@ target identity uses exact field equality. A changed target belongs to a deferre
 support_rule.result_key must exactly match one measurement key in test_proposal.outputs, such
 as primary_estimate. outputs declares estimand.json plus results.json measurement keys, not only
 artifact filenames. Align the declared outputs and support rule before submitting.
+requested_coverage.alternatives is a list of operational procedure patch objects, such as
+{{"inference": {{"interval_level": 0.95, "bootstrap": 1000}}}}, or [] for no variants.
+Describe competing scientific explanations in discriminating_outcomes, not in alternatives.
 Test positive, negative and null possibilities. Choose informative work, never retry for significance.
 Use sourced candidate challenge and current result interpretations to explain what remains unresolved and why a next move distinguishes surviving rivals. Interpretation is attributed reasoning, not empirical support. Stale interpretations and invalidated history cannot supply current support; retained questions need their source limitations.
 Repair needs a sourced technical/measurement defect; altered seeds/effort/slice is refinement.

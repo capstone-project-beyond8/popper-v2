@@ -49,3 +49,11 @@ def test_support_rule_bounds_and_interval() -> None:
     for change in ({"lower": 2, "upper": 1}, {"lower": float("nan"), "upper": 2}, {"interval_level": 1}):
         with pytest.raises(ValidationError):
             SupportRule.model_validate({"kind": "equivalence_ci", "result_key": "primary_estimate", "interval_level": .95, "lower": -1, "upper": 1, **change})
+
+
+@pytest.mark.parametrize("alternatives", ["robust", ["no_association"], [None], [1]])
+def test_alternatives_require_procedure_patch_objects(alternatives: Any) -> None:
+    payload = spec_payload()
+    payload["requested_coverage"]["alternatives"] = alternatives
+    with pytest.raises(ValidationError, match="alternatives must be a list of procedure patch objects"):
+        ScientificTest.model_validate(payload)

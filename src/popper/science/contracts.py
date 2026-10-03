@@ -152,13 +152,24 @@ class TestProposal(Record):
     methods: list[MethodSpec] = Field(min_length=1)
     inference: dict[str, JsonValue]
     adjustment: list[Text] = Field(default_factory=list)
-    requested_coverage: dict[str, JsonValue]
+    requested_coverage: dict[str, JsonValue] = Field(
+        description=(
+            "Execution coverage including seeds. alternatives, when present, is a list of "
+            "procedure patch objects such as {\"inference\": {\"interval_level\": 0.95}}; "
+            "it is not a list of scientific rival or outcome descriptions."
+        )
+    )
     outputs: list[Text] = Field(min_length=1)
     support_rule: SupportRule | None = None
     sources: list[ArtifactRef] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def valid_outputs(self) -> Self:
+        alternatives = self.requested_coverage.get("alternatives", [])
+        if not isinstance(alternatives, list) or any(
+            not isinstance(item, dict) for item in alternatives
+        ):
+            raise ValueError("alternatives must be a list of procedure patch objects")
         if "estimand.json" not in self.outputs or not any(
             k != "estimand.json" for k in self.outputs
         ):
