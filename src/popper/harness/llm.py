@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -92,38 +92,6 @@ _TRANSIENT_CODES = {
 _CACHE_POINT = {"cachePoint": {"type": "default"}}
 
 
-def _bedrock_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Project supported structure; Pydantic still enforces the original constraints locally."""
-    unsupported = {
-        "minimum",
-        "maximum",
-        "exclusiveMinimum",
-        "exclusiveMaximum",
-        "multipleOf",
-        "minLength",
-        "maxLength",
-    }
-    out = {key: value for key, value in schema.items() if key not in unsupported}
-    for key in ("properties", "$defs", "definitions"):
-        if key in out:
-            out[key] = {name: _bedrock_schema(child) for name, child in out[key].items()}
-    for key in ("items", "additionalProperties"):
-        if isinstance(out.get(key), dict):
-            out[key] = _bedrock_schema(out[key])
-    for key in ("anyOf", "allOf"):
-        if key in out:
-            out[key] = [_bedrock_schema(child) for child in out[key]]
-    if isinstance(out.get("additionalProperties"), dict):
-        keys = out.pop("propertyNames", {}).get("enum")
-        if not keys:
-            raise ValueError("structured output requires closed objects or enumerated map keys")
-        out["properties"] = {key: out["additionalProperties"] for key in keys}
-        out["additionalProperties"] = False
-    if out.get("type") == "object":
-        out.setdefault("additionalProperties", False)
-    return out
-
-
 def _to_converse(messages: Sequence[Message]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in messages:
@@ -201,7 +169,16 @@ class BedrockLLM:
         # Cache sessions through their rolling tail. One-shot prompts have no reusable prefix.
         cache = "anthropic" in req.model and (bool(req.tools) or len(req.messages) > 1)
         kwargs: dict[str, Any] = {}
-        if req.tools:
+        tools = req.tools
+        if req.output_schema is not None:
+            if tools:
+                raise ValueError("structured replies cannot also request execution tools")
+            tools = (
+                ToolSpec(
+                    "structured_reply", "Return the complete requested response.", req.output_schema
+                ),
+            )
+        if tools:
             specs: list[dict[str, Any]] = [
                 {
                     "toolSpec": {
@@ -210,20 +187,13 @@ class BedrockLLM:
                         "inputSchema": {"json": t.schema},
                     }
                 }
-                for t in req.tools
+                for t in tools
             ]
             if cache:
                 specs.append(_CACHE_POINT)
             kwargs["toolConfig"] = {"tools": specs}
         if req.output_schema is not None:
-            kwargs["outputConfig"] = {
-                "textFormat": {
-                    "type": "json_schema",
-                    "structure": {
-                        "jsonSchema": {"schema": json.dumps(_bedrock_schema(req.output_schema))}
-                    },
-                }
-            }
+            kwargs["toolConfig"]["toolChoice"] = {"tool": {"name": "structured_reply"}}
         messages = _to_converse(req.messages)
         if cache:
             messages[-1]["content"].append(_CACHE_POINT)
@@ -248,7 +218,18 @@ class BedrockLLM:
             EndpointConnectionError,
         ) as exc:
             raise TransientLLMError(str(exc)) from exc
-        return _from_converse(resp)
+        done = _from_converse(resp)
+        if req.output_schema is not None:
+            # An absent or ambiguous reply fails the caller's normal JSON validation, after
+            # usage is charged. Do not turn provider shape failures into unbilled exceptions.
+            calls = done.tool_calls
+            text = (
+                json.dumps(calls[0].input)
+                if len(calls) == 1 and calls[0].name == "structured_reply"
+                else ""
+            )
+            return replace(done, text=text, tool_calls=())
+        return done
 
 
 class FakeLLM:

@@ -121,7 +121,7 @@ class Verdict(BaseModel):
     fidelity_requirements: list[str] = Field(default_factory=list)
     fidelity_evidence: list[str] = Field(default_factory=list)
 
-    # Checked here, not in the schema: structured outputs reject numeric bounds.
+    # Enforce the score range locally, independent of provider schema support.
     @field_validator("node_score")
     @classmethod
     def _in_range(cls, v: float) -> float:
