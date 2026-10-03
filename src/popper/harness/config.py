@@ -1,4 +1,4 @@
-"""Run configuration: packaged defaults, deep-merged with an optional user file."""
+"""Generic model, execution, search and resource configuration."""
 
 from typing import Annotated, Any, Literal
 

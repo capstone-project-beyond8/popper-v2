@@ -1,4 +1,4 @@
-"""Run the five phases in order and record the outcome."""
+"""Dispatch Scientist requests and record operational outcomes."""
 
 import json
 import math
