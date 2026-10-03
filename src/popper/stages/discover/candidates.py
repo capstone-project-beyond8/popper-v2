@@ -108,9 +108,10 @@ class CandidateSetProposal(Record):
         return self
 
 
-def generate_candidates(
-    h: Harness, science: ScienceStore, source: ArtifactRef, policy: StudyPolicy, *, admission: ArtifactRef | None = None
-) -> ArtifactRef:
+def intent_context(
+    h: Harness, science: ScienceStore, source: ArtifactRef
+) -> tuple[CandidateContext, dict[str, ArtifactRef]]:
+    """Validated upstream inputs of a committed intent and the exact records it names."""
     validate_intent_inputs(science, source)
     intent = science.read(source)
     refs = {name: ArtifactRef.model_validate(intent[name]) for name in (
@@ -121,12 +122,28 @@ def generate_candidates(
         reviewed.research, reviewed.framing, prepared.facts,
         exploration_view(science, refs["exploration"]), list(read_table(h.run.path("data/raw.csv")).columns),
     )
-    research, framing, foundation = context.research, context.framing, context.foundation
-    best, raw_columns = context.exploration, context.raw_columns
+    return context, refs
+
+
+def processed_table(h: Harness, science: ScienceStore, preparation: ArtifactRef) -> pd.DataFrame:
+    return pd.read_parquet(h.run.path(science.read(preparation)["mounts"]["data"]["path"]))
+
+
+def candidate_warnings(item: CandidateProposal, context: CandidateContext, processed: pd.DataFrame) -> list[str]:
+    return hypothesis_warnings(
+        item.model_dump(mode="json"), context.research, context.foundation["operationalization"],
+        processed, list(context.raw_columns),
+    )
+
+
+def generate_candidates(
+    h: Harness, science: ScienceStore, source: ArtifactRef, policy: StudyPolicy, *, admission: ArtifactRef | None = None
+) -> ArtifactRef:
+    context, refs = intent_context(h, science, source)
+    research, framing, foundation, best = context.research, context.framing, context.foundation, context.exploration
     if h.run.committed("science:candidates:initial"):
         return h.run.artifact_ref("science:candidates:initial")
-    manifest = science.read(refs["preparation"])
-    processed = pd.read_parquet(h.run.path(manifest["mounts"]["data"]["path"]))
+    processed = processed_table(h, science, refs["preparation"])
     origins = [refs["frame"], refs["exploration"]]
     exposure = [h.run.artifact_ref("inputs")]
     context_part = partial(part, journal=h.journal, tag="candidates")
@@ -155,13 +172,7 @@ def generate_candidates(
     )
     candidates = []
     for index, item in enumerate(proposal.candidates):
-        warnings = hypothesis_warnings(
-            item.model_dump(mode="json"),
-            research,
-            foundation["operationalization"],
-            processed,
-            list(raw_columns),
-        )
+        warnings = candidate_warnings(item, context, processed)
         candidates.append(
             Candidate(
                 **item.model_dump(),

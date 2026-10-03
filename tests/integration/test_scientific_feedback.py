@@ -438,10 +438,11 @@ def test_evolve_beyond_idea_round_cap_is_deferred_at_admission(tmp_path: Path) -
 
     h, science, source = _idea_world(tmp_path, max_idea_rounds=1)
     _, selection = _select_move(h, science, source, "evolve")
+    h.llm = FakeLLM(lambda _: (ToolCall("done", "finish_ideas", {"summary": "Nothing justified"}),))
     assert dispatch_selected(h, request_move(science, selection)) is not None
     state = rebuild_state(science)
     assert state.stage_history[0].record.status == "deferred"
-    assert state.stage_history[0].record.reason == "idea evolution is unavailable"
+    assert state.stage_history[0].record.reason == "Idea round produced no committed work; scientific feedback unavailable"
     resources = resource_view(h, load_options(h.run), state)
     assert (resources.idea_rounds, resources.max_idea_rounds) == (1, 1)
 
@@ -463,3 +464,250 @@ def test_idea_routes_are_unavailable_before_idea_evolution(tmp_path: Path, versi
     h, science, _ = _idea_world(tmp_path, version)
     resources = resource_view(h, load_options(h.run), rebuild_state(science))
     assert not {"evolve", "direct"} & resources.available_routes and not resources.idea_evolution
+
+
+def _ref(ref: ArtifactRef) -> dict[str, Any]:
+    return ref.model_dump(mode="json")
+
+
+def _question(science: ScienceStore, source: ArtifactRef) -> None:
+    from popper.scientific.runtime.lifecycle.contracts import Question
+
+    science.commit("question", Question(text="Does the exposure explain the outcome?", author="theorist", sources=[source]))
+
+
+def _question_idea(state: Any, statement: str = "The association may be real") -> tuple[str, dict[str, Any]]:
+    question = state.questions[0].ref
+    return "submit_idea", {
+        "change": "new", "maturity": "question", "statement": statement, "rationale": "A projected question",
+        "sources": [_ref(question)], "question": _ref(question),
+    }
+
+
+def _critique(revision: ArtifactRef) -> dict[str, Any]:
+    return {
+        "assessment": "Plausible but underdetermined", "concerns": ["Confounding"], "rivals": ["Selection"],
+        "discriminating_checks": ["Compare within strata"], "sources": [_ref(revision)],
+    }
+
+
+def _finish(_: Any) -> tuple[str, dict[str, Any]]:
+    return "finish_ideas", {"summary": "Nothing further is justified"}
+
+
+class _Round:
+    """Script one idea round: theorist steps read the live state, the judge critiques the latest revision."""
+
+    def __init__(self, h: Harness, science: ScienceStore, steps: list[Any]) -> None:
+        self.science, self.steps = science, list(steps)
+        self.feedback: list[str] = []
+        self.llm = h.llm = FakeLLM(self.respond)
+
+    def respond(self, req: LLMRequest) -> tuple[ToolCall, ...]:
+        self.feedback += [r.text for m in req.messages for r in m.tool_results if r.text]
+        state = rebuild_state(self.science)
+        if req.tag == "idea_challenge":
+            return (ToolCall("critique", "submit_idea_challenge", _critique(state.ideas[-1].ref)),)
+        if req.tag == "evolve_ideas":
+            name, args = self.steps.pop(0)(state)
+            return (ToolCall(f"call-{len(self.steps)}", name, args),)
+        pytest.fail(f"unexpected model call: {req.tag}")
+
+
+def _evolve(h: Harness, science: ScienceStore, source: ArtifactRef) -> Any:
+    from popper.scientific.scientist.episode import request_move
+
+    _, selection = _select_move(h, science, source, "evolve")
+    return request_move(science, selection)
+
+
+def _promotion_world(tmp_path: Path) -> tuple[Harness, ScienceStore, ArtifactRef]:
+    from popper.scientific.runtime.projections.output import preparation_manifest
+    from tests.integration.test_discovery_policy import _committed_discovery_inputs
+
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    h.run.write_json("run.json", {"format_version": 7, "config": h.config.model_dump(mode="json")})
+    _committed_discovery_inputs(h)
+    science = ScienceStore(h.run)
+    exploration = h.run.artifact_ref("exploration")
+    science.commit("intent", {
+        "frame": _ref(h.run.artifact_ref("frame_reviewed")), "foundation": _ref(h.run.artifact_ref("foundation")),
+        "preparation": _ref(preparation_manifest(science, h.run.path("preparation"))), "exploration": _ref(exploration),
+    }, key="initial")
+    spec = spec_payload()
+    candidates = [Candidate(
+        id=f"h{i}", statement=f"Explanation {i}", rationale="Observed association",
+        primary_estimand=spec["primary_estimand"], expected_direction="positive",
+        refuting_result="An opposing interval", planned_test="Contrast", methods=spec["methods"],
+        origins=[exploration], exposure=[exploration],
+    ).model_dump(mode="json") for i in (1, 2)]
+    source = science.commit("candidates", {"candidates": candidates}, key="initial")
+    _question(science, source)
+    return h, science, source
+
+
+def test_evolve_round_challenges_promotes_and_feeds_the_next_move(tmp_path: Path) -> None:
+    from popper.scientific.runtime.projections.output import episode_summary
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.moves import propose_moves
+    from popper.workflow.resources import resource_view
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _promotion_world(tmp_path)
+    request = _evolve(h, science, source)
+    spec = spec_payload()
+    candidate = {
+        "statement": "Exposure raises the outcome", "rationale": "The critique left this rival open",
+        "primary_estimand": spec["primary_estimand"], "expected_direction": "positive",
+        "refuting_result": "An opposing interval", "planned_test": "Contrast", "methods": spec["methods"],
+    }
+
+    def conjecture(state: Any) -> tuple[str, dict[str, Any]]:
+        revision, challenge = state.ideas[-1], state.idea_challenges[-1]
+        return "submit_idea", {
+            "change": "continue", "maturity": "conjecture", "idea_id": revision.record.idea_id,
+            "parents": [_ref(revision.ref)], "statement": "Exposure raises the outcome",
+            "rationale": "The critique left one rival open", "explanation": "A causal pathway",
+            "limitations": ["Observational data"], "sources": [_ref(revision.ref), _ref(challenge.ref)],
+        }
+
+    _Round(h, science, [
+        _question_idea,
+        lambda s: ("challenge_idea", {"revision": _ref(s.ideas[-1].ref)}),
+        conjecture,
+        lambda s: ("challenge_idea", {"revision": _ref(s.ideas[-1].ref)}),
+        lambda s: ("promote_idea", {
+            "revision": _ref(s.ideas[-1].ref), "challenge": _ref(s.idea_challenges[-1].ref),
+            "promotion": {"candidate": candidate, "predictions": ["Positive contrast", "Null contrast"], "rationale": "Answered"},
+        }),
+        _finish,
+    ])
+    assert dispatch_selected(h, request) is None
+    state = rebuild_state(science)
+    work = state.stage_history[-1].record
+    question, conjecture_rev, testable = state.ideas
+    first, second = state.idea_challenges
+    assert work.status == "completed"
+    assert work.outputs == [question.ref, first.ref, conjecture_rev.ref, second.ref, testable.ref]
+    assert conjecture_rev.record.idea_id == testable.record.idea_id == question.record.idea_id
+    assert [i.record.maturity for i in state.ideas] == ["question", "conjecture", "testable"]
+    promoted = next(c.record for c in state.candidates if c.record.id == f"hypothesis-{question.record.idea_id}")
+    assert promoted.origins == [conjecture_rev.ref, second.ref]
+    assert testable.record.candidate_id == promoted.id
+
+    snapshot = commit_snapshot(science, state)
+    preparation = science.read(h.run.artifact_ref("science:intent:initial"))["preparation"]
+    test = {
+        "primary_estimand": promoted.primary_estimand.model_dump(mode="json"), "selection": {"slice": "all", "assumptions": []},
+        "preparation": preparation, "methods": spec["methods"], "inference": {"bootstrap": 200, "interval_level": .95},
+        "adjustment": [], "requested_coverage": {"seeds": [0], "alternatives": []},
+        "outputs": ["primary_estimate", "estimand.json"], "sources": [],
+    }
+    move = {
+        "action": "test", "objective": "Test the promoted idea", "hypothesis_id": promoted.id,
+        "trigger_refs": [_ref(testable.ref)], "test_proposal": test, "cost_usd": 0, "stopping_condition": "One informative test",
+        "discriminating_outcomes": ["positive", "negative", "inconclusive"],
+    }
+    h.llm = FakeLLM(lambda req: (ToolCall("move", "submit_moves", {"moves": [move], "omitted": {"h1": "Held", "h2": "Held"}}),))
+    proposals = propose_moves(h, science, snapshot, resource_view(h, load_options(h.run), state))
+    assert science.read(proposals)["moves"][0]["trigger_refs"] == [_ref(testable.ref)]
+    summary = episode_summary(science)
+    assert [i["ref"] for i in summary["ideas"]] == [_ref(i.ref) for i in state.ideas]
+    assert [c["ref"] for c in summary["idea_challenges"]] == [_ref(first.ref), _ref(second.ref)]
+
+
+def test_evolve_records_a_sourced_need_instead_of_a_candidate(tmp_path: Path) -> None:
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    _question(science, source)
+    request = _evolve(h, science, source)
+    _Round(h, science, [
+        _question_idea,
+        lambda s: ("record_need", {"reason": "The exposure was never measured", "sources": [_ref(s.questions[0].ref)]}),
+        _finish,
+    ])
+    assert dispatch_selected(h, request) is None
+    state = rebuild_state(science)
+    need = state.dispositions[-1]
+    assert state.stage_history[-1].record.outputs == [state.ideas[0].ref, need.ref]
+    assert need.record.kind == "deferred" and need.record.sources == [state.questions[0].ref]
+    assert [c.record.id for c in state.candidates] == ["h1", "h2"]
+
+
+def test_evolve_capacity_bounds_new_identities(tmp_path: Path) -> None:
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path, hypotheses=1)
+    _question(science, source)
+    request = _evolve(h, science, source)
+
+    def retire(state: Any) -> tuple[str, dict[str, Any]]:
+        assert len(state.ideas) == 1
+        first = state.ideas[0]
+        return "submit_idea", {
+            "change": "retire", "maturity": "question", "idea_id": first.record.idea_id, "parents": [_ref(first.ref)],
+            "statement": first.record.statement, "rationale": "Superseded", "sources": [_ref(first.ref)],
+            "question": _ref(state.questions[0].ref),
+        }
+
+    round_ = _Round(h, science, [
+        _question_idea, lambda s: _question_idea(s, "A second line of inquiry"), retire,
+        lambda s: _question_idea(s, "A second line of inquiry"), _finish,
+    ])
+    assert dispatch_selected(h, request) is None
+    state = rebuild_state(science)
+    assert [(i.record.status, i.record.statement) for i in state.ideas] == [
+        ("active", "The association may be real"), ("retired", "The association may be real"),
+        ("active", "A second line of inquiry"),
+    ]
+    assert any("retire an idea before adding another" in text for text in round_.feedback)
+
+
+def test_interrupted_round_resumes_without_duplicating_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    _question(science, source)
+    request = _evolve(h, science, source)
+    first_round = _Round(h, science, [_question_idea, _finish])
+    original = RunStore.commit_artifact
+
+    def interrupt(store: RunStore, name: str, path: Path) -> None:
+        original(store, name, path)
+        if name.startswith("science:idea:"):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(RunStore, "commit_artifact", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        dispatch_selected(h, request)
+    monkeypatch.setattr(RunStore, "commit_artifact", original)
+    first = rebuild_state(science).ideas[0].ref
+    resumed = _Round(h, science, [_finish])
+    assert dispatch_selected(h, request) is None
+    state = rebuild_state(science)
+    assert first_round.steps == [_finish] and resumed.steps == []
+    assert [i.ref for i in state.ideas] == [first] and len(state.stage_history) == 1
+    assert state.stage_history[0].record.status == "completed" and state.stage_history[0].record.outputs == [first]
+    calls = len(resumed.llm.calls)
+    assert dispatch_selected(h, request) is None
+    assert len(resumed.llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
+
+
+def test_empty_round_is_a_sourced_deferral(tmp_path: Path) -> None:
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    request = _evolve(h, science, source)
+    round_ = _Round(h, science, [_finish])
+    outcome = dispatch_selected(h, request)
+    assert outcome is not None and outcome.kind == "finish"
+    state = rebuild_state(science)
+    work, admission = state.stage_history[0].record, state.stage_admissions[0]
+    assert work.status == "deferred" and work.outputs == []
+    deferral = h.run.artifact_ref(f"science:disposition:evolve_ideas:{admission.record.id}")
+    assert state.dispositions[-1].ref == deferral
+    assert state.dispositions[-1].record.sources == [admission.record.snapshot]
+    calls = len(round_.llm.calls)
+    assert dispatch_selected(h, request) == outcome
+    assert len(round_.llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
