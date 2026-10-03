@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.experiment import method_reference
+from popper.discover.contracts import TestSpec as ScientificTest
+from popper.discover.experiment import declared_procedure_reference, method_reference
 from popper.harness.interpreter import ExecResult
 from popper.treesearch.engine import Node, StageSpec
 from popper.treesearch.judge import judge_input
 from tests.unit.test_hypothesis import ESTIMAND, PROPOSAL
 from tests.unit.test_judge_input import PNG
+from tests.unit.test_test_identity import spec_payload
 
 
 def test_validated_method_roles_and_requirements_reach_blinded_judge(tmp_path: Path) -> None:
@@ -70,6 +72,29 @@ def test_validated_method_roles_and_requirements_reach_blinded_judge(tmp_path: P
 def test_method_reference_rejects_unknown_column_roles() -> None:
     with pytest.raises(ValueError, match="column"):
         method_reference(PROPOSAL, ["hours"], purpose="main")
+
+
+def test_effective_procedure_reaches_blinded_judge(tmp_path: Path) -> None:
+    payload = spec_payload()
+    payload.update(selection={"slice": "x > 30", "assumptions": ["same target"]}, inference={"bootstrap": 100, "interval_level": .95}, adjustment=["age"])
+    payload["methods"][0].update(algorithm="trim 20% then compare means", parameters={"trim": .2})
+    reference = declared_procedure_reference(ScientificTest.model_validate(payload), ["x", "y"], purpose="main")
+    node = Node("main-000", "main", None, "draft", 0, tmp_path, "estimate=-0.731", "ok", 7, True, "", {}, [], "")
+    (tmp_path / "judge_figures").mkdir()
+    (tmp_path / "judge_figures/samples.png").write_bytes(PNG)
+    stage = StageSpec("main", "positive predicted effect", "rationale", {}, (), blind_estimates=True, judge_reference=reference)
+    prompt, _ = judge_input(stage, node, ExecResult(0, False, "", "", .1))
+    for requirement in ("trim 20%", '"trim": 0.2', "x > 30", '"bootstrap": 100', "age"):
+        assert requirement in prompt
+    assert "positive predicted" not in prompt and "0.731" not in prompt
+
+
+def test_open_method_requirements_reach_reference() -> None:
+    method = {"family": "custom", "description": "trimmed mean", "algorithm": "trim then compare", "inputs": ["hours", "score"], "outputs": ["primary_estimate"], "effect_scale": "points", "assumptions": ["exchangeability"], "diagnostics": ["check trimming"], "parameters": {}}
+    reference = method_reference({**PROPOSAL, "methods": [method]}, ["hours", "score"], purpose="main")
+    text = " ".join(reference.requirements)
+    assert "trim then compare" in text and "check trimming" in text
+    assert "expected_direction" not in text and str(PROPOSAL["rationale"]) not in text
 
 
 def test_transform_reference_distinguishes_exposure_from_outcome() -> None:

@@ -16,6 +16,7 @@ def test_interval_and_sample_size_are_their_own_keys() -> None:
     node = SimpleNamespace(
         id="experiment-000",
         stage="experiment",
+        test_id=None,
         results={"slope": {"value": 0.4213, "ci": [0.3, 0.55], "n": 549}, "rows": {"value": 600}},
     )
     values = collect_values([cast(Node, node)])
@@ -32,7 +33,7 @@ def test_same_stage_attempts_cannot_overwrite_keys() -> None:
     nodes = [
         cast(
             Node,
-            SimpleNamespace(id=f"main-{i:03d}", stage="main", results={"effect": {"value": i}}),
+                SimpleNamespace(id=f"main-{i:03d}", stage="main", test_id=None, results={"effect": {"value": i}}),
         )
         for i in range(2)
     ]
@@ -44,6 +45,14 @@ def test_same_stage_attempts_cannot_overwrite_keys() -> None:
 def test_string_values_are_escaped() -> None:
     tex, _ = fill_numbers(r"\R{a.b}", {"a.b": "50% & up"})
     assert tex == r"50\% \& up"
+
+
+def test_scientific_aliases_do_not_create_ambiguous_main_value() -> None:
+    nodes = [cast(Node, SimpleNamespace(id=f"node-{i}", stage="main", test_id=f"test-{i}", results={"primary_estimate": {"value": i}})) for i in (1, 2)]
+    values = collect_values(nodes)
+    assert values["test-1.main.primary_estimate"] == 1
+    assert values["test-2.main.primary_estimate"] == 2
+    assert "main.primary_estimate" not in values
 
 
 def test_dotted_capital_key_is_reported_missing() -> None:

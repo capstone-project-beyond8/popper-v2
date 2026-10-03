@@ -21,6 +21,7 @@ class ExecResult:
     stdout: str
     stderr: str
     seconds: float
+    execution_id: str | None = None
 
 
 def _matplotlib_cache() -> Path:

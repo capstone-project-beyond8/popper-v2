@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from popper.harness.config import load_config
 from popper.harness.context import UNTRUSTED_NOTE
 from popper.harness.llm import Completion, FakeLLM, LLMRequest, Message, TransientLLMError
+from popper.harness.recovery import read_events
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 
@@ -22,9 +23,9 @@ def test_converse_journals_each_call(tmp_path: Path) -> None:
     fake = FakeLLM(lambda req: "ok")
     h = _harness(tmp_path, fake)
     assert h.converse("analyst", tag="t1", system="s", messages=(Message("user", "p"),)).text == "ok"
-    lines = h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1
-    entry = json.loads(lines[0])
+    entries = [e for e in read_events(h.run.root) if e["event"] == "llm_call"]
+    assert len(entries) == 1
+    entry = entries[0]
     assert entry["event"] == "llm_call"
     assert entry["tag"] == "t1"
     assert entry["role"] == "analyst"
@@ -88,7 +89,7 @@ def test_cost_is_accounted_and_capped(tmp_path: Path) -> None:
     h.converse("analyst", tag="t", system="s", messages=(Message("user", "p"),))
     expected = 3.0 + 15.0 + 3.0 * 1.25 + 3.0 * 0.1  # sonnet price, cache write and read
     assert h.spent_usd == pytest.approx(expected)
-    entry = json.loads(h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    entry = next(e for e in read_events(h.run.root) if e["event"] == "llm_call")
     assert entry["usd"] == pytest.approx(expected)
     assert (entry["cache_read_tokens"], entry["cache_write_tokens"]) == (1_000_000, 1_000_000)
     with pytest.raises(BudgetExceeded):
@@ -143,7 +144,7 @@ def _flaky_harness(tmp_path: Path, llm: _Flaky) -> tuple[Harness, list[float]]:
 
 def _events(h: Harness) -> list[str]:
     lines = h.run.path("journal.jsonl").read_text(encoding="utf-8").splitlines()
-    return [json.loads(line)["event"] for line in lines]
+    return [json.loads(line)["event"] for line in lines if json.loads(line)["event"].startswith("llm_")]
 
 
 def test_retries_transient_errors_with_backoff(tmp_path: Path) -> None:

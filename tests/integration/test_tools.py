@@ -56,6 +56,9 @@ def test_run_python_uses_numbered_scratch_folders(tmp_path: Path) -> None:
     events = [json.loads(line) for line in h.run.path("journal.jsonl").read_text().splitlines()]
     assert sum(e["event"] == "exec_start" for e in events) == 2
     assert sum(e["event"] == "exec" for e in events) == 2
+    starts = [e for e in events if e["event"] == "exec_start"]
+    assert len({e["execution_id"] for e in starts}) == 2
+    assert all(e["code_hash"] and e["input_hashes"] for e in starts)
     for e in (e for e in events if e["event"] == "exec"):
         journaled = Path(e["path"])
         assert journaled.parent == (node_dir / "scratch").resolve()

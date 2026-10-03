@@ -4,12 +4,44 @@ from pathlib import Path
 import pytest
 
 from popper.harness.interpreter import ExecResult
+from popper.harness.recovery import Journal, read_events
 from popper.treesearch.engine import Node, StageSpec
 from popper.treesearch.judge import _blinded_code, judge_input, validate_image
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII="
 )
+
+
+@pytest.mark.parametrize("instance_id", [None, "h001-s001-main"])
+def test_judge_context_cuts_identify_stage_instance(
+    tmp_path: Path, instance_id: str | None
+) -> None:
+    spec = StageSpec("main", "goal", "", {}, (), instance_id=instance_id)
+    node = Node(
+        f"{spec.execution_id}-000",
+        "main",
+        None,
+        "draft",
+        0,
+        tmp_path,
+        "x" * 20001,
+        "ok",
+        7,
+        True,
+        "valid",
+        {},
+        [],
+        "draft",
+        stage_instance=spec.execution_id,
+    )
+    prompt, _ = judge_input(
+        spec, node, ExecResult(0, False, "", "", 0), journal=Journal(tmp_path / "journal.jsonl")
+    )
+    assert "chars cut" in prompt
+    cuts = [e for e in read_events(tmp_path) if e["event"] == "context_cut"]
+    assert len(cuts) == 1 and cuts[0]["title"] == "Code"
+    assert cuts[0]["tag"] == f"judge:{spec.execution_id}"
 
 
 def test_estimates_are_removed_from_every_judge_channel(tmp_path: Path) -> None:

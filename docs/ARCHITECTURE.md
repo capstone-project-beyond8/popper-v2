@@ -1,14 +1,17 @@
 # Popper Architecture
 
-Target architecture for Popper, an AI scientist for quantitative tabular research. This document defines vision, boundaries, responsibilities, contracts, invariants, state and evidence semantics, dependency rules, major flows, and architectural decisions. [ROADMAP.md](ROADMAP.md) describes product outcomes and capability sequencing. File changes, migrations, test cases, and task ordering are implementation details documented separately when needed.
+**Popper is a persistent AI Scientist operated by a Scientific Runtime and a strong Agent Harness.** The Scientist owns scientific reasoning, evolving understanding and research direction across bounded episodes. Scientific Runtime preserves its state, identity, evidence and commitments; Agent Harness enables model-native action with context, tools, execution, recovery and enforceable integrity boundaries.
 
-The design distinguishes capabilities already present from target commitments where that distinction affects a contract. It does not prescribe implementation order. Optional orchestration strategies, including the earlier [graph-based diagram](images/architecture.svg), do not define the core architecture.
+The target is `Research Program → Scientific State ↔ AI Scientist → ResearchMove → Run → Evidence → Scientific State`. A Run bounds work and resources; the research program and its accumulated understanding survive it. Persistence concerns scientific continuity, not a continuously active model conversation or a required background service.
+
+Code is the source of truth; this architecture is a design hypothesis. It defines target responsibilities, contracts, invariants and semantics. **Current capability** marks traced implementation; **target capability** marks behavior or contracts not fully implemented; **replaceable strategy** marks one way to deliver them. Logical responsibilities do not require new packages, services or agents. [ROADMAP.md](ROADMAP.md) owns the path from code reality to this target, including sequencing and delivery scope. The earlier [graph-based diagram](images/architecture.svg) is historical strategy context, not the current flow or target contract.
 
 ## 1. Scope
 
-- **Input:** a research context (a narrative brief with optional structured front matter: domain, objectives, variable meanings and roles, design, constraints; §4.1) and one tabular dataset. **Output:** a run folder with a LaTeX paper, a claims file, and every attempt, execution and decision that produced them.
-- **In scope:** understanding the research problem with the researcher, grounding it in the data (preparation and assessment), exploration, hypothesis generation, analysis by generated code, write-up, review, optional verification on held-back rows.
-- **Out of scope:** automatic procurement or collection of new data, multiple datasets in one run, non-tabular data, shared multi-user deployment. Optional acquisition may locate and assess candidate inputs; researcher selection and a single tabular dataset remain the boundary of a run.
+- **Research Program:** a persistent scope of inquiry grounded in researcher intent, questions, evolving explanations, evidence and direction. Its Scientific State accumulates across Runs and may remain open after any individual episode or manuscript.
+- **Target Run:** a bounded execution/research episode with declared objectives, resources and access. Its useful output may be observations, a challenged conjecture, a tested hypothesis, an inconclusive result, a justified next question, or a manuscript revision. A Run need not complete a study or paper.
+- **Scientific scope:** framing, data grounding, observation, synthesis, explanation/rival generation, challenge, hypothesis evolution, discriminating experiments and interpretation. Literature, challenge, validation, manuscripts and new data are capabilities the Scientist may revisit in the loop (§4.8), rather than terminal phases.
+- **Execution scope:** a Run may retain one selected tabular dataset and declared access/resource limits. These are episode constraints, not epistemic boundaries of the Program. The Scientist may conclude that replication, new data or another Study is necessary and record a next move. Execution requires eligible inputs and authorization; no automatic procurement, non-tabular backend or shared deployment is implied. Current support and delivery scope are recorded in [ROADMAP.md](ROADMAP.md).
 - **Quality attributes, in priority order:**
   1. _Scientific usefulness_: find relevant, testable hypotheses and findings with enough sourced evidence and explicit uncertainty to justify further testing. Investigate alternatives, accumulate knowledge, and choose discriminating follow-ups; candidate count and favorable estimates alone are not useful discovery.
   2. _Recoverability_: learn from execution and scientific obstacles, preserve committed history, and continue justified research. Reproduce an execution where its environment permits; exact numerical reproduction is not guaranteed.
@@ -20,75 +23,62 @@ The design distinguishes capabilities already present from target commitments wh
 
 ```mermaid
 flowchart TD
-    U[Researcher brief and selected dataset] --> A[Understand]
-    X[Optional acquisition<br/>datasets · benchmarks · literature] --> U
-    A --> G[Ground]
-    G --> D[Active research state<br/>optional derived graph]
-    D <--> S[Adaptive research search<br/>hypotheses · specifications · branches]
-    S --> E[Experiment specification]
-    E --> R[Pluggable executor<br/>local · container · remote · domain-specific]
-    R --> M[Measurements and execution records]
-    R --> F
-    M --> F[Recovery and adaptation<br/>repair · refine · pivot · reframe]
-    F --> D
-    F --> S
-    S --> X
-    X --> D
-    M --> V
-    V --> D
-    M --> C[Communication]
-    C --> V[Claim and evidence verification]
-    V --> P[Paper]
-    L[Cross-run lessons] -. informs proposals, never evidence .-> D
-    H[Targeted human collaboration] -. intent · scope · validation decisions .-> D
-    I[Integrity · provenance · budgets] -. constrains .-> A
-    I -. constrains .-> R
-    I -. constrains .-> V
+    P[Research Program<br/>intent · questions · research direction] --> K[Scientific State<br/>committed records and sourced understanding]
+    K <--> S[Persistent AI Scientist<br/>observe · synthesize · generate · challenge · evolve · interpret]
+    S --> M[ResearchMove<br/>objective · sources · commitments]
+    M --> C[Thin Coordinator<br/>authorize · schedule · route · budget]
+    C --> R[Run<br/>bounded research episode]
+    R --> H[Agent Harness<br/>context · tools · execution · recovery · integrity]
+    H --> E[Evidence and attributable outcomes]
+    E -->|Scientific Runtime commits and links records| K
+    S -->|commits interpretation and direction through runtime| K
+    R <--> X[Callable scientific capabilities<br/>literature · challenge · validation · manuscripts · new data]
+    L[Reusable procedural lessons] -. informs work with attribution .-> S
 ```
 
-The diagram shows capabilities and information flow, not required agent topology or build sequence. Committed records are authoritative; working views and any derived graph support research decisions. Adaptive research search is a core capability; trees, tournaments, agent roles, and executor backends are replaceable strategies. Acquisition can supply resolved literature before framing and during discovery; candidate datasets still pass researcher selection and Ground.
+Scientific Runtime governs the scientific contracts throughout this loop: state/record persistence, identities, ResearchMoves, ExperimentSpecs, evidence, exposure and typed transitions. A non-experimental move can retrieve prior work, challenge an explanation, revise a manuscript or assess new-data needs without fabricating an ExperimentSpec. Each capability returns sourced observations, assessments or artifacts to state; the Scientist interprets their implications and chooses what to do next. Trees, debate, tournaments, PI agents, graphs and executor backends remain replaceable strategies.
 
 These capabilities extend Popper's artifact-backed, evidence-qualified research loop; they do not replace its scientific identity, integrity, or researcher-intent commitments.
 
-Mechanisms from AIDE, AI Scientist-v2, Co-Scientist, Kosmos, and ARC motivate these responsibilities [1, 3, 4, 8, 32]. Their results support adaptation, not a claim that the combined Popper design has already been validated:
+Existing systems are sources of mechanisms to investigate [1, 3, 4, 8, 32], not a reason to add their topology. Keep the following capabilities only where they improve the Scientist's reasoning, discovery or accumulation:
 
-- **Adaptive research search** manages hypothesis and specification candidates, branch selection, follow-ups, and resource allocation with retained lineage and exposure (§4.6). It reuses code search within each experiment rather than treating code optimization as the whole research process.
+- **Scientific reasoning** synthesizes observations, generates explanations and rivals, challenges them, evolves candidates and chooses discriminating follow-ups (§4.4–4.6). It reuses code search within an experiment; code optimization does not define the research process.
 - **Active research state** makes findings, failures, contradictions, unresolved questions, and next opportunities available through sourced working views (§4.6, §9).
 - **Recovery and adaptation** diagnoses observations and proposes bounded repair, refinement, pivot, or reframe transitions with identity and provenance (§4.6).
 - **Evidence and claim verification** traces claims, numbers, and figures to measurements, executions, code, inputs, and assumptions; this audit does not itself establish scientific validity or validation standing (§4.7, §10, §11).
 - **Pluggable execution** runs a committed experiment specification against declared inputs through a backend contract. Local, container, remote, and domain-specific executors must preserve the same identity, access, logging, and result contracts (§5, §7.4).
-- **Acquisition** is an optional upstream capability that finds and assesses candidate datasets, benchmarks, and literature with source provenance and limitations. It may inform research framing; it does not silently make an acquired source eligible evidence (§4.1, §11, §12).
+- **Literature and new data** can be requested again when a question, contradiction or discriminating experiment requires them. Sourced prior work informs reasoning; data candidates require suitability/access review. Acquisition does not silently make a source eligible evidence (§4.1, §11, §12).
 - **Cross-run learning** may turn prior failures, repairs, and recurring patterns into attributed lessons or reusable skills. Such lessons can inform proposals, but are not observations or evidence for a new run (§9).
 - **Targeted human collaboration** asks for input when a decision can change intent, scope, operationalization, or a validation commitment. Routine execution and same-specification repair remain bounded autonomous work (§7.8).
 
 ## 2. Principles
 
-The core vision is a scientist that finds useful, evidence-grounded candidates for further testing through repeated attempts, observations and adaptation. Integrity safeguards this discovery process and its evidence standing. Architectural completeness is not a prerequisite for useful exploration. These are commitments; §2.2 lists replaceable strategies; the hard invariants in §2.1 apply regardless of quality-attribute priority.
+The core vision is a persistent Scientist that develops and revises scientific understanding within a Research Program. Runs supply bounded opportunities to reason, gather evidence and act; their completion does not close the inquiry. Integrity safeguards accumulated knowledge and its evidence standing. These are commitments; §2.2 lists replaceable strategies; §2.1 applies regardless of quality-attribute priority.
 
-1. **Useful discovery first.** Every increment preserves a runnable end-to-end path and improves the researcher's ability to find, test, understand or pursue a scientifically useful result. A candidate should state its question, rationale, evidence, uncertainty and a discriminating next test. Negative or inconclusive studies can close unproductive directions or motivate useful follow-ups.
-2. **Active research state.** Keep what is known, attempted, failed, hypothesized and unresolved across sessions, and expose it for candidate generation and next-action selection (§4.6). Working views and any derived graph resolve to committed records.
-3. **Adaptive research search.** Use `attempt → execute → observe → diagnose → next move`, with candidate hypotheses, specification branches, recovery, follow-ups, bounded transitions and explicit stopping. Never retry until a result looks favorable. Sequential and parallel execution obey the same identity and evidence contracts.
+1. **Useful discovery first.** The system helps the researcher find, test, understand or pursue a scientifically useful result. Candidates retain rationale, sources and uncertainty appropriate to their maturity; testable candidates identify discriminating observations. Negative or inconclusive studies can close unproductive directions or motivate useful follow-ups.
+2. **Persistent Scientific State.** Keep what is observed, explained, challenged, attempted, failed and unresolved across sessions and Runs. Preserve research direction, identity and exposure while providing sourced understanding for the Scientist (§4.6, §9). Working views resolve to committed records.
+3. **A scientific feedback loop.** Use `observe → synthesize → generate → challenge → evolve → select discriminating experiment → execute → interpret → update scientific state`. These are reasoning responsibilities, not mandatory phases or one agent each. Questions and conjectures can mature before becoming executable hypotheses. Never retry until a result looks favorable.
 4. **Scientific identity and adaptation provenance.** Distinguish question, hypothesis, intended test, specification version, code and execution. Record the trigger, reason and changes (§4.6). Scientific changes cannot hide inside technical debugging.
 5. **Separate evidence dimensions.** Provenance identifies an observation's sources; measurement fidelity checks the intended test; scientific validity concerns the inference (§4.7). Fresh execution does not establish all three.
 6. **Independent challenge.** Separate generation from challenge. A fresh context can be sufficient to start; Critic and debate are strategies (§6). Challenge remains an attributed assessment, not independent empirical validation.
-7. **Adaptive discovery, locked validation.** Discovery can learn from failures and results. Final validation uses a locked protocol and suitable unexposed evidence independent of adaptive selection under its stated design; discovery cannot assign its own validation standing (§11). This is a chosen conservative product boundary, not a claim that sample splitting is the only valid statistical approach [17, 26, 27].
+7. **Evidence regimes remain explicit.** Discovery can learn from failures and results. Locked validation requires a locked protocol and suitable unexposed evidence under its stated design; adaptive discovery cannot assign that standing (§11). Useful exploratory, descriptive, negative or inconclusive work need not end in validation or publication. This conservative validation regime does not claim that sample splitting is the only valid approach [17, 26, 27].
 8. **Integrity stays hard.** Record every execution, preserve write-once artifacts, enforce access/sealed-data boundaries, compute labels in code and render paper numbers from committed named results. Scientific advice ordinarily supplies feedback rather than preventing an attempt. Protect researcher-confirmed intent explicitly.
-9. **One source and owner.** Reuse phase artifacts, journal and run store; no parallel research-memory authority. Phases diagnose evidence, propose transitions and own scientific semantics. Harness validates artifact contracts, identity and integrity. Coordinator authorizes bounded routes and executes cross-phase transitions; it does not duplicate phase-level scientific policy.
-10. **Adapt established mechanisms.** Use primary papers and implementations to identify useful search, state, recovery, acquisition and learning mechanisms [1, 3, 4, 8, 32]. Adapt them to Popper's contracts before inventing replacements. Local benchmarking is not an adoption prerequisite during development; contract checks establish operational behavior, and later evaluation measures scientific usefulness and transfer.
+9. **One source and owner.** Committed records remain authoritative. The Scientist owns interpretations, candidate selection and research direction. The scientific runtime owns scientific contracts and state semantics; the harness supplies generic enforcement mechanisms. Coordinator authorizes, schedules and routes within budgets. Derived knowledge never becomes a competing record authority.
+10. **Capability gaps justify change.** Trace the existing mechanism and name the scientific behavior it cannot support. Adapt it in place when possible, and evaluate the resulting behavior (§13.1). External systems suggest options; architectural completeness or more tightly managed execution alone does not justify another layer.
 11. **Simplicity and directness.** Prefer one authoritative path for each responsibility. Correct or retire restrictive and opaque paths instead of layering workarounds over them. Preserve integrity and the meaning of existing evidence; unmeasured preferences alone do not justify a wholesale redesign.
-12. **Harness quality is part of scientific capability.** Explicit artifact contracts, checkpoints, bounded recovery, environment diagnosis, deterministic integrity checks and targeted human escalation matter alongside agent reasoning [32]. Compose them from current mechanisms before adding agents, services or infrastructure. Graceful degradation preserves useful output with honest standing.
+12. **Model-native agency with strong boundaries.** Give a capable model explicit state, tools, feedback and constraints so it can decide what scientific work is worth doing. The harness preserves native conversations and tool use while recording work, enforcing permissions and supporting recovery. Encode integrity and declared commitments in code; encode scientific advice as actionable feedback unless a specific boundary requires enforcement.
 
 ### 2.1 Invariants
 
-These baseline protections are implemented. Target commitments below the table become executable checks as their capabilities ship; they are not a claim that future capability exists today.
+These baseline protections have current enforcement paths. They do not certify general scientific validity or deployment isolation. The additional commitments below distinguish implemented scientific contracts from target extensions.
 
 | Baseline invariant | Enforced by |
 | --- | --- |
 | Every model call, tool call, execution and decision is journaled | Harness (§7.5) |
 | Run files are write-once; a fix is a new node, attempt or assessment | Run store (§9) |
-| Accepted evidence comes from a fresh execution of the submitted script | Search engine and Ground submit (§4.3, §5.1) |
+| Accepted empirical measurements come from a fresh execution of the submitted script | Search engine and Ground submit (§4.3, §5.1) |
 | Evidence labels are computed from declared rules | Search and publication responsibilities (§5.5, §10) |
-| Paper numbers resolve to named results; unknown names are flagged | Renderer (§10) |
+| Reported empirical numbers resolve to named results; unknown names are flagged | Renderer (§10) |
 | Research context, answers, dataset strings, outputs and retrieved text are untrusted data | Context assembly (§7.3) |
 | No credentials in run files or script environments | Sandbox and run store (§7.4, §7.5) |
 | Holdout rows never reach discovery nodes, sessions or tools | Run store at ingest (§11) |
@@ -97,7 +87,7 @@ These baseline protections are implemented. Target commitments below the table b
 | Descriptive statistics are computed by code | Initial data analysis (§4.2) |
 | Dependency rules of §3 hold | Production components obey the dependency contract |
 
-**Target invariants:** accepted artifacts satisfy declared read/write contracts and cite their producer/input versions; state entries and transitions cite committed sources; repairs preserve declared scientific identity; specification changes create versions; corrected measurements do not erase prior ones; validation authority cannot be exercised by the adaptive discovery loop. Prediction verdicts and validation labels are computed once their evidence/protocol contracts exist. Research-context metadata status `confirmed` means researcher-approved metadata, not empirical truth or validation support. These are integrity/product commitments; they do not make assumption truth or scientific validity mechanically decidable.
+**Scientific runtime invariants:** format-5 references resolve exact committed producers/hashes; accepted measurements bind hypothesis, test, implementation and execution; same-test repairs preserve the committed intended test; changed operational specifications get new identities/parent references; direct invalidation preserves prior measurements; prospective support is computed from declared matching rules. Target extensions carry these protections into evolving candidates, cross-run evidence and manuscript claims, including transitive stale-state propagation and program-wide exposure. Validation authority remains unavailable to adaptive discovery; executable validation and its labels are target capability. Research-context status `confirmed` means researcher-approved metadata, not empirical truth. None of these checks makes assumption truth or scientific validity mechanically decidable.
 
 **Warnings versus boundaries.** Role/type conflicts, temporal-order concerns, few clusters, weak operationalization and unconfirmed assumptions supply scientific feedback and printed limitations. Access prohibitions, credentials, fabricated/missing evidence, sealed data and unauthorized edits of researcher-confirmed intent are integrity boundaries. A protected/excluded-column warning is not a substitute for enforcing an explicit access restriction. Future method or robustness advice does not automatically become a code gate (§4.4–4.5).
 
@@ -105,105 +95,73 @@ These baseline protections are implemented. Target commitments below the table b
 
 | Strategy | Current position | Reason to extend or change |
 | --- | --- | --- |
-| Sequential coordinator playbook | Baseline routing strategy | Adopt richer orchestration only when fixed routing blocks a needed capability |
+| `Understand → Ground → Discover → Experiment → Publication` | Current/fallback playbook, not the target lifecycle | Scientist-selected capability revisits replace fixed routing when evidence requires them; fallback reporting preserves useful outcomes. |
 | Draft/debug/improve trees | Implemented within Discover; reuse | Compare completion, fidelity, selection and cost with bounded linear scheduling |
 | Research Graph | Optional future state/lineage representation | Committed records become difficult to query or explain; no second authority |
-| Fresh-context challenge, Critic, debate | Separate Judge context today; scientific challenge later | External evidence or observed self-confirmation supports adoption; local comparisons refine defaults |
+| Fresh-context challenge, Critic, debate | Separate Judge context today; scientific challenge is a target | Candidate/interpretation challenge needs separation from generation; topology remains replaceable |
 | Discover or PI agent | Optional orchestration of the same contracts | Fixed routing limits useful discovery/recovery |
-| Parallel branches, tournaments, hierarchical planners | Target search strategies; topology is replaceable | Existing systems motivate wider search and challenge; concurrency preserves branch ownership, checkpoints and exposure |
-| Judge blinding, method/robustness schedules | Implemented policies, open to refinement | Reduce selection bias while retaining necessary diagnostic information |
+| Parallel branches, tournaments, hierarchical planners | Optional strategies | Sequential reasoning demonstrably misses useful alternatives or cannot use available resources; preserve ownership and exposure |
+| Fixed baseline/main/robustness, Judge blinding and role sessions | Inner experiment/configuration strategies | Preserve useful execution/fidelity checks without imposing method, role or phase topology on scientific reasoning. |
+| Single-hypothesis payload and closed method vocabulary | Historical compatibility only | No single-candidate or family-name restriction in the target; original records retain their original interpretation. |
 
-Strategies do not substitute for core commitments. Added complexity must buy end-to-end value; local ablation can follow implementation rather than block it.
+Strategies do not substitute for core commitments. Added complexity must address an observed scientific capability gap and preserve the feedback semantics in §4; evaluation compares scientific usefulness and cost (§13.1). Delivery slices and demonstrations belong to [ROADMAP.md](ROADMAP.md).
 
 ## 3. Components and dependencies
 
-| Subsystem       | Package                                                          | Owns                                                                                                             | Section    |
-| --------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
-| Coordinator     | `coordinator/`                                                   | Phase order, scheduling selected moves, global budget limits, bounded transitions, run status and sourced research-state view; no scientific ranking policy | §4 |
-| Research phases | `understand/`, `ground/`, `discover/`, `communicate/`, `verify/` | Stage goals, role prompts, phase outputs and phase-owned scientific specifications, feedback and evidence semantics                                                                         | §4, §10–12 |
-| Search engine   | `treesearch/`                                                    | Nodes, step policy, node evaluation, selection, the Analyst's tools                                              | §5         |
-| Adaptive research search | `discover/` | ResearchMove contract, candidate generation and scientific next-move policy; replaceable BudgetAllocator strategy | §4.6 |
-| Harness         | `harness/`                                                       | Model client, agent loop, tools mechanism, context, sandbox, journal, run store, budgets, config, decision layer, research-context schema, role-free descriptive statistics | §4.1, §4.2, §7, §8 |
-| Execution boundary | Harness contract; replaceable backends | Runs committed experiment specifications while preserving identity, access controls, provenance, and result semantics | §5, §7.4 |
-| Acquisition (optional) | External source boundary | Finds and assesses candidate datasets, benchmarks, and literature; returns sourced candidates for researcher/context use | §4.1, §11, §12 |
-| Evidence and claim verification | Research phases and publication | Checks claim, number, and figure lineage against committed measurements and executions; distinct from locked statistical validation | §4.7, §10, §11 |
-| Cross-run learning (optional) | Sourced lesson store | Produces attributed lessons or reusable skills from prior run patterns; lessons inform proposals but never count as evidence | §9 |
-| Human collaboration | Coordinator, phases, harness | Escalates only decisions that can materially change intent, scope, operationalization, or validation commitment | §7.8 |
-| Evaluation      | Evaluation subsystem                                              | Suites, metrics, comparisons, adoption records                                                                   | —          |
+| Responsibility | Target boundary | Owns |
+| --- | --- | --- |
+| AI Scientist | Persistent scientific agency over Program state | Observe, synthesize, explain, generate/challenge/evolve candidates, choose experiments, interpret evidence, maintain direction and write. Agency may span separate model sessions; continuity is carried by sourced state rather than an immortal conversation. |
+| Scientific Runtime | Scientific contracts and persistence | Scientific State, ResearchMove, ExperimentSpec, scientific identity, evidence/exposure semantics and typed transitions. It preserves records, validates declared commitments and derives knowledge views; it does not decide scientific promise. |
+| Agent Harness | Generic model/action mechanism | Native conversations and tools, context, execution/sandbox, journal, artifact integrity, resource accounting, resume, transport/technical recovery and access enforcement. Scientific validators are supplied by their domain owner. |
+| Code-search strategy | Implementation within an experiment | Local draft/debug/improve, node acceptance and selection; node scores do not rank hypotheses. |
+| Coordinator | Bounded authorization and scheduling | Authorize, schedule and route moves within Program permissions and episode budgets; track operational status. It neither interprets evidence nor ranks research. |
+| Evaluation | Independent inspection of recorded behavior | Scientific usefulness, evolution, selection, continuity, traceability, recovery and cost (§13.1). Production never imports evaluation. |
 
-```text
-cli ──► coordinator ──► understand · ground · discover · communicate · (verify)
-                               │
-                               ▼
-                           treesearch ──► harness
-```
+These are responsibility boundaries, not mandatory packages, agents or services. Existing framing, grounding, discovery and communication functions implement scientific capabilities; they do not define a required phase topology. The package placement and current execution trace live in [ROADMAP.md](ROADMAP.md).
 
 Dependency rules:
 
-- `harness` imports nothing else in Popper and holds no research logic.
+- `harness` imports nothing else in Popper. It supplies generic mechanisms and invokes domain-supplied checks without adopting scientific policy.
 - `treesearch` imports only `harness`; it knows no stage goals.
-- Phase packages import only `harness` and `treesearch`, never each other.
-- Only `coordinator` knows cross-phase routing. Its research-state view references phase-owned records rather than duplicating scientific logic or mutable memory. `verify/` is a future package.
+- Function packages import only `harness` and `treesearch`, never each other. Their artifacts and contracts carry the scientific handoffs; calling a capability again does not require cross-imports.
+- Only `coordinator` knows routing among capabilities. Scientific selection and interpretation belong to Scientist behavior; runtime projection belongs to scientific state semantics. Coordinator transports references and checks authorization/resources rather than duplicating either responsibility. A validation package is an implementation option, not a mandatory phase.
 - Evaluation may depend on production components; production components never depend on evaluation.
 - These rules are an import contract checked in CI, not a convention [30].
-- Prompts and model configuration belong to the harness and the phase that owns the relevant interaction. Configuration can be overridden without changing phase ownership or architectural contracts.
+- Prompts and model configuration belong to the generic mechanism or scientific capability that owns the interaction. Configuration changes do not redefine scientific ownership or commitments.
 
-Acquisition and execution backends sit behind source and executor contracts; they do not introduce research logic into the harness. Cross-run lessons are advisory context, not measurements or validation evidence. A claim audit checks traceability and report fidelity; locked validation evaluates a claim under an independent statistical protocol (§11).
+Scientific Runtime is a logical boundary within these import rules. Scientific schemas/references may use shared transport without making scientific ranking harness policy. A change in package ownership must preserve a single authoritative contract, persisted-record meaning and explicit dependency rules. It must not make function packages depend on one another or make the harness depend on scientific reasoning. Literature tools supply resolved sources; execution backends preserve execution contracts. Program evidence and reusable procedural lessons have different meanings (§9).
 
-## 4. Run lifecycle
+## 4. Scientific research loop and episode contracts
 
-The principal flow moves from researcher framing through data grounding, exploration, analysis, and communication. Optional validation follows discovery under a separate authority.
+The Scientist reads Program state, proposes a ResearchMove, acts within a bounded Run, observes the outcome and updates scientific understanding. Framing, grounding, experimentation and communication are reusable scientific capabilities in that loop. No fixed ordering, terminal publication phase or one-dataset epistemic boundary defines the Program.
 
-### 4.0 Current-path reconciliation
+### 4.0 ResearchMove and Run
 
-The implemented M0–M2-optimize path is `cli.main(run/resume) → coordinator.run/resume → _continue`: create or load a format-4 run and acquire its lock; parse the research context and compute raw descriptive statistics; Understand writes a frame, pauses for review when interactive, and resumes from the reviewed artifact; Ground prepares data and may route a bounded frame concern back to Understand; the coordinator promotes the final prepared data; Discover runs `explore`, proposes and commits one hypothesis, then runs `baseline → main → robustness`; Communication resolves named results from `results.json`, renders the paper, and commits the report. Each search stage owns a journaled `tree/<stage>/` of draft/debug/improve nodes. Resume rebuilds incomplete stages from node and stage events, while committed phase artifacts and output files remain write-once.
+A ResearchMove expresses what scientific work is worth doing and why (§4.6). A Run supplies a bounded execution episode: objective, authorized inputs/actions, resource limits, state frontier, selected work, committed outcomes and stop reason. A move may open a new Run or be scheduled in an active Run; one Run may execute several moves while its objectives, access and budgets permit. A move may also remain proposed or deferred when execution is unavailable. The target flow is semantic, not a mandatory one-move/one-Run allocation rule.
 
-| Existing mechanism and owner | Disposition for the M0–M2 path | M3 boundary |
-| --- | --- | --- |
-| CLI, coordinator phase order, frame review, Ground preparation/reframe | Keep | Keep the upstream path; replace only the single-pass Discover block with the ResearchMove loop. |
-| RunStore format 4, append-only journal, artifact hashes, resume lock, spend accounting and sealed holdout | Keep | New candidate work must cite the same committed sources and share exposure. Preserve the format-4 reader and its refusal of unsupported legacy runs; introduce an explicit format change only if new persisted contracts require it. |
-| `treesearch.run_stage` draft/debug/improve, deterministic replay and Judge node scores | Keep as the inner search over analysis scripts | Keep stage scores local to code execution quality. Add candidate and next-move selection at the Discover boundary; never interpret node scores as hypothesis quality or evidence standing. |
-| Single `HypothesisProposal`, hard-coded `hypothesis-001`, closed `Method` literal, and `_continue`'s one-hypothesis route | Adapt in the owning Discover/coordinator path | Generate stable candidate identities, support extensible `MethodSpec`, and iterate the same research loop. Read old format-4 hypothesis payloads under their existing semantics; do not run a parallel old and new pipeline. |
-| Global `baseline`, `main`, `robustness`, `robustness_plan`, and `evidence` identities | Adapt before executing multiple candidates | Scope new attempts, plans and evidence to hypothesis/specification identity so retries and resume cannot reuse another candidate's artifacts. Keep old unscoped format-4 artifacts readable and unchanged. |
-| Fixed baseline/main/robustness analysis and computed legacy stability label | Keep for current runs; adapt as an inner per-candidate test policy | Preserve each old label's original rule and report. New candidate selection records all branches; a legacy stability score is not the outer search objective. |
-| `communicate.numbers`, manifest-backed evidence references and compiled paper | Keep | Continue rendering values from committed results. Extend publication to selected candidates and lineage without letting prose or Judge scores create results. |
+Completion means the episode has reached its declared stopping boundary. It does not mean a hypothesis is true, a Study is complete, a manuscript is ready or the Program is closed. Budget exhaustion, missing data, negative evidence and researcher suspension retain different operational/scientific meanings. The final episode record preserves usable outcomes, unresolved questions and pending work; the Scientist resumes inquiry from Scientific State rather than starting with fresh evidence entitlement.
 
-No current mechanism needs wholesale replacement or deletion to establish M3. The restriction to one hypothesis and the closed method schema conflict with M3's expanded contract and therefore require targeted adaptation; the rest remain useful foundations. Remove a mechanism only if the traced caller and persisted-state scan show it has no remaining role after that adaptation.
-
-| # | Phase | Package | Current contract | Output |
-| --- | --- | --- | --- | --- |
-| 1 | Understand | `understand/` | Theorist session: research context and initial data analysis → reviewed Research Frame (§4.1) | Research Frame |
-| 2 | Ground | `ground/` | Data Steward prepares/assesses data; frame concerns return to 1 within the existing limit (§4.3) | Prepared data, changes, operationalization, concerns, readiness |
-| 3 | Exploration & hypothesis | `discover/` | Exploration and generation of a sourced hypothesis with warnings | Hypothesis |
-| 4 | Experiment | `discover/` | Baseline analysis, planned alternatives, repair, and explicit evidence standing | Attempts, estimates, figures, evidence standings |
-| 5 | Publication | `communicate/` | Template paper from artifacts and named results; extensions in §10 | Paper and run trace |
-| — | Verify (future, optional) | `verify/` | Locked independent validation (§11) | Verification record |
-
-- **Current hypothesis contract** [6, 22]: one primary estimand (outcome, exposure, contrast, population, unit), expected direction, a refuting result, planned test, assumptions, source nodes and attribution. Its current method/reference identifiers are not a complete frozen scientific specification; §4.6 makes that identity explicit.
-- **Later extensions:** rival explanations, origin and test-data exposure, structured predictions/verdicts, pre-test sample description, optional smallest effect of interest, typed rival checks and auxiliary predictions. None requires graph nodes. A secondary estimand or changed target population is its own test, not automatically a robustness replicate.
-- Phases exchange files/references and never edit another phase's output. Revisits create new attempts with reason and lineage.
-- The coordinator owns phase order and bounds cross-phase transitions. The target discovery loop selects among hypotheses and specifications and can schedule independent branches concurrently. A revisit or branch preserves prior attempts, scientific identity, selection history and exposure (§4.6).
-- Operational run status is separate from scientific outcome. Negative evidence is not a failed execution.
+ExperimentSpec is required when a move executes an intended empirical test. Literature reading, synthesis, challenge and manuscript review use their own input/output commitments. Their records identify the Program, move and producing episode without pretending to be empirical measurements. Scheduling a Run or finding a source does not itself confer evidence standing.
 
 ### 4.1 Research context and Understand
 
-**Research context** is the researcher's input besides the dataset: a narrative brief with optional structured metadata. It supplies the goals, domain, variable meanings, design, assumptions, and constraints that phases interpret and carry forward [3, 5, 33, 34].
+**Research context** grounds the Program in researcher intent: a narrative brief with optional structured metadata supplies goals, domain, variable meanings, design, assumptions and constraints [3, 5, 33, 34]. An episode cites the context version it uses; it does not silently redefine the Program whenever a new dataset or Run starts.
 
 - Research context covers domain, objectives, variable meanings and roles, study design, assumptions, constraints, and concepts. Ground owns the mapping from concepts to observed data.
 - Researcher-confirmed metadata is distinct from agent-proposed and unknown information. Only researcher input confirms intent; models and downstream checks preserve that distinction and expose relevant uncertainty in the report.
 - Guidance can shape an agent's interpretation, but cannot change deterministic integrity checks or computed labels.
-- The harness validates supplied metadata against the dataset and treats all researcher-provided text as untrusted data (§7.3).
+- Scientific validators check supplied metadata against its declared inputs; harness treats researcher-provided text as untrusted data (§7.3).
 
-**Understand** turns the research context into a **Research Frame**: shared research meaning the researcher can recognize and correct. It is one Theorist session (§6) that sees the research context and role-free initial data analysis of discovery rows, without code-supplied empirical between-column relations or holdout rows [34]. Researcher text and later Ground concerns may mention relations; this input policy is not a guarantee of total non-exposure.
+**Understand** develops a **Research Frame**: shared research meaning the researcher can recognize and correct. The Scientist can revisit framing when evidence, prior work, data limitations or intent changes. The initial framing strategy uses a Theorist session with role-free descriptive analysis and without code-supplied between-column relations or holdout rows [34]. Subsequent framing cites the observations it has seen; revisiting Understand does not restore non-exposure.
 
 - **Explore, critique, synthesize.** The agent chooses its own order and may repeat: restate and widen the problem, sharpen questions, find ambiguities, implicit assumptions and competing explanations, propose meaning, unit, type, role and order for undeclared attributes with evidence; critique its own framing (what is missing, alternative framings, the weakest assumption); then submit.
 - **Researcher input and frame submission** allow questions, proposed or unknown metadata, and a structured framing with objectives, scope, uncertainties, and directions. Code checks schema and evidence, refuses changes to confirmed intent, and returns correctable failures to the agent (§7.1). Framing does not redefine metadata owned by the research context.
 - **Review.** The researcher can confirm, revise, reject, or leave proposals unresolved. Only researcher input confirms intent. Automated runs preserve proposals as unconfirmed. A revision produces a new sourced framing attempt rather than silently changing confirmed metadata.
 - **Computed framing warnings:** a question whose outcome candidate has role `id`, `cluster`, `post_outcome`, `protected` or `ignore`, a question needing an excluded column, duplicate directions.
 
-The reviewed research context is the single source for what variables and concepts mean; the framing holds only agent output. Later phases read it: Ground takes concepts, valid ranges, codings and excluded columns; `explore` and the hypothesis take objectives, directions, roles, confounders and the foundation (§4.3); experiments take design and clusters (§4.5); the Writer takes domain, audience, objectives and the assumption list. Revising it after Ground or after results writes a new attempt with a journaled reason, as a scientist refines a research goal in [3].
+The reviewed research context is the authority for confirmed intent and variable/concept meanings; framing holds attributed Scientist output. Ground uses concepts, valid ranges, codings and restrictions; exploration/candidates use questions and the foundation; experiments use design; manuscripts use scope and assumptions. Reframing commits a new version, reason and source references, retaining prior questions and their evidence. A scientific change to direction cannot silently change researcher-confirmed intent.
 
-**Optional acquisition.** A source-acquisition capability may identify candidate datasets, benchmarks, and literature relevant to the research context. It returns source identity, retrieval provenance, suitability signals, and known limitations for researcher or phase review. It does not silently replace researcher intent, bypass Ground, or grant a source empirical standing. A run still uses one selected tabular dataset.
+Literature or new-data assessment may inform framing whenever the Scientist calls them (§12). Resolved sources retain provenance and limitations. A new source does not replace intent, bypass Ground or acquire empirical standing merely through retrieval; a bounded Run may still use one selected dataset.
 
 ### 4.2 Initial data analysis
 
@@ -215,10 +173,10 @@ Further descriptive evidence such as sample flow, characteristics, covariate bal
 
 ### 4.3 Ground
 
-**Ground** connects the Research Frame to what the data actually observe and produces an **empirical foundation**: what the data measure, how far they can be trusted, how each concept is represented, what is missing, and whether discovery can start. It is one Data Steward session (§6) on discovery raw rows; there is no tree and no Judge.
+**Ground** connects a Research Frame to what declared data actually observe: what they measure, how far they can be trusted, how each concept is represented and what is missing. The Scientist may invoke it again for a new source, operationalization or diagnosed limitation. Its Data Steward session and checked preparation are a working strategy (§6); the empirical foundation is the semantic contract.
 
-- **Responsibilities**, in the order the agent chooses: understand (semantics, observation unit, structure, provenance, which columns or proxies measure each concept), repair (cleaning, restructuring, transformation, derived variables), interrogate (anomalies, distributions, missingness by group, figures), assess (what the data cannot support). Enrichment from other sources is out of scope (§1).
-- **Ground submissions** combine a preparation proposal with an operationalization of concepts and evidence-backed concerns. The harness executes the proposed preparation freshly and checks declared data invariants and evidence references before accepting its outputs.
+- **Responsibilities**, in the order the agent chooses: understand semantics/unit/structure/provenance and concept proxies; prepare with documented cleaning/transformation; interrogate anomalies/distributions/missingness; assess what the data cannot support. New data require an explicitly authorized source, input contract and empirical foundation; preparation cannot silently acquire or merge inputs.
+- **Ground submissions** combine a preparation proposal with an operationalization of concepts and evidence-backed concerns. The harness executes the preparation freshly; Ground-owned validators check declared data invariants and evidence references before accepting outputs.
 - **After acceptance** code writes initial data analysis on the prepared data and **readiness facts**: each outcome and exposure exists and varies, its missing share, cluster count, floor and ceiling share. Readiness is printed, never blocking.
 - **Operationalization is a proposal.** It stays `proposed`; Discover reads it as such, and the paper prints it as proposed by the data agent.
 - **Frame concerns go back.** Ground never edits the research context. A material framing concern may open a researcher-visible revision and a new Ground attempt from the original data; unresolved concerns remain visible in the report.
@@ -226,9 +184,13 @@ Further descriptive evidence such as sample flow, characteristics, covariate bal
 
 ### 4.4 Hypothesis quality
 
-**Current contract.** Code requires one primary estimand with distinct named outcome/exposure columns, a contrast, comparison (`difference` or `ratio`), population and unit; statement/rationale, expected direction, refuting result, planned test and a nonempty list from the current closed method vocabulary. These schema checks protect executable meaning; the closed vocabulary is a baseline implementation restriction, not a commitment that only these scientific methods are legitimate. The target `MethodSpec` is extensible (§4.5).
+**Candidate maturation (target).** Scientific candidates can be observations, questions, explanations, conjectures or rivals before they are precise hypotheses. Support `observation → question → conjecture/rival → hypothesis → testable hypothesis → ExperimentSpec` without forcing every idea through every step. Challenge may split, merge, retire or weaken a candidate as well as sharpen it. Preserve sources, uncertainty and revision lineage: a continuing idea retains its identity, while splits, merges or changed meaning create linked identities. Assign hypothesis/test identities when their meaning becomes explicit. A rival is an alternative explanation to investigate, not necessarily a negated directional prediction.
 
-**Ownership.** Discover owns hypothesis generation, its contract, scientific warnings and the cross-phase scientific next-move policy. Understand owns framing. The coordinator schedules selected moves, enforces run-wide resource limits and routes committed outputs; it does not rank scientific candidates or revise move intent. The harness enforces integrity and artifact contracts, not scientific policy.
+Only require fields justified by the candidate's maturity. An observation needs a source and context; a question needs an unresolved issue; a conjecture needs an explanation and its limits. A testable hypothesis needs distinguishing predicted observations and operational meaning; an executable specification needs inputs, procedure and outputs. Missing measurements or unresolved operationalization may justify literature work or new data instead of inventing an estimand. The target candidate contract does not require an estimand, direction or method until the idea becomes operationally testable; executable tests retain their stronger commitments.
+
+**Testable quantitative contract.** A quantitative candidate may declare a primary estimand with distinct processed outcome/exposure columns, contrast, comparison, target population and unit, plus rationale, predicted/refuting outcomes and open MethodSpecs. Runtime assigns identities and preserves origins. This is a testable-candidate contract, not the schema for every scientific idea. Single-hypothesis declarations and their original closed vocabulary are historical compatibility only; they do not constrain new target work.
+
+**Ownership.** The Scientist owns hypothesis generation, challenge, evolution and next-move selection. Scientific Runtime and domain validators preserve candidate/test meaning and scientific warning semantics. Coordinator schedules selected moves, enforces episode limits and routes outcomes; it does not rank candidates or revise move intent. Harness enforces generic integrity and artifact contracts.
 
 **Current feedback.** Nonblocking warnings identify unusable roles/types, exposure measured after outcome, excluded/protected columns, missing/proposed variable meaning, weak/absent proxies, unconfirmed/undeclared assumptions and few clusters. They are stored beside the hypothesis and printed in the paper. An explicit access restriction remains a separate hard boundary (§2.1).
 
@@ -236,31 +198,33 @@ Further hypothesis quality mechanisms can record rivals, origin, structured pred
 
 ### 4.5 Analysis methods
 
-**Current reality.** The current method vocabulary is a baseline implementation restriction, not a claim that only listed scientific methods are legitimate. Method declarations require an explicit scientific specification and visible assessment standing; accepting a declaration does not certify its validity.
+**Current reality.** Adaptive declarations accept arbitrary nonempty method families; custom methods require an explicit algorithm. The generated-Python backend executes both known and custom declarations. Schema/integrity acceptance does not certify suitability or fidelity; those remain visible attributed assessments. Historical runs retain their original method meaning.
 
-**Open `MethodSpec`.** Before expanding multi-hypothesis search, represent a method as a structured but extensible declaration: method family or `custom`, description/implementation reference, intended inputs and outputs, estimand/effect scale where applicable, assumptions and diagnostics. Known methods may use typed fields and reusable implementations; custom or generated methods state the same contract and undergo the same code, execution, fidelity and evidence checks. Unknown vocabulary alone does not make a method ineligible. A declaration enables an attempt; it does not certify suitability or validity.
+**Open `MethodSpec`.** Adaptive tests represent each method as a structured but extensible declaration: method family or `custom`, description/implementation reference, intended inputs and outputs, estimand/effect scale where applicable, assumptions and diagnostics. Known methods may use typed fields and reusable implementations; custom or generated methods state the same contract and undergo the same code, execution, fidelity and evidence checks. Unknown vocabulary alone does not make a method ineligible. A declaration enables an attempt; it does not certify suitability or validity.
 
 Method-fit feedback uses outcome/exposure type, design, population, contrast, effect scale and inference assumptions. A categorical mismatch or diagnostic is evidence to diagnose or try a justified alternative, not an automatic scientific prohibition.
 
-Useful extensions include sample support, balance, few-cluster inference advice, bounded/count-outcome methods and diagnostic-triggered variants [34, 24, 25]. Record when/why a diagnostic was used; it cannot silently alter the primary method inside a repair. A changed planned test is refinement. Thresholds and any enforced method policy require an explicit scope/rationale; avoid a universal rule that cluster fixed effects solves all few-cluster inference, or that normality tests should choose the estimator. Build supported remedies for observed failures, then refine their defaults locally rather than await a complete method benchmark.
+Sample support, balance, few-cluster inference advice, bounded/count-outcome methods and diagnostic-triggered variants have explicit design/assumption scope [34, 24, 25]. Record when/why a diagnostic is used; it cannot silently alter the primary method inside a repair. A changed planned test is refinement. Thresholds and enforced method policy need a rationale; neither cluster fixed effects nor normality tests universally determine a valid estimator.
 
 ### 4.6 Research state and scientific feedback
 
-**Current reality.** Discover runs exploration, one hypothesis and three experiment stages. Local debugging, fresh execution, robustness schedules, evidence manifests and journal provide foundations for state and feedback, but do not yet provide a general scientific transition model.
+**Scientific State.** Program-scoped state retains candidate maturity/evolution, hypothesis/specification versions, attempts, evidence and invalidation, attributed interpretations/challenge, contradictions, questions, research direction, exposure and pending work. Episode counters/spend remain linked operational facts rather than the limit of scientific memory. Distinguish observations, commitments, proposals, assessments and computed statuses. Never turn an interpretation into an observation or an unresolved question into an answer. Existing record, snapshot and resume contracts remain the persistence foundation (§9).
 
-**Research state.** An artifact-backed view keeps question/scope and confirmed intent; hypothesis/specification versions; attempts and executions; observations/evidence; failures/diagnoses; attributed interpretations, contradictions and open questions; exposure and budget allocations. Distinguish facts, proposals and assessments, and unresolved questions from answers. Every entry cites sources. Rebuild the view from committed phase records/events on resume, without a second mutable memory authority or mandatory Research Graph. Start with the state required to run a small adaptive loop; extend it when a research move needs information the current view cannot supply.
+**Scientist-facing knowledge (target).** Present current explanations and rivals, their supporting/contradicting evidence, unresolved questions, abandoned ideas and promising directions alongside the operational history. The Scientist commits an attributed interpretation or synthesis after reading observations and challenge; the runtime derives the current view from those records. Rebuilding state does not recreate unrecorded reasoning. Summaries cite exact sources and a frontier, expose omissions, and permit retrieval of the full record. If a source is invalidated or superseded, mark affected interpretations stale pending reassessment. A graph or index is optional only when these queries become difficult on existing records.
 
-**Working representation.** Agents can query what has been tried, which findings remain usable, which assessments conflict, which questions remain open, and which candidates are eligible for further work. Proposed opportunities cite their motivating records and remain proposals until selected. A derived Research Graph may index these relations; its entries and summaries are rebuildable projections. Parallel sessions receive a recorded state version, and their outputs identify the inputs they actually read.
+**Scientific behavior and direction.** The persistent AI Scientist observes, synthesizes explanations, generates/challenges alternatives, evolves them, selects discriminating experiments and interprets the result across the Program. `discover/` is the current home of move-selection reasoning, not the permanent semantic owner of Program-level policy. A model session or function package can supply domain expertise without becoming the Scientist's scope boundary. Runtime validates commitments and records changes; Coordinator schedules authorized work; Harness enables actions. Neither orchestration nor runtime computes scientific worth from node scores or deterministic rankings.
 
-**Scientific next-move ownership.** `discover/` owns one scientific next-move policy across phases. It reads the sourced research state, consumes phase-owned diagnoses and proposes a `ResearchMove`; phases retain authority over diagnosis and the meaning of their artifacts. The coordinator schedules the selected move and enforces run-wide limits. The harness checks access, identity, artifact and execution integrity. Neither coordinator nor harness duplicates or overrides scientific ranking policy.
+**Direction above individual moves (target).** Keep a sourced, revisable account of the larger question, current explanatory commitments, important uncertainties, why a line of inquiry matters, and what sequence of evidence could resolve it. Each move explains its contribution to that direction or why it changes it. The Scientist can pursue a prerequisite, replication or initially costly experiment whose value appears over several moves; immediate information gain is not the only objective. Update direction after interpretation, contradictions or researcher steering. A committed narrative and references can satisfy this contract; a separate planner, graph, PI hierarchy or numerical utility function is not required.
 
-**ResearchMove contract.** Every proposed scientific move records: objective; evidence trigger and source references; candidate action and affected or proposed hypothesis/specification when applicable; expected discriminating value (what possible observation would distinguish); estimated resource cost; and stopping condition. It also records assumptions, provenance/exposure, and whether the move is exploratory, technical repair, measurement repair, refinement, pivot, reframe, acquisition or stop. Reject incomplete proposals with actionable feedback; retain the proposal and disposition. A move is a proposal until the coordinator schedules it under run-wide limits; scheduling does not change its scientific meaning.
+**ResearchMove contract.** Every proposed move cites the Program/state frontier and records objective, sources or evidence trigger, action, estimated cost and stopping condition. Action-specific commitments include scientific identities, assumptions/exposure and expected discrimination where applicable; a stop need not invent predicted observations or a test. Actions can investigate, synthesize, challenge, mature/evolve candidates, consult literature, execute a test, repair/refine, revise scope, assess new data, validate, write/review or stop an episode. Reject incomplete proposals with actionable feedback and retain their disposition. Scheduling records the producing Run and its authority/resources without changing scientific meaning.
 
-**Budget allocation.** A replaceable `BudgetAllocator` strategy owned by adaptive search recommends allocate, continue, pause, stop or reallocate for eligible candidates under the run's configured limits. It considers expected discrimination, unresolved uncertainty, relevance, feasibility, diversity and estimated cost. It may not optimize significance, favorable direction or agreement with prior expectations. Record allocation, rationale, observations and displaced alternatives. The coordinator applies the global caps and schedules the recommendation; it does not invent scientific value scores. Reallocation preserves prior spend, work and exposure.
+Reasoning moves need not declare a hypothesis/test. They retain the same sourced proposal/disposition history, including how the move serves direction, which alternatives it displaced and whether a missing source or unavailable route prevents action. Repeated capability calls remain distinct attributable work; an unavailable capability produces a visible deferral, not invented evidence. A recommendation for another episode is useful scientific output, not a completed experiment.
 
-**Scientific identity.** Distinguish question, hypothesis, intended test/specification version, measurement implementation/code revision and execution. Record the primary estimand, effect scale/null, population/data selection, estimator/inference and adjustment choices needed to detect scientific changes. Existing operations and opaque Judge references are inputs to this refactor, not proof of a frozen specification. Each execution cites the test it actually implements. Changed preprocessing, sample selection, planned seeds/replications or inference effort is a scientific change when it changes that test or its measurement precision; check a proposed repair against the specification before accepting it as same-test repair.
+**Budget allocation.** Scientific allocation considers relevance to Program direction, expected discrimination, unresolved uncertainty, feasibility, diversity and cost. The Scientist recommends work; Coordinator enforces declared episode limits and any Program-wide allocations. Budgets do not reset on resume or silently expand when opening another Run. A separate BudgetAllocator is an optional strategy. Do not optimize significance, favorable direction or agreement with expectations; record reasons and displaced alternatives and preserve spend/exposure when reallocating.
 
-**Typed transitions.** Diagnosis (§7.6) and adaptation are separate. Record trigger artifacts, diagnosis, author, reason, before/after identities and changed fields. Agents propose scientific changes; code enforces identity/access boundaries rather than judging scientific promise.
+**Scientific identity and ExperimentSpec.** Distinguish Program, question/candidate, hypothesis, intended test/version, implementation, move, Run and execution. Scientific identities and lineage survive episode boundaries. **ExperimentSpec** names the scientific execution contract; current immutable TestSpec supplies it for quantitative analyses, without requiring a second specification class. It commits selection/preparation, open methods, inference/adjustment, requested coverage, outputs and optional support rule. MeasurementRef links a named result to hypothesis, test, implementation and execution; cross-episode resolution also identifies its source Run. New versions retain parent references. Changed preprocessing, sample selection, seeds/replications or inference effort changes the specification when it changes the intended test or precision.
+
+**Typed transitions.** Diagnosis (§7.6) and adaptation are separate. Record trigger artifacts, diagnosis, author, reason, before/after identities and changed fields. Current TestSpec comparison distinguishes same-test repair, operational refinement and changed-target pivot. The table below is the target semantic contract, including routes not yet executable. Agents propose scientific changes; code enforces declared identity/access boundaries rather than judging scientific promise. Hypothesis evolution can change explanatory content even when columns stay the same; a future identity check must preserve that distinction instead of defining a hypothesis solely by its estimand.
 
 For computed hypothesis-support standing, the specification/hypothesis must commit the null, direction, comparison or decision rule, and any margin before the execution that produces the evaluated evidence. A rule declared or changed after seeing that result is post-hoc: retain the measurement and provenance, but report support as exploratory/post-hoc rather than computed under a prespecified rule. A later refinement cannot retroactively make an earlier result prespecified.
 
@@ -276,19 +240,19 @@ Measurement repair restores the recorded intended test; a change to the intended
 
 Refinement may change the analyzed slice while retaining the declared target estimand and disclosing any new generalization assumptions. A change to the target population, substantive contrast or primary estimand creates a new hypothesis/test (`pivot`), or a `reframe` when the question/scope changes. Restoring the already-declared contrast is measurement repair; deliberately changing the operational procedure while retaining the substantive estimand is a versioned refinement. A faithful faster implementation is technical repair. When the prior specification does not resolve that distinction, record uncertainty and propose a scientific change rather than infer a convenient repair identity after seeing results. Technical repair addresses runnable implementation; measurement repair corrects an affected empirical measurement, even if it also fixes runtime code.
 
-**Recovery and next moves.** `attempt → execute → observe → diagnose → ResearchMove → schedule`. Reuse tree debugging for technical repair; the Discover-owned policy composes phase diagnoses into a move. Do not create a second recovery policy in the coordinator. Bound total spend, local repairs and scientific revisits separately; preserve counts on resume; prevent unchanged retry cycles; preserve a path to communicate partial/negative results. Completion or negative/inconclusive evidence can close one test while motivating a sourced follow-up. Stop the run when its objectives are met, no justified next move remains, required routes are unavailable or configured resources are exhausted. Every attempt and unresolved failure stays visible.
+**Interpretation and next moves.** The Scientist separates implementation/fidelity defects from scientific observations, compares evidence with predictions, rivals and prior work, and commits what it changes in Program understanding. Challenge can question that interpretation; writing or new data can expose another unresolved issue. An unexpected/null observation may narrow an explanation, weaken it or motivate replication; it is not automatically a repair. Technical defects may use inner code debugging; scientific changes use typed ResearchMoves. Stop a Run at its episode boundary while retaining unresolved direction and useful outcomes in state.
 
 **Risk: a closed epistemic loop.** Better self-healing can produce better execution and worse inference if the agent repeatedly changes the test, selectively retains favorable measurements or treats its own critique as final proof. Keep all attempts and their exposure/changes visible; distinguish repair from a new test; bound adaptation; and reserve validation standing for eligible locked validation (§11). Provenance makes this risk inspectable but does not statistically eliminate it.
 
 Choose revisit eligibility, limits and stopping rules before the revisit; require a sourced defect, unresolved scientific question or declared diagnostic trigger. Effect sign, significance, `stable` status, agreement with the expected direction and a flattering narrative are not completion/selection objectives. Discovery can respond to unexpected evidence with an attributed question or change; that remains adaptive exploratory work. Preserve initial and subsequent measurements with the reason and timing of selection. Blinding a Judge cannot prevent result-driven choices elsewhere in generation, preparation or routing.
 
-**Checkpoint, resume and fork semantics.** A checkpoint references committed input/output artifacts, identities and pending work; it never promotes scratch or an incomplete execution into evidence. Resume continues the same specification unless an explicit transition changes it. Fork means a new lineage from a committed checkpoint: same intended specification with code/measurement correction is repair, changed specification is refinement, changed hypothesis is pivot, changed question is reframe. A fork retains parent references, prior results, exposure and recorded resource allocations; it never gets a fresh validation entitlement or unjournaled reset. The first implementation uses append-only child attempts and existing resume, not a new branch manager, CLI fork command or copied run directories. Broader fork UX is optional later.
+**Checkpoint, resume and fork semantics.** A checkpoint references committed input/output artifacts, identities and pending work; it never promotes scratch or an incomplete execution into evidence. Resume continues the same specification unless an explicit transition changes it. Fork means a new lineage from a committed checkpoint: same intended specification with code/measurement correction is repair, changed specification is refinement, changed hypothesis is pivot, changed question is reframe. A fork retains parent references, prior results, exposure and recorded resource allocations; it never gets a fresh validation entitlement or unjournaled reset. Current append-only child attempts and resume provide this lineage within a Run. Broader fork interfaces are replaceable strategies, not part of scientific identity.
 
-Transitions are bounded and typed. A route that is unavailable is recorded as deferred with its reason; it is not silently substituted or treated as completed. Start with a thin slice: generate two or three hypotheses, propose comparable ResearchMoves, select one next move, execute it and update sourced state. Repeat with the new state and retain the other candidates. This exercises the adaptive loop before parallel infrastructure. Additional agent roles are replaceable strategies.
+Transitions are bounded and typed. An unavailable route is deferred with its reason rather than silently substituted or treated as completed. Candidate count, additional agent roles and parallel infrastructure are replaceable strategies; state identity, commitments and exposure apply to all of them.
 
 **Adaptive discovery (target).** Manage multiple hypothesis and specification candidates, their origins, selection reasons, allocated resources, dispositions and follow-ups. Origins can include frame, observation, rival, literature and follow-up [22]; cite artifacts and record whether test data suggested the hypothesis. Select for relevance, discriminating value, unresolved uncertainty and feasibility under declared objectives, without rewarding significance or agreement with an expected result. Add structured predictions/pre-test descriptions where they improve fidelity. Primary, rival and auxiliary tests have separate standing. Non-detection of a rival does not establish the preferred hypothesis; a control interval covering its null does not prove equivalence. Locked validation is optional and separately authorized (§11).
 
-Build incrementally around a small sequential multi-hypothesis loop and open MethodSpec, then strengthen recovery and evidence resolution, add lesson capture, and scale search to parallel branches with budget allocation. Minimal literature retrieval can join adaptive search; richer literature grounding and dataset/benchmark acquisition are separate extensions. Keep the scientist's feedback loop usable at each step.
+Independent challenge, sourced interpretation and literature reasoning are scientific responsibilities even with sequential execution. Parallelism is optional when useful research work requires it.
 
 **Concurrent branches (target).** Each branch owns its attempts and execution directories and cites its parent checkpoint and hypothesis/specification identities. Scheduling records allocations and selection decisions; shared commit and resource accounting must handle concurrent writers. Resume retains pending, completed and abandoned work without accepting incomplete evidence or duplicating an accepted execution. Shared findings enter the state through committed records; record which findings informed each subsequent choice. Parallelism never resets exposure or validation entitlement. Trees, tournaments, debate and PI/Discover agents implement these contracts as replaceable strategies (§2.2).
 
@@ -310,28 +274,42 @@ Execution status, measurement validity, hypothesis support, robustness sensitivi
 
 The research process maintains identity and feedback semantics. Claim verification checks that the paper faithfully reports committed evidence and flags unresolved, superseded, or invalidated lineage. It is separate from scientific assessment and the locked validation protocol in §11. Scientific validity may remain limited or unknown even with complete provenance and successful execution.
 
-**Evidence registry and claim resolver.** A derived index resolves claim and figure references through the chain above, using committed artifacts and named results as the single source. It exposes missing, invalidated and superseded links during research and publication. Domain owners define fidelity checks; the resolver checks references and standing without creating duplicate measurements or granting scientific validity. Start with the existing evidence manifests and result contracts.
+**Evidence registry and claim resolver.** A derived index resolves claim and figure references through the chain above, using committed artifacts and named results as the single source across linked Runs. It exposes missing, invalidated and superseded links during research and manuscript work. Domain owners define fidelity checks; the resolver checks references and standing without duplicating measurements or granting scientific validity. Existing evidence manifests and result contracts remain valid foundations.
+
+### 4.8 Callable capabilities and feedback
+
+The Scientist chooses which capability to invoke from explicit state, direction, evidence and constraints. These calls may occur before, between or after experiments, and may recur across Runs. They are not terminal phases or mandatory checkpoints:
+
+| Capability | Commitment and return to Scientific State |
+| --- | --- |
+| Literature reasoning | Read/resolve cited sources, record passages/provenance and compare prior work with explanations or experiments. Missing sources remain explicit; model recall does not become evidence (§12). |
+| Independent challenge | Challenge candidates, assumptions, discrimination or interpretation from cited records with separation from generation. Return attributed objections, rivals and possible checks; agreement is not validation (§6). |
+| Validation | Lock a justified protocol before access and preserve source/exposure and verdict authority. Return computed standing and limitations; disclosed feedback may motivate new inquiry but cannot authorize adaptive reuse of validation evidence (§11). |
+| Manuscript and review | Maintain evidence-backed versions and return unsupported claims, contradictions or missing science as sourced questions or ResearchMoves. Build/readiness status does not close the Program (§10). |
+| New data and replication | Assess which observation is missing, source suitability, access and design; propose eligible data or another Study/Run. Authorized inputs pass Ground before measurement; acquisition is optional, provenance and exposure are mandatory (§12). |
+
+Each call cites its input frontier and sources, records the work performed and returns observations, assessments, artifacts or a deferral. Runtime commits these records; the Scientist interprets their scientific implications. A literature statement or challenge assessment is evidence of an attributed source/assessment, not a fresh empirical measurement. Updating state cannot upgrade its standing. The next move may revisit any capability justified by the updated understanding.
 
 ## 5. Search engine
 
-One engine runs every Discover stage; a stage supplies only its goal, inputs and required outputs. Understand and Ground are agent sessions, not search stages (§4.1, §4.3). Discover currently calls stages from the playbook; later feedback routing can reuse them. The engine knows neither a graph nor scientific transition policy.
+One engine runs Discover's code-search stages; a stage supplies its goal, inputs, required outputs, checks and assessment context. Understand and Ground are agent sessions (§4.1, §4.3). Current adaptive moves reuse this engine through scoped experiment requests. The engine owns code-search mechanics, not scientific direction or hypothesis ranking. Its tree policy is replaceable without replacing the scientific runtime.
 
 ### 5.1 Node
 
-- One attempt at the stage goal, built by one Analyst session (§6), which ends by submitting one self-contained script.
+- In the current tree strategy, one implementation attempt at the stage goal ends by submitting a self-contained script. Its Analyst session is a role configuration (§6), not a required Scientist topology.
 - The harness re-runs the submitted script from scratch in the sandbox. Only that run's results file, figures and log count.
 - **Named results:** each execution records result names with values and any associated uncertainty, sample size, or note. A phase declares required results; missing required evidence fails its contract. Rendering, audits, robustness summaries, and validation read committed results rather than reconstructing numbers from prose.
 - An attempt records its stage, ancestry, type, outcome, assessment, and reason.
 
 ### Execution boundary
 
-An experiment specification declares the intended test independently of its execution backend. An executor consumes that specification and its committed inputs, then returns an execution record with the produced code, environment identity, logs, outputs, and completion/resource observations. Local, container, remote, and domain-specific backends are interchangeable only when they preserve the same scientific identity, access controls, fresh-execution rule, provenance, and named-result contract. Executor failures are diagnosed separately from scientific outcomes. Executors cannot revise a specification or promote evidence standing.
+An experiment specification declares the intended test independently of its execution backend. Today Discover turns TestSpec and committed inputs into stage requests; Analyst/code search builds the implementation, and Harness executes the script and records outputs. The backend does not interpret scientific meaning. A backend substitution must preserve identity, access, fresh execution, provenance and named results. Executors cannot revise a specification or promote evidence standing. Add another backend only for an observed execution need.
 
 The target boundary is `ExperimentSpec → Executor → ExecutionArtifact`: semantic contracts, not a requirement to introduce new classes or a service. Concurrent executions use exclusive output locations and shared resource accounting. Cancellation, timeout and partial completion leave recorded status and diagnostics; only committed, accepted outputs enter the evidence chain.
 
 ### 5.2 Step policy
 
-The Discover-owned policy compares ResearchMoves across candidate hypotheses/specifications; it balances new candidates, follow-ups, and recovery without duplicating stage-level code selection. `BudgetAllocator` is a replaceable strategy within that policy. It recommends allocation and stopping under explicit run-wide caps; all recommendations, decisions and abandoned alternatives are recorded. Search and allocation must preserve failed and superseded attempts and must not reward favorable estimates or significance [1].
+The inner strategy chooses implementation attempts under a declared experiment goal, inputs, checks and budget. Local debugging preserves the intended test; improvements cannot silently change its scientific meaning. Node score and goal completion assess implementation only. Scientist compares ResearchMoves from Program state and direction separately (§4.6); code-search scores cannot become scientific rankings.
 
 ### 5.3 Node evaluation
 
@@ -339,36 +317,40 @@ The Discover-owned policy compares ResearchMoves across candidate hypotheses/spe
 2. **Independent assessment.** A separate assessment evaluates validity, completeness, and fidelity without rewarding effect size, direction, or significance [16]. It may receive the information needed to diagnose fidelity, while its assessment cannot establish scientific validity.
 3. **Selection.** The stage selects among eligible attempts under its declared goal and policy. All attempts and their estimates remain visible so selection cannot hide the spread of outcomes.
 
-Current execution assessment is coarse: execution and measurement concerns can share a status. Typed feedback distinguishes them (§7.6). Judge blinding is a baseline policy, not a core invariant. Assessments may use declared contrast, units, or implementation details needed to identify fidelity defects, but must not rank work by effect size or significance. Neither a score nor successful execution establishes scientific validity.
+Current local `ok`/`buggy` acceptance remains coarse, while format-5 structural observations and attributed fidelity preserve separate diagnostic meaning. Judge blinding is a baseline policy, not a core invariant. Assessments may use declared contrast, units or implementation details needed to diagnose fidelity, but must not rank work by effect size or significance. Neither a score nor successful execution establishes scientific validity.
 
 ### 5.4 Stages
 
-| Stage        | Phase       | Goal                                                                                  | Seeds from             | Required outputs                      |
+`baseline → main → robustness` is an inner experiment strategy, not the outer scientific process or a required route for every test. Scientist selects an experiment appropriate to the question/hypothesis; its committed specification declares the work and outputs. The following table describes the existing stage configuration and does not limit the experiment contract to these stages.
+
+| Stage        | Phase       | Current strategy goal | Seeds from | Required outputs |
 | ------------ | ----------- | ------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------- |
-| `explore`    | Exploration | Relations involving the outcome, group differences relevant to the questions; flag surprises | prepared data (explore rows when the confirm partition is on), initial data analysis, foundation | observations with figures |
-| `baseline`   | Experiment  | Simple, transparent model or test for the hypothesis                                  | clean data (confirm rows when the partition is on), hypothesis | key estimate with interval, figure |
-| `main`       | Experiment  | Planned analysis under an identified specification; follow-ups need explicit transitions                                  | best `baseline`        | estimates with intervals, figures     |
-| `robustness` | Experiment  | Multiverse and adversarial checks (§5.5)                                              | best `main`            | main estimate under every variant     |
+| `explore`    | Exploration | Relations and group differences relevant to the questions; flag surprises | prepared discovery data, initial data analysis, foundation | observations with figures |
+| `baseline`   | Experiment  | Simple, transparent model or test for the hypothesis | prepared discovery data, intended test | key estimate with interval; figure required for historical runs |
+| `main` | Experiment | Planned analysis under an identified specification; follow-ups need explicit transitions | best `baseline` | declared named estimates and coverage; figures required only by historical contracts |
+| `robustness` | Experiment  | Predeclared sensitivity checks; historical multiverse/adversary (§5.5) | best `main` | named measurements and coverage of requested alternatives |
 
 Experiment stages have separate budgets and stopping conditions. Robustness schedules are committed before execution and remain replayable; repairs consume the declared stage budget. Same-test repairs retain scientific identity, while changes to the intended test require a version and transition (§4.6). Execution feedback preserves enough diagnostic evidence to explain failures.
 
 ### 5.5 Robustness and stability
 
-**Implemented baseline.** A recorded schedule runs ordinary variants plus one seeded exposure permutation with the same contrast/estimator. This permutation is a diagnostic, not a calibrated permutation test. Table/curve and evidence manifest retain successful baseline/main/robustness attempts, repairs and placebo estimates; failed/missing attempts remain visible. A repaired specification's representative is its highest-scoring successful node, earliest on ties.
+**Current adaptive path.** Format-5 TestSpecs declare alternatives before their execution. AttemptResult records coverage, attributed fidelity, sensitivity comparisons and optional prospective support separately. Current sensitivity compares direction and interval overlap; it is not a general scientific verdict or a complete equivalence/scale-aware analysis. Missing alternatives remain explicit. No legacy stability label drives this path.
 
-Current code requires at least `min_variants=3` successful ordinary specifications. It computes `stable` when at least `stability_share` (default 0.8) of scheduled variants have intervals excluding zero with the main sign and the adversary's interval contains zero (endpoints included). Failed/missing variants stay in the denominator; failed/missing adversaries force `fragile`. This label mixes directional support, execution completeness and sensitivity; it is not confirmation or a general validity verdict.
+**Implemented historical strategy.** Format-4 uses a recorded schedule of ordinary variants plus one seeded exposure permutation with the same contrast/estimator. This permutation is a diagnostic, not a calibrated permutation test. Table/curve and evidence manifest retain attempts, repairs and placebo estimates; failures remain visible. A repaired specification's representative is its highest-scoring successful node, earliest on ties.
 
-**Semantics to refactor.** The zero-centered rule needs explicit effect scale/null: a ratio's null is 1. Same-estimand comparisons require comparable contrasts, scales and populations; a changed subgroup can be a secondary estimand. A null-consistent result is scientific evidence, not implementation failure. Keep existing artifacts and rendering, but make label reasons and unsupported/comparison cases explicit; never silently reinterpret old runs.
+The historical rule requires at least `min_variants=3` successful ordinary specifications. It computes `stable` when at least `stability_share` (default 0.8) of scheduled variants have intervals excluding zero with the main sign and the adversary's interval contains zero (endpoints included). Failed/missing variants stay in the denominator; failed/missing adversaries force `fragile`. This label mixes directional support, execution completeness and sensitivity; it is not confirmation or a general validity verdict.
+
+**Comparability semantics.** Support rules require an explicit effect scale/null: a ratio's null is 1. Same-estimand comparisons require comparable contrasts, scales and populations; a changed subgroup can be a secondary estimand. A null-consistent result is scientific evidence, not implementation failure. Label reasons and unsupported/comparison cases remain explicit; historical zero-centered rules are never silently reinterpreted.
 
 Separate (1) requested/completed coverage and failures, (2) observed sensitivity among completed comparable variants, and (3) support under the declared null/direction rule. Missing or non-comparable evidence makes sensitivity unavailable/limited, not automatically high; consistent intervals spanning the null may show little sensitivity with inconclusive support. No declared rule means unknown support. A placebo interval containing the null is only a diagnostic observation, not proof of a valid design or absence of bias.
 
 `stable`/`fragile` may remain a compatibility summary of the legacy rule, with its rule/version and reasons explicit. Old runs retain their original zero-centered computation; a corrected scale-aware rule needs a new version. New reports must display the separate dimensions beside any compatibility label and keep standing exploratory. Neither label is general scientific standing, and `fragile` alone does not make an unsupported positive claim acceptable. The minimum-variant count, 0.8 share and seeded placebo are replaceable defaults without established error calibration.
 
-**Later extensions.** Robustness [14, 15] tests sensitivity to justified processing, specifications and resampling, with adversarial checks [6, 11]. Rival/auxiliary tests and confounding sensitivity bounds  have separate semantics rather than being indiscriminately put in a stability denominator. Separate support, sensitivity and measurement completeness. Diagnostic-triggered variants and prediction verdicts are later scope. Multiplicity/adaptive selection require a defined family and protocol; `1 − α/k` over only the final reported hypotheses does not account for all adaptive attempts.
+**Target extensions.** Robustness [14, 15] tests sensitivity to justified processing, specifications and resampling, with adversarial checks [6, 11]. Rival/auxiliary tests and confounding sensitivity bounds have separate semantics rather than being put in a stability denominator. Broader structured-prediction assessment and diagnostic-triggered variant strategies are targets; prospective support under declared rules already exists. Multiplicity/adaptive selection require a defined family and protocol; `1 − α/k` over only the final reported hypotheses does not account for all adaptive attempts.
 
 ### 5.6 Analysis checklist
 
-Guidance for Analyst and later challenge prompts [16, 18, 19]. Integrity checks are enforced in code; methodological advice supplies diagnosis/refinement rather than pretending a prompt guarantees validity:
+Guidance for implementation and scientific challenge [16, 18, 19]. Integrity checks are enforced in code; methodological advice supplies diagnosis/refinement rather than pretending a prompt guarantees validity:
 
 - justify a processing choice by validity, never by the relation it produces;
 - flag derived variables that use the outcome;
@@ -377,30 +359,30 @@ Guidance for Analyst and later challenge prompts [16, 18, 19]. Integrity checks 
 - choose assumption handling from descriptive measures, not normality or variance tests;
 - keep association distinct from causation in observational designs.
 
-## 6. Roles and independent challenge
+## 6. Role strategies and independent challenge
 
-A role is a prompt, tool set and model route. A separate session is useful for different access or independent challenge; a large multi-agent topology is not required.
+A role is a prompt, tool set and model route. Theorist, Steward, Analyst, Judge and Writer are current configurations, not required actors or a fixed session order. The persistent Scientist can call the same capabilities through another configuration. Separate contexts can provide access separation or independent challenge; a multi-agent topology is not core.
 
 | Role/function | Current responsibility | Target extension or strategy |
 | --- | --- | --- |
-| Coordinator / PI playbook | Phase order, bounded reframe, review/resume, status | Explicit feedback routing; optional agent PI later |
-| Theorist model route | Understand's framing session; reused by Discover for hypothesis and robustness-plan calls | Richer generation/interpretation in the owning phase with sourced state |
+| Coordinator playbook | Phase order, bounded reframe, review/resume, scheduling, status | Thin routing of new authorized moves; PI topology optional |
+| Theorist model route | Framing, candidate generation, ResearchMove proposal/selection; historical hypothesis/robustness-plan calls | Synthesis, candidate evolution, prior-work reasoning and interpretation with sourced state |
 | Data Steward | Code-checked preparation, operationalization, concerns, readiness | Late new Ground attempts when recovery routes support them |
 | Analyst | Builds/tests one node | Same-specification repair and explicit scientific change proposals |
 | Judge | Separate-context typed node assessment | Refine fidelity assessment; not final validation |
-| Writer | Template publication from artifacts | Claim audit and bounded revisions from challenge |
+| Writer | Evidence-backed reports, exact StudyOutput caches and partial fallback | Persistent manuscript revision and research questions from writing/review |
 | Independent scientific challenger | Not implemented as a baseline scientific role | Fresh context, Critic, debate or another bounded mechanism |
-| Discover agent | Not implemented | Optional research-move selection using the same contracts |
+| Dedicated Scientist/Discover agent | Current scientific behavior spans model sessions | Optional configuration over the same Program/state/move contracts; a separate actor is not required. |
 
-**Generation versus challenge.** Start a challenger from committed hypotheses/interpretations/drafts and evidence, without inheriting the generator's conversation as unquestioned premises. It can raise rivals, contradictions and discriminating checks. Assessments are attributed; they cannot edit evidence, labels or confirmed intent. Self-reflection can help but does not satisfy separation by itself. Fresh context reduces conversational self-confirmation, yet the same model can share biases; debate agreement is not independent validation.
+**Challenge is normal scientific reasoning (target).** Challenge candidate explanations before expensive commitment, experiment discrimination and assumptions before execution, and interpretations after surprising evidence or during writing. A challenge may motivate a rival, narrower claim, literature query or another move; it is not only final review. Start from cited candidate/interpretation records and evidence without treating the generator's conversation as premises. Assessments are attributed and cannot edit evidence, labels or confirmed intent. Self-reflection alone does not provide separation; a fresh context reduces conversational self-confirmation but can share model bias. Debate agreement is not independent empirical validation. Avoid a mandatory critic gate on every minor action; use challenge where it could change scientific understanding or choice.
 
-Sequential sessions and artifact hand-offs describe the current baseline. Target search can use generate → critique → revise, independent review, debate and tournaments, with attributable selection reasons and branch contracts. No topology is mandatory, and LLM scarcity is not a reason to exclude these strategies from the design. Existing systems motivate adoption; later local comparisons refine effectiveness and defaults (§13). No role writes another role's outputs.
+Sequential sessions and artifact hand-offs are a current strategy. Fresh-context challenge, debate, tournaments and specialized agents are replaceable configurations over the same contracts. Preserve attributable assessments and selection reasons across strategies. No role overwrites another role's outputs.
 
 Researcher answers, review and later hypothesis/scope choices are attributed. Autonomous routes cannot silently revise confirmed intent.
 
 ## 7. Harness
 
-Makes agent work recorded, bounded and recoverable. Holds no research logic.
+The target harness is model-native and generic: it enables agency with legible context, tools, execution, feedback and constraints. Current research schemas and scientific reference fields placed here are acknowledged in §3; their location does not make scientific interpretation or selection harness policy.
 
 ### 7.1 Agent loop
 
@@ -408,14 +390,14 @@ An agent session uses a configured model route and a bounded set of phase-approp
 
 ### 7.2 Tools
 
-Tools expose only the information and actions required by the active phase. Read access is scoped to owned or explicitly permitted artifacts; raw and sealed data boundaries are enforced by the harness. Execution and scratch analysis are distinct: only a fresh, accepted execution can produce empirical evidence. Phase submissions carry outputs and assessments to deterministic contract checks; failures return actionable feedback within configured limits. Researcher answers remain attributed and untrusted when presented to a model. Every invocation and result is journaled [29].
+Tools expose explicit permitted artifacts and actions. Current sessions use phase-specific tool sets; target Scientist sessions should be able to inspect relevant state and request authorized scientific actions without a fixed phase hiding needed feedback. Broaden a tool surface only for a demonstrated reasoning need, retaining input allowlists and sealed-data boundaries. Scratch analysis and accepted fresh execution remain distinct. Domain-owned submission checks return actionable feedback through generic harness handlers. Researcher answers are attributed and presented as untrusted data. Every invocation/result is journaled [29].
 
 ### 7.3 Context assembly
 
-Each session's context is built fresh from the run folder, never inherited from another session [28].
+Each session's context is assembled from authorized Program state, exact source records and active episode inputs. A working conversation can grow within a session; scientific continuity across sessions comes from committed state rather than implicitly inheriting another conversation [28]. A fresh context or new Run does not reset exposure.
 
 - **Just in time:** artifacts are listed by name and read through tools.
-- **Research-state view (target):** compact projection of committed artifacts, attempts and feedback (§4.6) [4, 28]. Summaries are replaceable context, never a second authority; use existing commit/resume mechanics.
+- **Scientific State view:** compact sourced context exposes Program explanations, contradictions, direction and relevant episode history, with omitted references available for permitted retrieval (§4.6). Runtime prepares the projection; harness delivers it as context. Summaries remain replaceable views, never a second authority.
 - **Condensed hand-off:** an Analyst sees its parent through the Judge's analysis, not the parent's session.
 - **Size limits per part:** logs keep the tail, files keep the head; cuts are journaled and contract lists are never cut. Session compaction is deferred.
 - **Untrusted content** is wrapped and marked; every system prompt states it is data, never instructions.
@@ -431,16 +413,16 @@ Each session's context is built fresh from the run folder, never inherited from 
 ### 7.5 Journal and run store
 
 - **Journal:** append-only events for model calls/cost, tools/wire status, execution starts/completions, nodes/stages, artifact commits and phases. Sessions, context cuts and explicit budget raises are traceable. A truncated tail remains untouched; new events use a numbered segment. Interior corruption fails visibly.
-- **Run store:** committed inputs and outputs are write-once. Status and cost changes are appended as committed state that cites prior state and artifacts. Resume restores recorded cost and policy state, preserves incomplete attempts, and never resets spend. Explicit budget changes remain attributable. Interactive and automated runs preserve unresolved researcher intent. Unrecorded cost at process death cannot be recovered.
+- **Run store:** committed episode inputs/outputs are write-once. Status and cost changes append checkpoints citing prior state and artifacts. Resume restores cost/policy state, preserves incomplete attempts and never resets spend. Episode checkpoints do not define the lifetime of Program Scientific State (§9). Explicit budget changes remain attributable. Interactive/automated work preserves unresolved intent; unrecorded cost at process death cannot be recovered.
 - **Release:** code, outputs, seeds and journal stay in the run folder, so a run ships its own trace [12].
 
 ### 7.6 Budgets and failures
 
 Resource caps are finite and nonnegative. Limits apply separately to run cost, agent sessions, analysis attempts, local repairs, and scientific revisits. Validation exposure accounting follows §11.
 
-LLM capacity is expandable. Configurable budgets cap and allocate work among candidates, challenge and executions. `BudgetAllocator` recommends how the adaptive-search budget is distributed; coordinator enforces the total cap and schedules. Budgets provide explicit stopping and are not a fixed product capability limit. Concurrency limits also protect executor capacity and consistent accounting. Increasing resources permits more work under the same contracts, without relaxing integrity or exposure rules.
+LLM capacity is expandable. Configurable budgets cap work among candidates, challenge and executions. The Scientist selects work and recommends allocation; Coordinator enforces the total cap and schedules. A separate BudgetAllocator is a replaceable strategy (§4.6). Budgets provide explicit stopping rather than a fixed product capability limit. Concurrency limits protect executor capacity and consistent accounting. More resources permit more work under the same integrity and exposure contracts.
 
-Provider transport errors currently use backoff. Many node runtime/output/assessment problems share `buggy`; stages without an `ok` node stop. Preserve these paths while separating feedback semantics. This is the target taxonomy, not a claim that every class exists today:
+Provider transport errors use backoff. Local node acceptance still uses `buggy`; format-5 also records typed structural observations, diagnoses and fidelity. The harness records technical/access/resource facts. Scientific runtime and phase validators attach measurement semantics; the Scientist diagnoses evidence and chooses a response. The table is a cross-system taxonomy, not scientific policy implemented in the harness or a claim that every route exists today:
 
 | Failure/outcome class | Example | Handling |
 | --- | --- | --- |
@@ -459,58 +441,61 @@ No failure path edits artifacts. Resume uses committed attempts and journal . On
 
 ### 7.7 Progress
 
-One terminal line per phase and per node, e.g. `[data] data-002 debug → ok score 7 · $0.41`; `--quiet` disables it.
+Progress identifies the active Program/episode, move or implementation attempt and relevant spend/status. Local code score is displayed as an implementation assessment; it does not imply scientific progress. Display format and quiet mode are harness configuration.
 
-### 7.8 Artifact contracts, integrity sentinel and human escalation
+### 7.8 Artifact contracts, integrity and human escalation
 
-These primitives strengthen the existing harness/phase boundary [32]. Current `StageSpec` inputs/required outputs, typed submit handlers, execution logs, access allowlists, journal, run-store commits and researcher review are foundations. Generalized contracts, enriched diagnosis and graceful finalization are target refactors/extensions, not fully shipped capability.
+Current StageSpec checks, typed submits, exact artifact/measurement references, execution manifests, access allowlists, journal, run-store commits and researcher review supply this boundary. Format-5 includes typed diagnosis and deterministic partial publication. Generalized cross-run contracts, transitive invalidation and richer escalation remain targets.
 
-**Artifact contracts.** Each existing step declares permitted input artifacts/versions, required or optional outputs, structural checks, owning producer and completion conditions. An output identifies its sources and, when scientific, hypothesis/specification/execution. Pass committed paths/references in hand-offs rather than unsupported context assertions. Optional figures or a PDF cannot invalidate an otherwise faithful measurement; missing required empirical evidence cannot be replaced by prose. Start with current typed models and stage checks; no universal artifact ontology, new registry service or duplicate evidence copies.
+**Artifact contracts.** Each existing step declares permitted input artifacts/versions, required or optional outputs, structural checks, owning producer and completion conditions. An output identifies its sources and, when scientific, hypothesis/specification/execution. Pass committed paths/references in hand-offs rather than unsupported context assertions. Optional figures or a PDF cannot invalidate an otherwise faithful measurement; missing required empirical evidence cannot be replaced by prose. Current typed models and stage checks are valid contract mechanisms; a universal artifact ontology, registry service or duplicate evidence store is not required.
 
-**Deterministic sentinel/watchdog.** A logical layer checks allowed access/writes, artifact/schema/reference integrity, execution completion, resource limits and evidence backing before release. Phase-declared validators own domain semantics. The sentinel returns machine-readable observations and enforces integrity boundaries, while scientists diagnose/refine and the coordinator routes. It does not judge novelty, whether a hypothesis should be pursued, or statistical truth. Suspicious-but-possible scientific observations create warnings/challenge, not automatic rejection. Independent monitoring/heartbeat services are optional strategies if hung work or deployment requires them; no sentinel agent or daemon is required.
+**Integrity checks.** Existing access, schema/reference, execution and resource checks return machine-readable observations and enforce declared boundaries. Scientific validators own domain semantics; Scientist diagnoses/refines and Coordinator routes. Do not add a sentinel layer merely to name these checks. They cannot judge novelty, scientific worth or statistical truth. Suspicious-but-possible observations motivate warnings/challenge; deployment monitoring is optional if an observed hung-work or hosting need requires it.
 
-**Targeted HITL.** Ask at unresolved decisions that materially change researcher intent, operationalization, scope or a validation commitment. Routine same-specification repair and harmless execution scheduling do not need approval. Reuse existing research-context questions and review first, then add decision-specific escalation with trigger, options, consequences and recorded resolution. A proxy with materially weaker meaning needs explicit provenance and escalation when it changes confirmed meaning; other proposals may proceed with limitations. Under `--auto`, unresolved decisions retain proposed/unknown standing or defer; silence never confirms intent. Targeting future escalation does not remove the current initial review/resume contract by stealth. Resource cap raises remain explicit researcher actions (§7.6).
+**Targeted HITL.** Ask at unresolved decisions that materially change researcher intent, operationalization, scope or a validation commitment. Routine same-specification repair and harmless execution scheduling do not need approval. Decision-specific escalation records its trigger, options, consequences and resolution through researcher questions/review. A proxy with materially weaker meaning needs explicit provenance and escalation when it changes confirmed meaning; other proposals may proceed with limitations. Under `--auto`, unresolved decisions retain proposed/unknown standing or defer; silence never confirms intent. Targeting future escalation does not remove the current initial review/resume contract by stealth. Resource cap raises remain explicit researcher actions (§7.6).
 
 Human collaboration is therefore a targeted decision boundary rather than an approval step at every phase. The system presents the decision, alternatives, likely consequences, and relevant evidence; the researcher's response is attributed and committed. Unresolved decisions remain proposed or deferred.
 
-**Graceful degradation.** Partial, inconclusive and exploratory-only reports are valid products when their standing, missing coverage and stop reasons are visible. Distinguish coverage (partial/complete), scientific outcome and validation standing from operational run status. Keep accepted measurements, invalidate affected ones by appended record and block unsupported claims, not the diagnostic report as a whole. With no accepted empirical measurement, emit a failure/diagnostic report with no empirical findings; do not manufacture a completed study. Preserve a cheap deterministic report path when no model budget remains; PDF failure preserves source/logs. Start by making committed outcomes and reasons readable, then extend publication fallback without adding a parallel writer.
+**Graceful degradation.** Partial, inconclusive and exploratory-only reports are valid products when their standing, missing coverage and stop reasons are visible. Distinguish coverage (partial/complete), scientific outcome and validation standing from operational run status. Keep accepted measurements, invalidate affected ones by appended record and block unsupported claims, not the diagnostic report as a whole. With no accepted empirical measurement, emit a failure/diagnostic report with no empirical findings; do not manufacture a completed study. Preserve a cheap deterministic report path when no model budget remains; PDF failure preserves source/logs. The current renderer's deterministic fallback satisfies partial reporting without a parallel writer.
 
-## 8. Decision layer
+## 8. Typed assessments and selections
 
-Current Judge verdicts are typed assessments. Decision-model substitution, shadow/on modes and hypothesis ranking below are future strategies, not requirements of the current pipeline.
+Current Judge returns a typed Verdict for local code acceptance, goal completion, score and fidelity. Discover's model sessions return typed move proposals and a MoveSelection with rationale. These are different decisions: a local implementation assessment cannot rank scientific hypotheses or establish evidence standing.
 
-| Question          | Asked by        | Type             |
-| ----------------- | --------------- | ---------------- |
-| `node_buggy`      | Judge           | bool             |
-| `goal_met`        | Judge           | bool             |
-| `node_score`      | Judge           | float 1–10       |
-| `hypothesis_rank` (future) | Optional PI agent strategy | score per option |
+The Scientist owns comparisons of scientific relevance, explanatory value, discrimination and cost. Runtime checks validate referenced options, commitments and identity; Coordinator enforces authorization and resources. Computable facts and labels remain code-owned. An assessment records author, inputs, scope, rationale and uncertainty; invalid output receives bounded feedback or a recorded stop/defer, never a fabricated successful decision.
 
-- **Answerers:** the LLM Judge (default, reference) or a decision model returning typed choices, probabilities and scores with confidence [31]. Adding one changes no interface.
-- **Modes per question:** `off` (Judge only); `shadow` (both answer, Judge used); `on` (decision model used above a confidence threshold, else Judge).
-- **Shadow records (future):** retain both answers and their inputs for comparison with independent assessment. Agreement with the Judge is a diagnostic, not correctness ground truth. Authority can change only within the evaluated scope; a confidence threshold alone does not establish scientific reliability.
-- **Limits:** chooses among given options or scores given facts; never writes code or prose; never computes what code can; never overrides a code check or label.
-- **Fallback:** provider unavailable or malformed answer → Judge's answer, reason journaled.
+A separate decision model [31] is a replaceable option only when an observed cost or judgment-quality gap warrants it. Any comparison/shadow strategy retains both inputs and attributed outputs; agreement with the current Judge is not correctness ground truth. It cannot override integrity checks, compute empirical values from prose or acquire authority merely by reporting confidence. This contract does not require a decision service, extra model role or prescribed off/shadow/on modes.
 
-## 9. Research records and state
+## 9. Persistent Research Program and Scientific State
 
-The authoritative record is the append-only history of committed inputs, phase outputs, executions, results, assessments, and decisions. A record identifies its owner, sources, and relevant research and specification identities. Corrections and new interpretations append records; they do not overwrite the evidence that prompted them.
+**Research Program.** The Program is the persistent scientific scope: researcher intent, questions, explanatory commitments, unresolved contradictions, direction, evidence and research artifacts. Its identity survives bounded Runs and their operational failures. It can pursue several related questions, datasets or replications without erasing their distinct design and evidence regimes. Program persistence is a target semantic contract; it does not assert that the current RunStore already provides a program store.
 
-The research-state view is a sourced projection of these records. It distinguishes researcher-confirmed intent, agent proposals, observations, attributed assessments, unresolved questions, and computed statuses. It can be rebuilt from committed history and is not a second mutable authority. A graph or index may accelerate queries, but cannot become a competing source of scientific truth.
+**Study and Run.** A Study can group a coherent investigation with its question, design and evidence scope when that grouping clarifies the science. It is not required for every move or a prerequisite storage layer. A Run is a bounded episode of work within the Program, optionally associated with a Study (§4.0). Episode completion, Study completion, manuscript readiness and Program continuation are independent statuses. The current StudyOutput transports one Run's records; its name does not create a persistent multi-run Study.
 
-Scientific identity links the research question, hypothesis, intended test and its versions, measurement implementation, and executions. Exposure and selection history travel with the evidence. Assessments and transitions cite their sources; they cannot change results, labels, or confirmed intent.
+**Scientific State and authority.** The authority is the append-only history of committed inputs, scientific records, executions, results, assessments and decisions. Records identify Program/producer, exact sources and relevant scientific/episode identities. New explanations, revisions and corrections append records rather than overwrite the evidence that prompted them. Run-local files may remain where produced; a Program can link exact source records rather than copy their evidence into a second store.
 
-**Lesson capture and cross-run learning.** Capture sourced lessons from diagnoses, recovery outcomes and recurring workflow failures as they arise. Capture is append-only and does not require a retrieval system. A later capability may retrieve reusable lessons or skills for new-run proposals or execution strategy. Each lesson retains source runs, context, applicability conditions and limits; it is not a measurement, prior empirical support, or validation evidence for a new run. It cannot override current data, researcher-confirmed intent, or integrity checks.
+Scientific State combines this durable record history with a derived Scientist-facing view. The view exposes current explanations/rivals, supporting and contradictory evidence, usable and invalidated measurements, uncertainty, unresolved questions, candidate evolution, research direction and pending work. It distinguishes researcher-confirmed intent, proposals, observations, attributed interpretations and computed statuses. Synthesis is itself committed and attributed; rebuilding a projection cannot invent unrecorded scientific reasoning. Source/frontier references, omissions and stale interpretations remain inspectable. A graph or index is optional and never an authority.
 
-Lessons retain applicability conditions, source data identity and relevant exposure. Record their retrieval and use in subsequent runs. Dataset-specific observations transferred through a lesson count as exposure to that information; marking a lesson advisory does not restore independence. Begin with execution and workflow lessons, then extend scientific strategy learning under these same attribution and exposure contracts.
+**Cross-episode identity and access.** Resolving prior work requires an explicit source-Run identity, exact committed references and a read/access contract. Existing run-confined references are not made global by permitting arbitrary paths. Carry source data/slice identity, selection, evidence standing and exposure across linked Runs. A new episode, model session, dataset alias or copied artifact grants no fresh validation entitlement. Imported measurements remain prior observations with their original design and limits; they are not new executions.
 
-## 10. Publication
+**Continuation.** At an episode boundary, preserve its committed outcomes, unresolved issues and selected/pending work. The Scientist returns to the Program's state, verifies what remains usable and justifies the next move from the current frontier. Episode recovery can complete an interrupted attempt; a changed hypothesis, specification or scope still needs an explicit transition. An unavailable source/capability is a recorded blocker or deferral within the inquiry, not a reason to discard scientific history. A Run may end with evidence, failure, contradiction or a next question without a manuscript.
 
-Communication turns committed research records into a readable paper and supporting claims view. Each empirical number resolves to a named result and its measurement lineage. The report presents the research question, data and operationalizations, methods, results, limitations, and study status; it preserves negative, inconclusive, superseded, and partial outcomes.
+**Staleness and exposure.** Corrected measurements preserve prior versions and invalidate affected uses. Derived understanding and manuscript claims expose dependent sources that are invalidated, superseded or unresolved; the Scientist commits a reassessment before treating them as current support. Scientific interpretations may remain contested even when references resolve. Sourced prior-work and transferred data-specific facts count as exposure where relevant. Storage separation or model separation alone does not establish independence.
 
-Publication checks numerical and claim references against committed evidence. Missing or invalidated links are reported rather than inferred. Build and review outcomes are recorded as assessments; they cannot upgrade scientific standing. Provenance and successful compilation do not establish measurement fidelity or scientific validity. Claims of contradiction, equivalence, or validation require their declared evidence and decision rules.
+**Procedural learning has separate scope.** Reusable lessons/skills describe how to work: a repair pattern, diagnostic technique or experiment-selection heuristic with attribution, applicability and limits. They advise scientific or execution behavior but do not supply an empirical finding. Program accumulation records what has been learned about its scientific questions. Prior Program evidence can inform a later interpretation with its original standing; procedural advice cannot substitute for that record, override constraints or grant validation.
+
+Capture, retrieval/use and correction/retirement of procedural lessons remain attributed append-only records. Dataset-specific facts embedded in a skill retain source identity and exposure, even when labeled advisory. Persistent scientific knowledge therefore does not depend on a lesson store, and a lesson store does not become a competing scientific memory.
+
+## 10. Persistent manuscripts and review
+
+**Current capability.** Coordinator calls Communication after discovery; a completed current path includes a report. Format-5 publication reads exact StudyOutput measurements/history, keys caches to that content/frontier, and can render a partial or diagnostic report without model budget. Named numerical values come from results.json; compilation failure preserves source/logs. This is useful reporting, not an implemented persistent manuscript/research loop.
+
+**Manuscript contract.** A manuscript is a persistent versioned research artifact within the Program, tied to the evidence frontier it reports and any relevant Study scope. Scientist may draft, revise or review it repeatedly while inquiry continues across Runs. Separate build status, manuscript readiness, Run status and scientific outcome. Writing may expose an unsupported claim, unexplained contradiction or missing discriminating test; commit the issue and propose a ResearchMove. It can be scheduled in an active episode or another Run when authorized. Publication does not close scientific inquiry, and a useful Run need not produce a manuscript.
+
+Claims, numbers and figures resolve to committed evidence and retain negative, partial, superseded and inconclusive work. If measurements are corrected or new evidence changes interpretation, preserve the prior manuscript, mark affected claims stale and commit a new sourced version. Reviews return attributed assessments/questions to Scientific State; accepted changes cite their evidence and disposition. Review and successful compilation cannot upgrade scientific standing. Absence of validation does not prevent a faithful exploratory manuscript; no separate manuscript service is required by these semantics.
 
 ## 11. Discovery and orthogonal validation
+
+Locked validation is an optional strong evidence regime, not the endpoint of every Run, Study or manuscript. Discovery, descriptive work, replication planning and unresolved scientific questions remain useful with honest evidence standing. Validation can occur in another episode when suitable data and a justified protocol exist; the same identity and exposure obligations apply.
 
 **Current protection.** At ingest, before profiling, `holdout_fraction` (default 0.2; 0 disables) of rows is set aside, grouped by `data.group_column` when configured (not automatically inferred from research metadata). Holdout rows are sealed with a per-run key outside the run directory; scripts receive neither key nor rows. Verify is not implemented. Discovery rows cannot retroactively become independent validation evidence.
 
@@ -522,50 +507,59 @@ This holdout is a **candidate validation resource**, not a guarantee of suitable
 
 A non-adaptive path computes `supported_on_validation`, `not_supported_on_validation` or `inconclusive` under that declared rule, with assumptions/limits visible. Missing/invalid evidence produces execution/protocol status and unavailable validation standing, never scientific non-support by default. `not_supported_on_validation` means the support criterion was not met; it is not proof of the null. Separate access/outcome authority from adaptive discovery. Another agent, process or Critic alone does not provide statistical independence, and a locked protocol does not cure invalid assumptions.
 
-**Exposure accounting.** Track validation access across hypotheses, specifications, resumes and runs sharing a source. A new result id does not grant a look. Start with one locked attempt per designated held-back source/test family; additional allocation or reusable-holdout mechanisms need a protocol [17]. Reusing the same dataset in a new run does not reset knowledge of exposed rows.
+**Exposure accounting.** Track validation access across hypotheses, specifications, resumes and runs sharing a source. A new result id does not grant a look. The initial validation strategy permits one locked attempt per designated held-back source/test family; additional allocation or reusable-holdout mechanisms need an explicit protocol [17]. Reusing the same dataset in a new run does not reset knowledge of exposed rows.
 
 **Failure and adaptation.** Negative/inconclusive validation is an outcome, not permission to refine/retry against the same evidence. Failure after access consumes exposure and cannot trigger adaptive repair there. Strictly pre-access infrastructure failure can resume under the unchanged lock only if recorded state establishes non-exposure; otherwise consume exposure. Further discovery may use disclosed feedback, but a revised claim needs suitable new independent evidence and a new locked protocol. Never relabel adaptive discovery evidence as supported on validation. The one-attempt/no-post-access-repair rule is a conservative initial policy, not a statistical theorem forbidding prespecified sequential or reusable-holdout procedures [17, 26, 27].
 
 ## 12. Knowledge
 
-Acquisition is an optional external source capability available before framing and during the research loop. A hypothesis, contradiction or open question can trigger literature retrieval; the request and returned sources are attributed in research state.
+**Current capability.** There is no literature-retrieval or dataset-acquisition path in production. Researcher context may supply prior-work information, which remains attributed input rather than independently verified literature. Do not infer retrieval capability from related-work prose or model recall.
 
-- Literature retrieval can return source metadata and abstracts for framing, hypothesis generation, and writing; Understand can cite retrieved work as evidence for proposed research-context entries (§4.1).
-- Queries carry concepts, never data values.
-- Prior work shapes directions and related work; it is never evidence for this run's results.
-- Hypotheses may record whether they replicate, extend, or contradict retrieved work, as coverage rather than a novelty claim.
-- Only retrieved records are cited.
-- Resolved sources retain identity, retrieval provenance, the supporting passage or artifact, and suitability/limitations. Dataset and benchmark candidates require researcher selection and Ground assessment; retrieval does not silently expand a run to multiple datasets or procure validation evidence.
+**Prior-work reasoning is a Scientist capability.** Consult literature when it can inform framing, explanations, rivals, candidate evolution, experiment discrimination or interpretation. It is part of the target scientific loop, separate from optional dataset acquisition, and need not be invoked mechanically on every move. Missing/relevant prior work can change Program direction, motivate replication or prevent redundant work. Record the query and resolved sources, and commit how they support, contradict or limit an explanation or move. If source access is unavailable, record the gap/deferral rather than treating model recall as verified prior work.
+
+Resolved sources retain identity, retrieval or supplied-source provenance, supporting passages/artifacts and limitations. Model recall and unresolved citations are leads, not verified evidence. Distinguish a source's reported claim, the Scientist's interpretation of it and current-run measurements. Prior empirical work can inform a research program with its original population/design/uncertainty; it cannot stand in for executing the current experiment or confer validation entitlement. Claims of replication, extension or novelty require an explicit comparison and remain qualified.
+
+Source reading/retrieval uses declared tools, artifact contracts and untrusted-context handling. Record unsuccessful searches and unresolved sources when they affect a choice; source count alone is not literature usefulness. Queries use research concepts and authorized metadata, with data/access constraints preserved. Broad retrieval infrastructure is unnecessary unless the scientific loop exposes a source-access gap.
+
+**Data acquisition is separate.** Finding and assessing candidate datasets/benchmarks is an optional extension, not a prerequisite for literature reasoning. Candidates retain provenance, suitability and limits; researcher selection and Ground assessment authorize a Run input. One-dataset Run execution can remain useful while the Scientist proposes new data, a replication or another study. Retrieval alone never procures valid independent evidence or resets exposure.
 
 ## 13. Design decisions
 
-**Core** means an architectural commitment. **Baseline strategy** describes the current approach. **Future strategy** is optional and can change without changing the core contracts. Sources motivate choices, not every Popper default.
+These decisions are design hypotheses grounded in the current path, not a requirement to implement every target together. Evaluate each proposed change with: **Does this help Popper reason, discover and accumulate scientific knowledge better, or does it merely make a run more tightly managed?**
 
-| Decision | Standing | Evidence or rationale |
+| Decision | Standing | Architectural contract and scientific value |
 | --- | --- | --- |
-| Artifact-backed state, scientific identity, typed bounded transitions | Core | Current artifacts/resume are foundations; bounded scientific adaptation is a reasonable inference from repair systems [1, 2, 8, 9, 32] |
-| Fresh execution, immutable provenance, named numbers and computed labels | Core; baseline mechanisms implemented | Current code and traceability practice [5, 12, 20, 21, 30] |
-| Separate provenance, measurement fidelity and scientific validity | Core; deep chain later | Execution does not prove a valid test; adaptive-analysis risks [14, 15, 16, 17, 18] |
-| Independent challenge and discovery/locked-validation separation | Core; full capabilities later | Review systems [3, 6, 7] and selective inference/holdouts [16, 17, 18] |
-| Sequential playbook, Understand/Ground sessions, bounded reframe | Baseline strategy | Current implementation; extend incrementally  |
-| Draft/debug/improve trees and typed Judge | Baseline strategy | Implemented; existing search agents [1, 2, 8, 9]; scheduling/blinding remain hypotheses |
-| Recorded robustness/adversary and stability rendering | Baseline strategy; semantics to refactor | Implemented; multiverse motivation [11, 14, 15]; not validation |
-| Research context, provenance/review and code descriptives | Baseline strategy | Implemented; initial data analysis [33, 34] |
-| Structured predictions, pre-test description, rivals and effect-size threshold | Future capability/strategy | Strong inference/equivalence [6, 18, 22, 23]; non-rejection does not refute a rival |
-| Method vocabulary, diagnostics and cluster advice | Current vocabulary plus future extensions | Feedback/classification; rigid scientific gates are not core [34, 24, 25] |
-| Adaptive hypothesis/specification search and active working state | Core target capabilities | AIDE and AI Scientist-v2 motivate candidate search [1, 8]; Co-Scientist motivates hypothesis evolution [3]; Kosmos motivates accumulated, sourced working knowledge [4] |
-| Graph, PI/Discover agents, Critic/debate, parallel branches/tournaments | Replaceable target strategies | Existing systems motivate adoption [1, 3, 4, 7, 32]; LLM capacity can expand; preserve branch ownership and coherence |
-| Deep claim audit, figure review and locked Verify | Future capabilities | User-checkable evidence and validation [5, 13, 16, 17, 18, 20, 21] |
-| Decision-model substitution, confirm partition, diagnostic variants | Future strategies | Refine cost, selection, fidelity [17, 31, 24, 25] |
-| Adapt established mechanisms; evaluate transfer later | Product practice | Papers and implementations justify initial adoption; contract checks verify operation; benchmarking later measures completion, recovery, hypothesis quality, fidelity, traceability, usefulness and cost [10, 12] |
-| Recovery and adaptation as a first-class capability | Core | ARC demonstrates bounded diagnosis, repair, and continuation patterns [32]; Popper keeps scientific identity, evidence standing, and transition limits authoritative |
-| Pluggable execution backends | Core contract; backend choice is replaceable | Experiment meaning is independent of runtime; every backend must satisfy shared provenance, access, and result contracts |
-| Evidence and claim verification | Core | Claim, number, and figure lineage is auditable; this does not substitute for scientific review or locked validation [5, 13, 17, 20, 21] |
-| Optional acquisition of datasets, benchmarks, and literature | Optional capability | Sourced candidates can reduce input burden while researcher intent, suitability review, and evidence standing remain explicit |
-| Cross-run lessons and reusable skills | Optional capability | Prior runs can inform strategy when lessons retain attribution and are never treated as new-run evidence |
-| Explicit artifact contracts, semantic recovery/forks, environment feedback and deterministic integrity layer | Core primitives; reuse existing checks, minimal refactor first | Current Popper stage/store/interpreter contracts; AutoResearchClaw implementation [32]. Individual benefits are not all isolated measurements |
-| Targeted HITL and honest partial/exploratory finalization | Core escalation/output principles; routes extend incrementally | Current questions/review/limitations plus external scripted-HITL/failure evidence [32]; exact Popper triggers/defaults need local learning |
-| Early removal of concrete semantic/context bottlenecks | Core workflow | Correct or retire restrictive paths in the same increment; avoid layers compensating for known defects |
+| Preserve journal, write-once artifacts, exact references, fresh execution, named results and computed labels | Current mechanism; core invariant | Scientific learning needs trustworthy observations and readable history. Keep these mechanisms. |
+| Explicit scientific runtime distinct from harness and reasoning | Partly implemented; target ownership | Scientific state/identity/evidence semantics are distinct from generic execution and scientific worth. Logical ownership does not require a new package. |
+| Candidate maturation and evolution | Target capability | Source-backed ideas can remain uncertain before formalization and evolve under challenge without erasing lineage. |
+| Independent scientific challenge | Target capability; topology replaceable | Challenges explanations, assumptions, discriminating tests and interpretations using cited evidence; code assessment alone does not satisfy this contract. |
+| Explicit interpretation and scientist-facing knowledge | Target capability over current state projection | Attributed synthesis explains changed understanding; derived views resolve to committed evidence and interpretations. |
+| Research direction above ResearchMoves | Target capability | Revisable sourced direction gives multi-move inquiry and prerequisites meaning beyond greedy next-step selection. |
+| Prior-work reasoning in the loop | Target capability | Resolved sources inform rivals, experiments and interpretation without substituting for current measurements. Retrieval topology and broad acquisition are optional. |
+| Persistent Program and cross-run Scientific State distinct from procedural learning | Core target; not yet general current capability | Scientific understanding, evidence, direction and exposure survive bounded episodes. Study grouping is optional; reusable advice retains its own applicability and source scope. |
+| Persistent manuscripts and review-to-research feedback | Target capability over current renderer | Manuscripts cite an evidence frontier; sourced issues from writing/review can motivate research without making every Run a paper. |
+| Locked validation with separate access/verdict authority | Optional target evidence regime | Exploratory support is not independent validation. Preserve sealing and add a protocol only when suitable evidence and a justified validation objective exist. |
+| Trees, blinding, fixed analysis stages, debate, tournaments, PI, graph, alternative backends | Replaceable strategies | Keep working defaults. Change a strategy only for an observed reasoning/execution gap, with useful behavior and cost compared. |
+| Thin Coordinator and generic harness | Core ownership | More orchestration does not supply scientific interpretation. Keep scientific selection in Scientist sessions and domain checks in runtime contracts. |
+
+### 13.1 Evaluation
+
+**Current capability.** `evals/run_metrics.py` reports journaled cost, tokens, cache/context behavior, tool errors and session/submission activity. FakeLLM tests verify execution, persistence, identity and recovery contracts without provider calls. Neither these tests nor operational completion establish scientific usefulness.
+
+**Evaluation contract.** Measure the persistent research loop and its scientific decisions, including episode-to-episode changes in understanding. Use committed traces, cases with credible alternatives/uncertainty and attributed researcher/independent assessment; computational labels remain distinct from scientific judgments. Detailed cases, thin slices and evaluation rollout belong to [ROADMAP.md](ROADMAP.md).
+
+| Dimension | Evidence to inspect |
+| --- | --- |
+| Scientific usefulness | A relevant explanation/question or informative null result, explicit uncertainty and a justified follow-up; examples of changed understanding rather than candidate counts. |
+| Hypothesis evolution | Whether challenge or evidence changes, narrows, splits or retires candidates while preserving origins and rivals; distinguish semantic evolution from cosmetic rewriting. |
+| Experiment selection | Predicted outcomes distinguish plausible explanations, address the current direction and justify cost; include prerequisites and reasons for displaced alternatives. |
+| Challenge and recovery | Whether a challenge finds a material flaw and changes a decision; whether recovery preserves intended meaning, invalidates affected evidence and avoids treating negative results as bugs. |
+| Literature use | Resolved, relevant sources materially change explanation, challenge, experiment or interpretation; identify misread, irrelevant or unsupported citations. |
+| Research continuity | A later episode uses prior evidence/questions without repeating resolved work, carries contradictions and exposure, and keeps scientific accumulation distinct from procedural advice. |
+| Traceability and integrity | Claims/interpretations resolve to exact measurements and sources; invalidated or stale knowledge is visible; every empirical number comes from named results. |
+| Cost and efficiency | Total/model/execution cost, useful progress per episode, redundant work and recovery overhead at stated budgets; include stopped/failed episodes. |
+
+Preserve denominators, failed/abandoned branches, budgets, selection/exposure and case conditions. Include positive, negative, inconclusive and missing-data cases. A model's agreement with its own Judge is not a correctness oracle, and favorable sign/significance is not scientific success. Compare changes with the existing sequential behavior at stated resources; use targeted ablations when strategy value is unclear. Evaluation findings can reject this architecture's assumptions, not only tune its parameters. Keep suites and assessments in `evals/` or offline artifacts; production continues to emit the records they inspect.
 
 ## 14. References
 **AI research systems**

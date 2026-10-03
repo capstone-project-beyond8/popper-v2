@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from popper.harness.config import Role
 from popper.harness.diagnostics import error_feedback
 from popper.harness.llm import Message, ToolCall, ToolResult, ToolSpec
+from popper.harness.records import IntegrityError
 from popper.harness.session import Harness
 from popper.harness.validation import format_errors
 
@@ -70,6 +71,13 @@ def _run(
     else:
         try:
             out = tool.handler(call.input)
+        except IntegrityError as exc:
+            h.journal.write(
+                "tool_call", tag=tag, session=session, terminal=tool.terminal, turn=turn,
+                tool=call.name, call_id=call.id, args=_args(call), result=str(exc),
+                status="integrity_error",
+            )
+            raise
         except ValidationError as exc:
             out = f"error: {format_errors(exc)}\nCorrect these fields and resubmit the complete input."
             status = "error"

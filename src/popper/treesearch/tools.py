@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from popper.harness.agent import Tool
 from popper.harness.context import ARTIFACT_CHARS, fence, head
 from popper.harness.descriptive import describe_table, format_description, read_table
+from popper.harness.records import ArtifactRef
 from popper.harness.session import Harness
 
 ARTIFACTS = {"results.json", "analysis.md", "changes.json", "framing.json", "hypotheses.json"}
@@ -37,6 +38,8 @@ def node_tools(
     execution_logs: bool = True,
     diagnostic_tag: str | None = None,
     artifact_roots: Mapping[str, Path] | None = None,
+    test: ArtifactRef | None = None,
+    stage_instance: str | None = None,
 ) -> list[Tool]:
     root = h.run.root.resolve()
     allowed_artifacts = (
@@ -78,6 +81,7 @@ def node_tools(
             inputs=inputs,
             node=node_dir.name,
             purpose="scratch",
+            test=test, stage_instance=stage_instance,
         )
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")

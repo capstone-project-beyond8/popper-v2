@@ -187,11 +187,42 @@ def _submit(code: str) -> tuple[ToolCall, ...]:
 
 def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     tag = req.tag
+    if tag == "candidates":
+        methods = [{"family": "linear_regression", "description": "Log exposure contrast", "inputs": ["exam_score", "study_hours_week"], "outputs": ["primary_estimate"], "effect_scale": "exam score points", "parameters": {"bootstrap": 200, "seed": 0}, "diagnostics": ["finite interval"], "assumptions": []}]
+        return json.dumps({"candidates": [{**HYPOTHESIS, "statement": f"Candidate {i}: scores and hours", "methods": methods} for i in (1, 2, 3)]})
+    if tag == "research_moves":
+        state = json.loads(req.messages[0].text.split("Sourced state: ", 1)[1].split("\nRead omitted", 1)[0])
+        omitted = {"hypothesis-002": "Retain competing explanation for later", "hypothesis-003": "Retain uncertainty"}
+        if state["results"]:
+            move = {"action": "stop", "objective": "retain observed contrast and alternatives", "trigger_refs": [state["results"][-1]["ref"]], "cost_usd": 0, "stopping_condition": "bounded informative test completed"}
+            omitted["hypothesis-001"] = "completed test"
+        else:
+            intent = next(ref for ref in state["frontier"] if "intent" in ref["path"])
+            candidate = state["candidates"][0]["record"]
+            if len(req.messages) == 1:
+                return (ToolCall("read-intent", "read_artifact", {"path": intent["path"]}),)
+            intent_data = json.loads(req.messages[-1].tool_results[0].text.split("<untrusted>\n", 1)[1].split("\n</untrusted>", 1)[0])
+            test = {
+                "primary_estimand": candidate["primary_estimand"], "selection": {"slice": "all discovery rows", "assumptions": []},
+                "preparation": intent_data["preparation"], "methods": candidate["methods"],
+                "inference": {"bootstrap": 200, "interval_level": .95}, "adjustment": [],
+                "requested_coverage": {"seeds": [0], "alternatives": [{"inference": {"bootstrap": 200, "interval_level": .95}, "selection": {"slice": "all discovery rows", "assumptions": ["alternative model"]}}]},
+                "outputs": ["primary_estimate", "estimand.json"],
+                "support_rule": {"kind": "directional_ci", "result_key": "primary_estimate", "interval_level": .95, "null": 0, "direction": "positive"},
+                "sources": [intent],
+            }
+            move = {"action": "test", "objective": "resolve exploration uncertainty", "hypothesis_id": "hypothesis-001", "trigger_refs": [state["candidates"][0]["ref"]], "test_proposal": test, "discriminating_outcomes": ["positive", "negative", "inconclusive"], "cost_usd": .1, "stopping_condition": "one informative test"}
+        return (ToolCall("submit-moves", "submit_moves", {"moves": [move], "omitted": omitted}),)
+    if tag == "select_move":
+        proposals = json.loads(req.prompt.split("Retained proposals: ", 1)[1])
+        return json.dumps({"proposal_id": proposals["moves"][0]["id"], "rationale": "Exploration uncertainty motivates an informative contrast"})
     if tag == "theorist":
         return (ToolCall("frame-1", "submit_frame", {"framing": FRAMING}),)
     if tag == "steward":
         return _submit_ground(DATA)
     if tag.startswith("analyst:"):
+        if "hypothesis-" in tag:
+            return _submit(EXPERIMENT + "\njson.dump({'seeds':[0], 'interval_level':.95, 'effect_scale':'exam score points'},open('coverage.json','w'))")
         if tag == "analyst:robustness":
             choice = next(
                 item for item in ROBUSTNESS["attempts"] if f": {item['choice']}. " in req.prompt
@@ -208,7 +239,11 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
             return _submit(code)
         return _submit(EXPLORE if tag == "analyst:explore" else EXPERIMENT)
     if tag.startswith("judge:"):
-        return json.dumps(FEEDBACK)
+        return json.dumps({**FEEDBACK, **({"fidelity_status": "consistent", "fidelity_reason": "Declared log contrast implemented with resampling", "fidelity_requirements": ["contrast", "interval"], "fidelity_evidence": ["code: bootstrap", "output: contrast"]} if "hypothesis-" in tag else {})})
+    if tag == "writeup" and "committed study" in req.prompt:
+        names, _ = json.JSONDecoder().raw_decode(req.prompt.split("Named numbers: ", 1)[1])
+        key = next(k for k in names if ".main.primary_estimate" in k and not k.endswith((".ci", ".n")))
+        return json.dumps({**WRITEUP, "results": rf"Contrast \R{{{key}}} and unknown \R{{main.nope}}.", "figures": []})
     return json.dumps(
         {"hypothesis": HYPOTHESIS, "writeup": WRITEUP, "robustness_plan": ROBUSTNESS}[tag]
     )
@@ -223,7 +258,7 @@ def _config() -> Config:
 @pytest.mark.slow
 def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def interrupt(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        if req.tag == "analyst:main":
+        if req.tag.startswith("analyst:") and req.tag.endswith("-main"):
             raise KeyboardInterrupt("interrupted during analyst")
         return _respond(req)
 
@@ -248,6 +283,9 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     stopped = resume(waiting.run_dir, llm=llm, progress=lines.append)
     assert stopped.status == "budget_exceeded"
     store = RunStore(stopped.run_dir)
+    from popper.harness.recovery import Journal
+    # A publication stop belongs to this source, never to a later resumed study.
+    Journal(store.path("journal.jsonl")).write("publication_budget_stop", study_identity=store.artifact_ref("study").sha256)
     prior_spend = recorded_spend(store)
     assert prior_spend > 0
     with pytest.raises(KeyboardInterrupt):
@@ -270,7 +308,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
             writer_replies += 1
             return json.dumps(
                 {
-                    **WRITEUP,
+                    **json.loads(cast(str, _respond(req))),
                     "data": r"Rows kept: \R{data.rows_after}.",
                     "discussion": "Revised discussion." if writer_replies > 1 else "Initial discussion.",
                     "conclusion": "The evidence is confirmed." if writer_replies == 3 else "association",
@@ -287,49 +325,57 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
         req.tag
         in {
             "theorist",
-            "hypothesis",
+            "candidates",
             "steward",
             "analyst:explore",
-            "analyst:baseline",
-            "judge:baseline",
+            "analyst:hypothesis-001-attempt-000-baseline",
+            "judge:hypothesis-001-attempt-000-baseline",
         }
         for req in fake.calls
     )
-    assert (root / "tree" / "main" / "main-001" / "meta.json").is_file()
-    assert not (root / "tree" / "main" / "main-000" / "meta.json").exists()
+    main_instance = "hypothesis-001-attempt-000-main"
+    assert (root / "tree" / main_instance / f"{main_instance}-001" / "meta.json").is_file()
+    assert not (root / "tree" / main_instance / f"{main_instance}-000" / "meta.json").exists()
     original = {
         p: p.read_bytes() for p in root.rglob("*") if p.is_file() and p.name != "journal.jsonl"
     }
 
     monkeypatch.setattr("popper.communicate.paper.compile_pdf", compile_pdf)
+    # The scientific frontier is unchanged by a publication-only resource stop.
+    Journal(store.path("journal.jsonl")).write("publication_budget_stop", study_identity=store.artifact_ref("study").sha256)
     no_calls = FakeLLM(lambda req: pytest.fail("completed publication inputs must not replay"))
-    out = resume(root, llm=no_calls)
+    out = resume(root, llm=no_calls, max_usd=2)
     assert all(p.read_bytes() == contents for p, contents in original.items())
     assert out.status == "completed" and out.tex is not None
     assert recorded_spend(store) > prior_spend
     assert load_state(store)["spent_usd"] == recorded_spend(store)
-    assert load_state(store)["max_usd"] == 1
-    assert len([e for e in read_events(root) if e["event"] == "budget_raise"]) == 1
+    assert load_state(store)["max_usd"] == 2
+    assert len([e for e in read_events(root) if e["event"] == "budget_raise"]) == 2
     tex = out.tex.read_text(encoding="utf-8")
     assert "reviewed and steered by the researcher" in tex
     assert "The evidence is confirmed." not in tex
-    results = next((out.run_dir / "tree" / "main").glob("*/execution/results.json"))
+    results = next((out.run_dir / "tree" / main_instance).glob("*/execution/results.json"))
     slope = json.loads(results.read_text(encoding="utf-8"))["primary_estimate"]["value"]
     assert f"{slope:.3g}" in tex and r"\textbf{??}" in tex
     assert "exploratory --- autonomously generated" in tex and "\\usepackage{amsmath}" in tex
     framing_path = RunStore(out.run_dir).committed("frame")
     assert framing_path is not None
     assert json.loads(framing_path.read_text(encoding="utf-8"))["title"] == FRAMING["title"]
-    hypotheses_path = RunStore(out.run_dir).committed("hypothesis")
+    hypotheses_path = RunStore(out.run_dir).committed("science:candidates:initial")
     assert hypotheses_path is not None
-    hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))
-    assert hypotheses and all(x["supplied_by"] == "agent" for x in hypotheses)
+    hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))["candidates"]
+    assert len(hypotheses) == 3 and all(x["origins"] for x in hypotheses)
+    from popper.discover.state import rebuild_state
+    from popper.harness.session import Harness
+    state = rebuild_state(Harness(config, no_calls, store))
+    assert len(state.attempts) == 1 and state.observations
+    assert all(m.record.ref.test_id and m.record.ref.execution_id for m in state.observations)
     body = parse_research((EXAMPLE / "research.md").read_text(encoding="utf-8")).body
     request = next(r for r in llm.calls if r.tag == "theorist")
     assert f"<untrusted>\n{body}\n</untrusted>" in request.prompt
     tags = [r.tag for r in llm.calls]
     assert tags.count("theorist") == 1
-    assert tags.index("steward") < tags.index("hypothesis")
+    assert tags.index("steward") < tags.index("candidates")
     for name in ("processed.parquet", "ida.json"):
         assert (out.run_dir / "data" / name).is_file()
         assert not os.access(out.run_dir / "data" / name, os.W_OK)
@@ -338,7 +384,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     preparation = store.path(json.loads(accepted.read_text("utf-8"))["preparation"])
     prepared = json.loads((preparation / "results.json").read_text("utf-8"))
     assert f"Rows kept: {prepared['rows_after']['value']}." in tex
-    writeup = store.committed("writeup")
+    writeup = store.committed(f"writeup:{store.artifact_ref('study').sha256}")
     assert writeup is not None
     chosen = json.loads(writeup.read_text("utf-8"))
     assert chosen["discussion"] == "Revised discussion."

@@ -7,7 +7,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from popper.discover.hypothesis import Method, Text
+from popper.discover.compatibility import HistoricalMethod
+from popper.discover.hypothesis import Text
 from popper.harness.config import Config
 from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
@@ -22,7 +23,7 @@ class Specification(BaseModel):
     kind: Literal["variant", "adversarial"]
     dimension: Dimension
     choice: Text
-    methods: list[Method] = Field(default_factory=list)
+    methods: list[HistoricalMethod] = Field(default_factory=list)
     population: Text | None = None
     result_key: Literal["primary_estimate", "placebo_estimate"]
     seed: int = Field(default=7, ge=0)

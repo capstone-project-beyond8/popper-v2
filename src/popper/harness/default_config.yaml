@@ -40,3 +40,8 @@ budget:
   prices:                    # USD per million tokens; a key matches a model id containing it
     sonnet: {input: 3.0, output: 15.0}  # confirm against the Bedrock price list
     haiku: {input: 1.0, output: 5.0}    # confirm against the Bedrock price list
+
+discovery:
+  hypotheses: 3
+  max_moves: 4
+  max_revisits: 1
