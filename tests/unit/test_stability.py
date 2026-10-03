@@ -1,6 +1,6 @@
 import pytest
 
-from popper.discover.robustness import compute_stability
+from popper.science.historical import compute_stability
 from popper.science.results import ResultEntry
 
 

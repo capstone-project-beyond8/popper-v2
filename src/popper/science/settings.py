@@ -11,6 +11,7 @@ from popper.harness.store import RunStore
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+
 class DataConfig(_Strict):
     holdout_fraction: float = Field(default=0.2, ge=0, lt=1)
     split_seed: int = 7
@@ -40,7 +41,6 @@ class Discovery(_Strict):
     max_revisits: int = Field(default=1, ge=0)
 
 
-
 class ScientificOptions(_Strict):
     data: DataConfig = Field(default_factory=DataConfig)
     robustness: Robustness = Field(default_factory=Robustness)
@@ -48,8 +48,11 @@ class ScientificOptions(_Strict):
     ground: Ground = Field(default_factory=Ground)
     discovery: Discovery = Field(default_factory=Discovery)
 
+
 def load_options(store: RunStore) -> ScientificOptions:
     if not store.path("run.json").is_file():
         return ScientificOptions()
     payload = json.loads(store.path("run.json").read_text("utf-8"))["config"]
-    return ScientificOptions.model_validate({k:v for k,v in payload.items() if k in ScientificOptions.model_fields})
+    return ScientificOptions.model_validate(
+        {k: v for k, v in payload.items() if k in ScientificOptions.model_fields}
+    )

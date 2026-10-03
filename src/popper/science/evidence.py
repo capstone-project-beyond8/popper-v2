@@ -120,8 +120,6 @@ def compute_support(
     )
 
 
-
-
 def _sensitivity(science: ScienceStore, measurements: list[AcceptedMeasurement]) -> dict[str, Any]:
     usable = [m for m in measurements if m.fidelity.status == "consistent"]
     main = next((m for m in usable if m.role == "main"), None)
@@ -151,9 +149,6 @@ def _sensitivity(science: ScienceStore, measurements: list[AcceptedMeasurement])
     return {"comparisons": comparisons}
 
 
-
-
-
 @dataclass(frozen=True)
 class RecordedStageOutcome:
     role: str
@@ -163,13 +158,27 @@ class RecordedStageOutcome:
 def implementation_records(science: ScienceStore, instance: str) -> list[dict[str, Any]]:
     records = []
     for event in read_events(science.run.root):
-        if event["event"] == "node_commit" and event.get("stage_instance", event.get("stage")) == instance:
-            ref = ArtifactRef(path=event["path"], sha256=event["sha256"], producer="node", record_id=event["record_id"])
+        if (
+            event["event"] == "node_commit"
+            and event.get("stage_instance", event.get("stage")) == instance
+        ):
+            ref = ArtifactRef(
+                path=event["path"],
+                sha256=event["sha256"],
+                producer="node",
+                record_id=event["record_id"],
+            )
             records.append({**science.read(ref), "ref": ref})
     return records
 
 
-def assemble_result(science: ScienceStore, plan: ExecutionPlan, outcomes: list[RecordedStageOutcome], *, stage_capacity: int) -> AttemptResult:
+def assemble_result(
+    science: ScienceStore,
+    plan: ExecutionPlan,
+    outcomes: list[RecordedStageOutcome],
+    *,
+    stage_capacity: int,
+) -> AttemptResult:
     from popper.science.contracts import (
         AcceptedMeasurement,
         Attempt,
@@ -188,20 +197,50 @@ def assemble_result(science: ScienceStore, plan: ExecutionPlan, outcomes: list[R
     variants = plan.variants
     for role in ("baseline", "main"):
         if role not in {o.role for o in outcomes}:
-            diagnoses.append(science.commit("diagnosis", Diagnosis(category="technical", observation_refs=[plan.attempt], author="executor", reason=f"No accepted {role} implementation", affected_refs=[plan.main], affected_roles=[role]), key=f"{attempt.id}-{role}"))
+            diagnoses.append(
+                science.commit(
+                    "diagnosis",
+                    Diagnosis(
+                        category="technical",
+                        observation_refs=[plan.attempt],
+                        author="executor",
+                        reason=f"No accepted {role} implementation",
+                        affected_refs=[plan.main],
+                        affected_roles=[role],
+                    ),
+                    key=f"{attempt.id}-{role}",
+                )
+            )
             break
     if len(variants) > stage_capacity and any(o.role == "main" for o in outcomes):
-        diagnoses.append(science.commit("diagnosis", Diagnosis(category="resource", observation_refs=[plan.attempt], author="executor", reason="Declared alternatives exceed the stage execution allowance; excess alternatives remain unavailable", affected_refs=[plan.main], affected_roles=["robustness"]), key=f"{attempt.id}-coverage-cap"))
+        diagnoses.append(
+            science.commit(
+                "diagnosis",
+                Diagnosis(
+                    category="resource",
+                    observation_refs=[plan.attempt],
+                    author="executor",
+                    reason="Declared alternatives exceed the stage execution allowance; excess alternatives remain unavailable",
+                    affected_refs=[plan.main],
+                    affected_roles=["robustness"],
+                ),
+                key=f"{attempt.id}-coverage-cap",
+            )
+        )
     measurements: list[AcceptedMeasurement] = []
     for role, instance in attempt.stage_instances.items():
         for node in implementation_records(science, instance):
-            checks.extend(CheckObservation.model_validate(o) for o in node.get("check_observations", []))
+            checks.extend(
+                CheckObservation.model_validate(o) for o in node.get("check_observations", [])
+            )
             if any(
-                not o["passed"] and o["category"] == "measurement" for o in node.get("check_observations", [])
+                not o["passed"] and o["category"] == "measurement"
+                for o in node.get("check_observations", [])
             ):
                 node_ref = node["ref"]
                 diagnoses.append(
-                    science.commit("diagnosis",
+                    science.commit(
+                        "diagnosis",
                         Diagnosis(
                             category="measurement",
                             observation_refs=[node_ref],
@@ -210,14 +249,16 @@ def assemble_result(science: ScienceStore, plan: ExecutionPlan, outcomes: list[R
                             affected_refs=[plan.main],
                             affected_roles=[role],
                         ),
-                        key=f"check-{node["id"]}",
+                        key=f"check-{node['id']}",
                     )
                 )
     for outcome in outcomes:
         role, node = outcome.role, science.read(outcome.node)
         assert node["test_ref"] is not None
         test = ExperimentSpec.model_validate_json(
-            resolve_artifact(science.run, ArtifactRef.model_validate(node["test_ref"])).read_text("utf-8")
+            resolve_artifact(science.run, ArtifactRef.model_validate(node["test_ref"])).read_text(
+                "utf-8"
+            )
         )
         ref = outcome.node
         fidelity = FidelityAssessment(
@@ -228,9 +269,12 @@ def assemble_result(science: ScienceStore, plan: ExecutionPlan, outcomes: list[R
             sources=[ArtifactRef.model_validate(node["test_ref"]), ref],
         )
         if fidelity.status == "defect":
-            diagnosis_name = f"science:diagnosis:{node["id"]}"
+            diagnosis_name = f"science:diagnosis:{node['id']}"
             diagnoses.append(
-                science.run.artifact_ref(diagnosis_name) if science.run.committed(diagnosis_name) else science.commit("diagnosis",
+                science.run.artifact_ref(diagnosis_name)
+                if science.run.committed(diagnosis_name)
+                else science.commit(
+                    "diagnosis",
                     Diagnosis(
                         category="measurement",
                         observation_refs=[plan.attempt, ref],
@@ -253,7 +297,8 @@ def assemble_result(science: ScienceStore, plan: ExecutionPlan, outcomes: list[R
             commit_index = next(
                 i
                 for i, e in enumerate(events)
-                if e["event"] == "artifact_commit" and e.get("record_id") == ArtifactRef.model_validate(node["test_ref"]).record_id
+                if e["event"] == "artifact_commit"
+                and e.get("record_id") == ArtifactRef.model_validate(node["test_ref"]).record_id
             )
             execution_index = next(
                 i
@@ -286,7 +331,12 @@ def assemble_result(science: ScienceStore, plan: ExecutionPlan, outcomes: list[R
         "missing": [
             r.path
             for r in variants
-            if r.record_id not in {ArtifactRef.model_validate(science.read(o.node)["test_ref"]).record_id for o in outcomes if science.read(o.node).get("test_ref")}
+            if r.record_id
+            not in {
+                ArtifactRef.model_validate(science.read(o.node)["test_ref"]).record_id
+                for o in outcomes
+                if science.read(o.node).get("test_ref")
+            }
         ],
         "status": "complete" if completed == len(variants) else "partial",
     }

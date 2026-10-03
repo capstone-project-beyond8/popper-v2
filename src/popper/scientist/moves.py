@@ -1,4 +1,5 @@
 """Bounded sourced proposals, selection and immutable scheduling."""
+
 import json
 
 from pydantic import Field
@@ -20,10 +21,9 @@ from popper.science.contracts import (
     MoveProposal,
     MoveSelection,
     ResearchMove,
+    RunResources,
 )
-from popper.science.settings import Discovery, load_options
 from popper.science.state import (
-    ResearchState,
     compact_state,
     load_snapshot,
 )
@@ -41,50 +41,35 @@ class SelectionProposal(Record):
     rationale: str = Field(min_length=1)
 
 
-def eligible_candidates(state: ResearchState, limits: Discovery) -> list[str]:
-    if state.counters.get("moves", 0) >= limits.max_moves:
-        return []
-    return [
-        c.record.id
-        for c in state.candidates
-        if state.counters.get(c.record.id, 0) <= limits.max_revisits
-    ]
-
-
-def check_move(
-    state: ResearchState, move: ResearchMove, limits: Discovery
-) -> None:
-    if move.action == "stop":
-        return
-    if move.action in {"pivot", "reframe", "acquisition"}:
-        raise EligibilityError(f"{move.action} route is deferred")
-    if state.counters.get("moves", 0) >= limits.max_moves:
-        raise EligibilityError("scheduled move cap reached")
-    if state.counters.get(move.hypothesis_id or "", 0) > limits.max_revisits:
-        raise EligibilityError("hypothesis revisit cap reached")
-    if any(d.record.category == "integrity" for d in state.diagnoses):
-        raise IntegrityError("integrity diagnosis blocks scheduling")
-    if move.action in {"technical_repair", "measurement_repair"} and not move.diagnosis:
-        raise EligibilityError("repair requires sourced defect diagnosis")
-
-
-def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
+def propose_moves(
+    h: Harness, science: ScienceStore, snapshot: ArtifactRef, resources: RunResources
+) -> ArtifactRef:
     key = snapshot.record_id
     existing = h.run.committed(f"science:proposals:{key}")
     if existing:
         return h.run.artifact_ref(f"science:proposals:{key}")
-    state = load_snapshot(ScienceStore(h.run), snapshot)
+    if h.run.committed(f"science:disposition:{key}"):
+        return science.commit(
+            "proposals",
+            {
+                "snapshot": snapshot.model_dump(mode="json"),
+                "moves": [],
+                "omitted": {"all": "proposal validation exhausted"},
+            },
+            key=key,
+        )
+    state = load_snapshot(science, snapshot)
     collected: list[ResearchMove] = []
 
     def submit(proposal: Proposals) -> str:
-        eligible = eligible_candidates(state, load_options(h.run).discovery)
+        eligible = resources.eligible_hypotheses
         proposed = {m.hypothesis_id for m in proposal.moves}
         missing = set(eligible) - proposed - proposal.omitted.keys()
         if missing:
             raise ValueError(
                 f"omitted eligible candidates need attributed reasons: {sorted(missing)}"
             )
-        collected[:] = validate_moves(ScienceStore(h.run), snapshot, proposal.moves)
+        collected[:] = validate_moves(science, snapshot, proposal.moves)
         return "Validated sourced proposals."
 
     tools = [
@@ -103,7 +88,7 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
         tag="research_moves",
         system="You are a careful research scientist.",
         task=load_prompt(
-            "popper.discover",
+            "popper.scientist",
             "research_moves.md",
             state=fence(json.dumps(compact_state(state))),
             snapshot=snapshot.model_dump_json(),
@@ -113,7 +98,8 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
         max_submits=2,
     )
     if response is None:
-        ScienceStore(h.run).commit("disposition",
+        science.commit(
+            "disposition",
             Disposition(
                 kind="rejected",
                 reason="Bounded scientific proposal correction exhausted",
@@ -121,7 +107,8 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
             ),
             key=key,
         )
-        return ScienceStore(h.run).commit("proposals",
+        return science.commit(
+            "proposals",
             {
                 "snapshot": snapshot.model_dump(mode="json"),
                 "moves": [],
@@ -129,7 +116,8 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
             },
             key=key,
         )
-    return ScienceStore(h.run).commit("proposals",
+    return science.commit(
+        "proposals",
         {
             "snapshot": snapshot.model_dump(mode="json"),
             "moves": [m.model_dump(mode="json") for m in collected],
@@ -139,7 +127,9 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
     )
 
 
-def select_move(h: Harness, snapshot: ArtifactRef, proposals: ArtifactRef) -> ArtifactRef:
+def select_move(
+    h: Harness, science: ScienceStore, snapshot: ArtifactRef, proposals: ArtifactRef
+) -> ArtifactRef:
     key = proposals.record_id
     if h.run.committed(f"science:selection:{key}"):
         return h.run.artifact_ref(f"science:selection:{key}")
@@ -154,11 +144,14 @@ def select_move(h: Harness, snapshot: ArtifactRef, proposals: ArtifactRef) -> Ar
         schema=SelectionProposal,
         tag="select_move",
         system="Select the most informative justified research move.",
-        prompt=load_prompt("popper.discover", "select_move.md", proposals=fence(json.dumps(record))),
+        prompt=load_prompt(
+            "popper.scientist", "select_move.md", proposals=fence(json.dumps(record))
+        ),
     )
     if choice.proposal_id not in {m.id for m in moves}:
         raise EligibilityError("selection names an unknown retained proposal")
-    return ScienceStore(h.run).commit("selection",
+    return science.commit(
+        "selection",
         MoveSelection(
             proposal_id=choice.proposal_id,
             snapshot=snapshot,
@@ -168,5 +161,3 @@ def select_move(h: Harness, snapshot: ArtifactRef, proposals: ArtifactRef) -> Ar
         ),
         key=key,
     )
-
-

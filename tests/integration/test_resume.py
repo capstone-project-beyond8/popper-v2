@@ -58,7 +58,15 @@ def test_historical_stage_records_preserve_identity(
     assert node.execution_dir == h.run.root / "tree/main/main-000/execution"
     assert node.results == {"m": {"value": 1.5}}
     assert node.score == 7 and node.goal_met
-    assert all(path.read_bytes() == content for path, content in payloads.items())
+    from popper.science.store import ScienceStore
+    from popper.science.views import node_results, stage_outcome
+    science = ScienceStore(h.run)
+    outcome = stage_outcome(science, "main")
+    assert outcome is not None
+    assert node_results(science, outcome) == {"m": {"value": 1.5}}
+    assert all(path.read_bytes() == content for path, content in payloads.items() if path.name != "journal.jsonl")
+    assert h.run.path("journal.jsonl").read_bytes().startswith(payloads[h.run.path("journal.jsonl")])
+    assert node_results(science, stage_outcome(science, "main") or outcome) == {"m": {"value": 1.5}}
 
 
 @pytest.mark.parametrize("auto", [False, True])
@@ -150,6 +158,13 @@ def test_budget_raise_survives_failure_before_its_checkpoint(
     cfg.budget.max_usd = 0
     store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     Journal(store.path("journal.jsonl")).write("llm_call", usd=0.2)
+    from popper.science.state import ResearchState
+    snapshot = store.write_json("old-snapshot.json", {
+        **ResearchState().model_dump(mode="json"), "version": 1,
+        "budget": {"spent_usd": 0, "max_usd": 100},
+    })
+    store.commit_artifact("science:snapshot", snapshot)
+    snapshot_bytes = snapshot.read_bytes()
     original = store.path("run.json").read_bytes()
 
     def fail_checkpoint(self: RunStore, state: object) -> Path:
@@ -167,6 +182,19 @@ def test_budget_raise_survives_failure_before_its_checkpoint(
     with pytest.raises(KeyboardInterrupt):
         resume(store.root, llm=llm)
     assert len(llm.calls) == 1
+    from popper.coordinator.resources import resource_view
+    from popper.harness.session import BudgetExceeded
+    from popper.science.settings import load_options
+    from popper.science.state import load_snapshot
+    from popper.science.store import ScienceStore
+    restored = load_snapshot(ScienceStore(store), store.artifact_ref("science:snapshot"))
+    cfg.budget.max_usd = 1
+    exhausted = Harness(cfg, FakeLLM(lambda _: pytest.fail("no extra model work")), store, spent_usd=1)
+    resources = resource_view(exhausted, load_options(store), restored)
+    assert resources.max_usd == 1 and resources.spent_usd == 1
+    with pytest.raises(BudgetExceeded):
+        exhausted.ask_model("theorist", tag="budget", system="s", prompt="p", schema=ResearchState)
+    assert snapshot.read_bytes() == snapshot_bytes
     assert load_state(store)["max_usd"] == 1
     assert load_state(store)["spent_usd"] == 0.2
     assert store.path("run.json").read_bytes() == original

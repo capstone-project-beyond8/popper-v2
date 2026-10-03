@@ -1,6 +1,6 @@
 # Popper Development Roadmap
 
-This roadmap assumes the architecture ownership realignment has already been completed. The goal is to validate the core Scientist behavior first, then expand only when the previous milestone proves the next one is justified.
+Architecture ownership is explicit in `science`, `scientist`, the generic Harness/code-search engine and the operational controller. The implemented Scientist still uses the sequential framing/grounding/exploration strategy and bounded adaptive discovery. Program/Run bindings remain within one run; cross-run continuation is outstanding. The goal is to validate the core Scientist behavior first, then expand only when the previous milestone proves the next one is justified.
 
 ## Establish Scientist Control
 

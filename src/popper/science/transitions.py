@@ -21,6 +21,7 @@ from popper.science.store import ScienceStore
 class EligibilityError(ValueError):
     pass
 
+
 def selected_move(science: ScienceStore, selection: ArtifactRef) -> ResearchMove:
     choice = MoveSelection.model_validate_json(
         resolve_artifact(science.run, selection).read_text("utf-8")
@@ -29,8 +30,6 @@ def selected_move(science: ScienceStore, selection: ArtifactRef) -> ResearchMove
     return next(
         ResearchMove.model_validate(m) for m in data["moves"] if m["id"] == choice.proposal_id
     )
-
-
 
 
 def validate_moves(
@@ -79,9 +78,9 @@ def validate_moves(
             )
         if payload.get("test"):
             existing_test = ExperimentSpec.model_validate_json(
-                resolve_artifact(science.run, ArtifactRef.model_validate(payload["test"])).read_text(
-                    "utf-8"
-                )
+                resolve_artifact(
+                    science.run, ArtifactRef.model_validate(payload["test"])
+                ).read_text("utf-8")
             )
             if existing_test.hypothesis_id != proposal.hypothesis_id:
                 raise IntegrityError("move test belongs to another hypothesis")
@@ -101,7 +100,9 @@ def validate_moves(
     return moves
 
 
-def schedule_attempt(science: ScienceStore, move: ResearchMove, parent: ArtifactRef | None) -> ArtifactRef:
+def schedule_attempt(
+    science: ScienceStore, move: ResearchMove, parent: ArtifactRef | None
+) -> ArtifactRef:
     name = f"science:attempt:{move.id}"
     if science.run.committed(name):
         existing = science.run.artifact_ref(name)
@@ -117,7 +118,9 @@ def schedule_attempt(science: ScienceStore, move: ResearchMove, parent: Artifact
         raise EligibilityError("repair requires sourced defect diagnosis")
     if move.test is None or move.hypothesis_id is None:
         raise EligibilityError("move cannot schedule an execution")
-    test = ExperimentSpec.model_validate_json(resolve_artifact(science.run, move.test).read_text("utf-8"))
+    test = ExperimentSpec.model_validate_json(
+        resolve_artifact(science.run, move.test).read_text("utf-8")
+    )
     if test.hypothesis_id != move.hypothesis_id:
         raise IntegrityError("move test belongs to another hypothesis")
     previous = next(
@@ -166,17 +169,31 @@ def schedule_attempt(science: ScienceStore, move: ResearchMove, parent: Artifact
         elif move.action == "refine":
             if change != "refine":
                 raise EligibilityError("refinement must change the operational procedure")
-            attributed = {r.ref for r in state.results if r.record.hypothesis_id == move.hypothesis_id}
-            attributed.update(q.ref for q in state.questions if q.record.hypothesis_id == move.hypothesis_id and not q.record.resolved)
-            attributed.update(d.ref for d in state.diagnoses if previous.record.test in d.record.affected_refs or previous.ref in d.record.observation_refs)
+            attributed = {
+                r.ref for r in state.results if r.record.hypothesis_id == move.hypothesis_id
+            }
+            attributed.update(
+                q.ref
+                for q in state.questions
+                if q.record.hypothesis_id == move.hypothesis_id and not q.record.resolved
+            )
+            attributed.update(
+                d.ref
+                for d in state.diagnoses
+                if previous.record.test in d.record.affected_refs
+                or previous.ref in d.record.observation_refs
+            )
             if not any(ref in attributed for ref in move.trigger_refs):
-                raise EligibilityError("refinement requires an attributed question or diagnostic observation")
+                raise EligibilityError(
+                    "refinement requires an attributed question or diagnostic observation"
+                )
     elif move.action != "test":
         raise EligibilityError("first hypothesis execution must be a test")
     move_ref = science.commit("move", move, key=move.id)
     index = state.counters.get("moves", 0)
     attempt_id = f"attempt-{index:03d}"
-    ref = science.commit("attempt",
+    ref = science.commit(
+        "attempt",
         Attempt(
             id=attempt_id,
             move=move_ref,
@@ -202,14 +219,24 @@ def schedule_attempt(science: ScienceStore, move: ResearchMove, parent: Artifact
 
 
 def ensure_invalidation(science: ScienceStore, attempt_ref: ArtifactRef) -> None:
-    attempt = Attempt.model_validate_json(resolve_artifact(science.run, attempt_ref).read_text("utf-8"))
+    attempt = Attempt.model_validate_json(
+        resolve_artifact(science.run, attempt_ref).read_text("utf-8")
+    )
     if attempt.diagnosis is None or attempt.parent is None:
         return
-    diagnosis = Diagnosis.model_validate_json(resolve_artifact(science.run, attempt.diagnosis).read_text("utf-8"))
+    diagnosis = Diagnosis.model_validate_json(
+        resolve_artifact(science.run, attempt.diagnosis).read_text("utf-8")
+    )
     if diagnosis.category != "measurement":
         return
     state = rebuild_state(science)
     prior = next((r.record for r in state.results if r.record.attempt == attempt.parent), None)
     invalid = [m.ref for m in prior.measurements if m.role not in attempt.reuse] if prior else []
     if invalid:
-        science.commit("invalidation", Invalidation(measurements=invalid, diagnosis=attempt.diagnosis, superseded_by=attempt_ref), key=attempt.move_id)
+        science.commit(
+            "invalidation",
+            Invalidation(
+                measurements=invalid, diagnosis=attempt.diagnosis, superseded_by=attempt_ref
+            ),
+            key=attempt.move_id,
+        )

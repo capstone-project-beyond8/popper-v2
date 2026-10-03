@@ -1,33 +1,35 @@
 """Run the five phases in order and record the outcome."""
+
 import json
 import math
 import secrets
-import stat
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from popper.communicate.paper import write_paper, write_study
+from popper.communicate.paper import publish_study
 from popper.config import Config, load_config, scientific_options
-from popper.coordinator.discovery import advance_discovery
-from popper.coordinator.limitations import limitations
+from popper.coordinator.discovery import dispatch_experiment
+from popper.coordinator.resources import resource_view
 from popper.discover.explore import explore
-from popper.ground.steward import Concern, Foundation, ground, load_foundation
+from popper.ground.steward import ground
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.science.compatibility import decode_policy
-from popper.science.descriptive import DescriptiveReport, describe_table, read_table
-from popper.science.inputs import ingest
-from popper.science.output import StudyOutput, build_study
-from popper.science.research import ResearchContext, parse_research, render_fields
+from popper.science.descriptive import read_table
+from popper.science.inputs import ingest, load_episode, prepare_description, promote_foundation
+from popper.science.output import StudyOutput, partial_study
 from popper.science.settings import load_options
+from popper.science.state import rebuild_state
 from popper.science.store import ScienceStore
+from popper.science.views import foundation_view, node_ref, record_exploration, reviewed_frame
+from popper.scientist.episode import EpisodeContext, next_step
 from popper.treesearch.engine import StageFailed
-from popper.understand.frame import Frame, load_frame, understand
+from popper.understand.frame import load_frame, understand
 from popper.understand.review import (
     ReviewOutcome,
     apply_review,
@@ -56,7 +58,7 @@ class _AwaitingReview(Exception):
 
 def _phase(h: Harness, name: str) -> None:
     h.journal.write("phase", name=name)
-    h.progress(f"[{name}] start Â· ${h.spent_usd:.2f}")
+    h.progress(f"[{name}] start · ${h.spent_usd:.2f}")
 
 
 def run(
@@ -186,57 +188,16 @@ def _resume_locked(
     return _continue(h, outcome)
 
 
-def _reviewed_frame(
-    h: Harness, research: ResearchContext, report: DescriptiveReport, answered: ReviewOutcome | None
-) -> Frame:
-    """The latest frame once reviewed: asks the Theorist when none exists, else stops for review."""
-    store = h.run
-    if _latest(store, "frame", "frame_reviewed") is None:
-        understand(h, research, report)
-    pending = _pending_frame(store)
-    if pending is not None:
-        if json.loads(store.path("run.json").read_text("utf-8")).get("auto"):
-            store.commit_artifact("frame_reviewed", pending)
-        elif answered is None:
-            raise _AwaitingReview(write_review(load_frame(pending), store))
-        else:
-            return commit_review(h, answered, report)
-    reviewed = store.committed("frame_reviewed")
-    assert reviewed is not None
-    return load_frame(reviewed)
-
-
-def _foundation(h: Harness, frame: Frame) -> Foundation:
-    """The foundation of the reviewed frame; Ground runs again whenever the frame is newer."""
-    if _latest(h.run, "foundation", "frame_reviewed") == "foundation":
-        existing = load_foundation(h)
-        assert existing is not None
-        return existing
-    return ground(h, frame.research, frame.framing.model_dump())
-
-
-def _reframes(store: RunStore) -> int:
-    return max(_commits(store).count("frame") - 1, 0)
-
-
-def _guidance(concerns: list[Concern], frame: Frame) -> str:
-    lines = ["The data steward found that the data cannot represent the current frame:"]
-    lines += [f"- {c.type}: {c.description} (evidence: {', '.join(c.evidence)})" for c in concerns]
-    lines.append(
-        "Revise the frame so the study stays answerable with this data: narrow the scope, "
-        "reword questions or concepts, or state what is unmeasured."
-    )
-    lines.append(f"Current framing:\n{json.dumps(frame.framing.model_dump(), indent=2)}")
-    return "\n".join(lines)
-
-
-def _promote(store: RunStore, foundation: Foundation) -> None:
-    """Publish the final foundation's table and description as the run's data files."""
-    for source in (
-        foundation.preparation / "processed.parquet",
-        store.path("ground", foundation.attempt, "ida.json"),
-    ):
-        store.copy_once(source, f"data/{source.name}").chmod(stat.S_IREAD)
+def _accept_review(h: Harness, answered: ReviewOutcome | None) -> None:
+    pending = h.run.committed("frame")
+    assert pending is not None
+    if json.loads(h.run.path("run.json").read_text("utf-8")).get("auto"):
+        h.run.commit_artifact("frame_reviewed", pending)
+    elif answered is None:
+        raise _AwaitingReview(write_review(load_frame(pending), h.run))
+    else:
+        _, report = prepare_description(ScienceStore(h.run))
+        commit_review(h, answered, report)
 
 
 def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
@@ -250,91 +211,78 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     try:
         if h.spent_usd >= h.config.budget.max_usd:
             raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
-        _phase(h, "framing")
-        research = parse_research(store.path("research.md").read_text("utf-8"))
-        report = describe_table(read_table(store.path("data", "raw.csv")), research)
-        if not store.path("data", "ida-raw.json").exists():
-            store.write_json(
-                "data/ida-raw.json", {"results": report.results, "layout": report.layout}
-            )
-        frame = _reviewed_frame(h, research, report, answered)
+        science = ScienceStore(store)
+        program, episode = load_episode(store)
+        policy = decode_policy(json.loads(store.path("run.json").read_text("utf-8")))
+        options = load_options(store)
         while True:
-            _phase(h, "ground")
-            foundation = _foundation(h, frame)
-            concerns = [c for c in foundation.concerns if c.kind == "frame"]
-            if not concerns or _reframes(store) >= load_options(h.run).understand.max_reframes:
-                break
-            h.journal.write("reframe", concerns=[c.type for c in concerns])
-            understand(h, frame.research, report, guidance=_guidance(concerns, frame))
-            frame = _reviewed_frame(h, research, report, None)
-        _promote(store, foundation)
-        framing = frame.framing.model_dump()
-        facts = foundation.as_dict()
-        notes = frame.research.notes
-        _phase(h, "explore")
-        explore_node = explore(h, frame.research, framing, facts)
-        _phase(h, "experiment")
-        reviewed = store.committed("frame_reviewed")
-        foundation_path = store.committed("foundation")
-        assert reviewed is not None and foundation_path is not None
-        study = advance_discovery(
-            h, frame=reviewed, foundation=foundation_path, exploration=explore_node
-        )
-        output = StudyOutput.model_validate_json(study.read_text("utf-8"))
-        _phase(h, "publication")
-        if output.adaptive:
-            tex, pdf, missing = write_study(
-                h,
-                study,
-                notes=notes.get("writing", ""),
-                research=render_fields(frame.research, "domain", "objectives", "assumptions"),
+            context = EpisodeContext(
+                program, episode, resource_view(h, options, rebuild_state(science)), policy, options
             )
-            status = output.operational_status
-            message = output.stop_reason if status != "completed" else ""
-            if h.spent_usd >= h.config.budget.max_usd and any(
-                e["event"] == "publication_budget_stop"
-                and e.get("study_identity") == store.artifact_ref("study").sha256
-                for e in read_events(store.root)
-            ):
-                status = "budget_exceeded"
-        else:
-            changes = json.loads((foundation.preparation / "changes.json").read_text("utf-8"))
-            committed = store.committed("hypothesis")
-            assert committed is not None and output.historical_evidence is not None
-            hypothesis = json.loads(committed.read_text("utf-8"))[0]
-            warnings = json.loads((committed.parent / "warnings.json").read_text("utf-8"))
-            names = {c.id: c.name.value for c in frame.research.concepts}
-            tex, pdf, missing = write_paper(
-                h,
-                framing,
-                changes,
-                explore_node,
-                hypothesis,
-                store.path(output.historical_evidence.path),
-                foundation.preparation,
-                limitations=limitations(facts, warnings),
-                operationalization=[
-                    {**o, "concept": names.get(o["concept_id"]) or o["concept_id"]}
-                    for o in facts["operationalization"]
-                ],
-                steered=(reviewed.parent / "provenance.json").exists(),
-                notes=notes.get("writing", ""),
-                research=render_fields(frame.research, "domain", "objectives", "assumptions"),
-            )
-            status = "completed"
+            request = next_step(h, science, context)
+            if request is None:
+                continue
+            match request.kind:
+                case "frame":
+                    _phase(h, "framing")
+                    research, report = prepare_description(science)
+                    if request.guidance:
+                        frame = reviewed_frame(science)
+                        research = frame.research
+                        prepared = foundation_view(science)
+                        h.journal.write(
+                            "reframe",
+                            concerns=[
+                                c["type"]
+                                for c in prepared.facts["concerns"]
+                                if c["kind"] == "frame"
+                            ],
+                        )
+                    understand(
+                        h, research, report, limits=options.understand, guidance=request.guidance
+                    )
+                case "await_review":
+                    _accept_review(h, answered)
+                    answered = None
+                case "ground":
+                    _phase(h, "ground")
+                    frame = reviewed_frame(science)
+                    ground(h, frame.research, frame.framing, limits=options.ground)
+                case "explore":
+                    _phase(h, "explore")
+                    promote_foundation(science)
+                    frame, prepared = reviewed_frame(science), foundation_view(science)
+                    node = explore(h, frame.research, frame.framing, prepared.facts)
+                    record_exploration(science, node_ref(science, node.dir / "meta.json"))
+                case "experiment":
+                    _phase(h, "experiment")
+                    dispatch_experiment(h, request)
+                case "publish" | "finish":
+                    assert request.subject is not None
+                    study = store.path(request.subject.path)
+                    output = StudyOutput.model_validate_json(study.read_text("utf-8"))
+                    _phase(h, "publication")
+                    tex, pdf, missing = publish_study(h, study)
+                    status = output.operational_status
+                    message = output.stop_reason if status != "completed" else ""
+                    if h.spent_usd >= h.config.budget.max_usd and any(
+                        e["event"] == "publication_budget_stop"
+                        and e.get("study_identity") == request.subject.sha256
+                        for e in read_events(store.root)
+                    ):
+                        status = "budget_exceeded"
+                    break
     except _AwaitingReview as waiting:
         status, review_path = "awaiting_review", waiting.review
     except StageFailed as exc:
         failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
-        if decode_policy(json.loads(store.path("run.json").read_text("utf-8"))).adaptive:
-            study = build_study(ScienceStore(h.run), message, "failed")
-            tex, pdf, missing = write_study(h, study)
+        if partial := partial_study(ScienceStore(h.run), message, "failed"):
+            tex, pdf, missing = publish_study(h, partial)
     except BudgetExceeded as exc:
         status, message = "budget_exceeded", str(exc)
-        if decode_policy(json.loads(store.path("run.json").read_text("utf-8"))).adaptive:
-            study = build_study(ScienceStore(h.run), message, status)
-            tex, pdf, missing = write_study(h, study)
+        if partial := partial_study(ScienceStore(h.run), message, status):
+            tex, pdf, missing = publish_study(h, partial)
     except Exception as exc:
         message = repr(exc)
         raise
@@ -358,9 +306,18 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     return _outcome(store)
 
 
-def create_run(runs_dir: Path, research: Path, data: Path, *, config: Config | None = None, auto: bool = False) -> RunStore:
+def create_run(
+    runs_dir: Path, research: Path, data: Path, *, config: Config | None = None, auto: bool = False
+) -> RunStore:
     snapshot = config or load_config(env={})
     run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
     store = RunStore(runs_dir / run_id)
-    ingest(store, research, data, options=scientific_options(snapshot), config_payload=snapshot.model_dump(mode="json"), auto=auto)
+    ingest(
+        store,
+        research,
+        data,
+        options=scientific_options(snapshot),
+        config_payload=snapshot.model_dump(mode="json"),
+        auto=auto,
+    )
     return store

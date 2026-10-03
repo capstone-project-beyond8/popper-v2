@@ -16,8 +16,11 @@ from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.store import RunStore, file_hash, seal_bytes, unseal_bytes
 from popper.science.compatibility import decode_policy
 from popper.science.contracts import Program, Run
-from popper.science.research import ResearchError, check_columns, parse_research
+from popper.science.descriptive import DescriptiveReport, describe_table, read_table
+from popper.science.research import ResearchContext, ResearchError, check_columns, parse_research
 from popper.science.settings import DataConfig, ScientificOptions
+from popper.science.store import ScienceStore
+from popper.science.views import foundation_view
 
 
 def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -43,7 +46,15 @@ def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd
     return discovery, held
 
 
-def ingest(store: RunStore, research: Path, data: Path, *, options: ScientificOptions, config_payload: dict[str, Any], auto: bool) -> None:
+def ingest(
+    store: RunStore,
+    research: Path,
+    data: Path,
+    *,
+    options: ScientificOptions,
+    config_payload: dict[str, Any],
+    auto: bool,
+) -> None:
     split_config = options.data
     frame = pd.read_csv(data, dtype=str, keep_default_na=False)
     mismatches = check_columns(
@@ -108,13 +119,44 @@ def read_holdout(store: RunStore) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(plain), dtype=str, keep_default_na=False)
 
 
-
 def load_episode(store: RunStore) -> tuple[Program, Run]:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
     policy = decode_policy(metadata)
     source = store.artifact_ref("inputs")
     manifest = json.loads(resolve_artifact(store, source).read_text("utf-8"))
-    intent = ArtifactRef(path="research.md", sha256=manifest["files"]["research.md"], producer=source.producer, record_id=source.record_id, backing=source)
+    intent = ArtifactRef(
+        path="research.md",
+        sha256=manifest["files"]["research.md"],
+        producer=source.producer,
+        record_id=source.record_id,
+        backing=source,
+    )
     resolve_artifact(store, intent)
     program = Program(id=f"program-{store.root.name}", intent=intent)
-    return program, Run(id=store.root.name, program_id=program.id, format_version=policy.format_version, inputs=source, initial_intent=intent, auto=bool(metadata.get("auto")))
+    return program, Run(
+        id=store.root.name,
+        program_id=program.id,
+        format_version=policy.format_version,
+        inputs=source,
+        initial_intent=intent,
+        auto=bool(metadata.get("auto")),
+    )
+
+
+def prepare_description(science: ScienceStore) -> tuple[ResearchContext, DescriptiveReport]:
+    research = parse_research(science.run.path("research.md").read_text("utf-8"))
+    report = describe_table(read_table(science.run.path("data", "raw.csv")), research)
+    if not science.run.path("data", "ida-raw.json").exists():
+        science.run.write_json(
+            "data/ida-raw.json", {"results": report.results, "layout": report.layout}
+        )
+    return research, report
+
+
+def promote_foundation(science: ScienceStore) -> None:
+    prepared = foundation_view(science)
+    for source in (
+        prepared.preparation / "processed.parquet",
+        science.run.path("ground", prepared.facts["attempt"], "ida.json"),
+    ):
+        science.run.copy_once(source, f"data/{source.name}").chmod(stat.S_IREAD)

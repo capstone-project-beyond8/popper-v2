@@ -70,4 +70,10 @@ def load_config(
 
 
 def scientific_options(config: Config) -> ScientificOptions:
-    return ScientificOptions(data=config.data, robustness=config.robustness, understand=config.understand, ground=config.ground, discovery=config.discovery)
+    return ScientificOptions(
+        data=config.data,
+        robustness=config.robustness,
+        understand=config.understand,
+        ground=config.ground,
+        discovery=config.discovery,
+    )

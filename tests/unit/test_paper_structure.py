@@ -3,6 +3,7 @@ from typing import cast
 
 import pytest
 
+from popper.communicate.limitations import PREPARATION_ACCESS
 from popper.communicate.paper import (
     FigureRef,
     Writeup,
@@ -10,7 +11,6 @@ from popper.communicate.paper import (
     _render_report,
     _select_figures,
 )
-from popper.coordinator.limitations import PREPARATION_ACCESS
 from popper.treesearch.engine import Node
 from tests.integration.test_run import WRITEUP
 

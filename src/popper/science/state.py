@@ -184,8 +184,14 @@ def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any
     view = state.model_dump(mode="json")
     omitted: list[dict[str, Any]] = []
     for key in (
-        "history", "results", "candidates", "observations", "diagnoses", "questions",
-        "challenges", "interpretations",
+        "history",
+        "results",
+        "candidates",
+        "observations",
+        "diagnoses",
+        "questions",
+        "challenges",
+        "interpretations",
     ):
         if len(json.dumps(view)) <= max_chars:
             break
@@ -210,5 +216,7 @@ def load_snapshot(science: ScienceStore, ref: ArtifactRef) -> ResearchState:
     return ResearchState.model_validate(payload)
 
 
-def current_frontier(science: ScienceStore, snapshot: ArtifactRef, frontier: list[ArtifactRef]) -> bool:
+def current_frontier(
+    science: ScienceStore, snapshot: ArtifactRef, frontier: list[ArtifactRef]
+) -> bool:
     return load_snapshot(science, snapshot).frontier == frontier

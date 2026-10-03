@@ -3,20 +3,13 @@
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
 
-from popper.discover.robustness import (
-    Specification,
-    collect_evidence,
-    load_robustness_plan,
-    plan_robustness,
-    schedule_context,
-)
+from popper.discover.robustness import collect_evidence
 from popper.harness.context import RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
@@ -39,6 +32,8 @@ from popper.science.execution import (
     observe_declared_output,
     prepare_execution,
 )
+from popper.science.historical import Specification, load_robustness_plan, schedule_context
+from popper.science.requests import ExperimentRequest
 from popper.science.results import validate_results
 from popper.science.settings import load_options
 from popper.science.store import ScienceStore
@@ -253,7 +248,9 @@ def run_experiment_stage(
                 intended,
                 pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
                 purpose=name,
-            ) if intended else method_reference(
+            )
+            if intended
+            else method_reference(
                 hypothesis,
                 pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
                 purpose=name,
@@ -273,6 +270,8 @@ def experiment(
     design: str = "",
     *,
     request: "ExperimentRequest | None" = None,
+    plan: Path | None = None,
+    implementation_only: bool = False,
 ) -> Path:
     if request:
         return _scoped_experiment(h, framing, hypothesis, preparation, notes, design, request)
@@ -283,7 +282,10 @@ def experiment(
         schedule_context(h.config.search, load_options(h.run).robustness)
     baseline = run_experiment_stage(h, "baseline", framing, hypothesis, None, notes, design)
     main = run_experiment_stage(h, "main", framing, hypothesis, baseline, notes, design)
-    plan = plan_robustness(h, hypothesis, main, preparation)
+    if implementation_only:
+        return main.dir / "meta.json"
+    if plan is None:
+        raise ValueError("historical experiment requires a committed scientific schedule")
     schedule = load_robustness_plan(plan, h.config.search, load_options(h.run).robustness)
     columns = pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist()
     attempts = tuple(
@@ -305,8 +307,8 @@ def experiment(
         selected["robustness"] = run_stage(
             h,
             StageSpec(
-            describe_input=describe_input,
-            validate_results=validate_results,
+                describe_input=describe_input,
+                validate_results=validate_results,
                 name="robustness",
                 goal="Test the main contrast under recorded alternative analyses.",
                 context=(
@@ -357,12 +359,6 @@ def _attempt(
     return AttemptSpec(
         item.id, item.kind, goal, json.dumps(item.model_dump(mode="json")), check, reference
     )
-
-
-@dataclass(frozen=True)
-class ExperimentRequest:
-    test: ArtifactRef
-    attempt: ArtifactRef
 
 
 def _node_ref(h: Harness, node: Node) -> ArtifactRef:
@@ -431,11 +427,21 @@ def _scoped_experiment(
     for ref in variants:
         variant = ExperimentSpec.model_validate(ScienceStore(h.run).read(ref))
         key = next(k for k in variant.outputs if not k.endswith(".json"))
-        attempts.append(AttemptSpec(variant.id, "adversarial" if key == "placebo_estimate" else "variant",
-            adaptive_goal(variant, "robustness"), variant.model_dump_json(),
-            partial(observe_declared_output, test=variant, sources=[ref]),
-            declared_procedure_reference(variant, pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(), purpose="robustness"),
-            execution_binding(ScienceStore(h.run), ref)))
+        attempts.append(
+            AttemptSpec(
+                variant.id,
+                "adversarial" if key == "placebo_estimate" else "variant",
+                adaptive_goal(variant, "robustness"),
+                variant.model_dump_json(),
+                partial(observe_declared_output, test=variant, sources=[ref]),
+                declared_procedure_reference(
+                    variant,
+                    pd.read_parquet(h.run.path("data", "processed.parquet")).columns.tolist(),
+                    purpose="robustness",
+                ),
+                execution_binding(ScienceStore(h.run), ref),
+            )
+        )
     if "main" in selected and attempts:
         capacity = h.config.search.steps_for("robustness")
         try:
@@ -449,7 +455,7 @@ def _scoped_experiment(
                     ("results.json", "estimand.json", "coverage.json"),
                     seed_code=selected["main"].code,
                     describe_input=describe_input,
-            validate_results=validate_results,
+                    validate_results=validate_results,
                     min_figures=0,
                     blind_estimates=True,
                     seed_node=selected["main"].id,
@@ -467,6 +473,8 @@ def _scoped_experiment(
     )
     science = ScienceStore(h.run)
     outcomes = [RecordedStageOutcome(role, _node_ref(h, node)) for role, node in measured_nodes]
-    result = assemble_result(science, plan, outcomes, stage_capacity=h.config.search.steps_for("robustness"))
+    result = assemble_result(
+        science, plan, outcomes, stage_capacity=h.config.search.steps_for("robustness")
+    )
     ref = science.commit("result", result, key=attempt.id)
     return resolve_artifact(h.run, ref)

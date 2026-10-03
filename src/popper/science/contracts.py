@@ -169,7 +169,9 @@ class ExperimentSpec(TestProposal):
     parent_test: ArtifactRef | None = None
 
 
-def classify_change(before: ExperimentSpec, after: ExperimentSpec) -> Literal["same_test", "refine", "pivot"]:
+def classify_change(
+    before: ExperimentSpec, after: ExperimentSpec
+) -> Literal["same_test", "refine", "pivot"]:
     if before.primary_estimand != after.primary_estimand:
         return "pivot"
     excluded = {"id", "version", "hypothesis_id", "parent_test", "sources"}
@@ -317,8 +319,6 @@ class Invalidation(Record):
     superseded_by: ArtifactRef | None = None
 
 
-
-
 class RunResources(Record):
     spent_usd: float
     max_usd: float
@@ -326,6 +326,7 @@ class RunResources(Record):
     max_revisits: int
     max_reframes: int
     available_routes: frozenset[str]
+    eligible_hypotheses: frozenset[str]
 
 
 class Program(Record):

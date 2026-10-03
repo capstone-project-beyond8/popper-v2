@@ -5,8 +5,8 @@ import pytest
 
 from popper.config import load_config
 from popper.harness.config import Search
+from popper.science.compatibility import HypothesisProposal
 from popper.science.execution import check_estimate
-from popper.science.hypothesis import HypothesisProposal
 
 ESTIMAND = {
     "outcome": "score",

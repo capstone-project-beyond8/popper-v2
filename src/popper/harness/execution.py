@@ -8,10 +8,30 @@ from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
 from popper.harness.store import RunStore, file_hash
 
 _OWNED = {
-    "id", "node", "stage", "parent", "kind", "debug_depth", "dir", "code", "status",
-    "score", "goal_met", "analysis", "results", "figures", "reason", "attempt_id",
-    "seed_node", "stage_instance", "test_ref", "implementation_id", "execution_id",
-    "outputs", "fidelity", "check_observations",
+    "id",
+    "node",
+    "stage",
+    "parent",
+    "kind",
+    "debug_depth",
+    "dir",
+    "code",
+    "status",
+    "score",
+    "goal_met",
+    "analysis",
+    "results",
+    "figures",
+    "reason",
+    "attempt_id",
+    "seed_node",
+    "stage_instance",
+    "test_ref",
+    "implementation_id",
+    "execution_id",
+    "outputs",
+    "fidelity",
+    "check_observations",
 }
 
 

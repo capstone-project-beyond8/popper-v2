@@ -5,8 +5,7 @@ import pandas as pd
 import pytest
 
 from popper.config import load_config
-from popper.discover.experiment import ExperimentRequest, experiment
-from popper.discover.feedback import interpret_result
+from popper.discover.experiment import experiment
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
@@ -14,9 +13,11 @@ from popper.harness.store import RunStore
 from popper.science.contracts import Attempt, Diagnosis, Invalidation, ResearchMove
 from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.science.evidence import resolve_measurement
+from popper.science.requests import ExperimentRequest
 from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
 from popper.science.transitions import schedule_attempt
+from popper.scientist.feedback import interpret_result
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -106,7 +107,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     old_source = write_study(h, build_study(ScienceStore(h.run), "measurement defect", "budget_exceeded"))[0]
     original_report = old_source.read_bytes()
     h.config.budget.max_usd = 5
-    interpretation = interpret_result(h, state.results[-1].ref)
+    interpretation = interpret_result(h, ScienceStore(h.run), state.results[-1].ref)
     assert interpretation is not None
     interpretation_bytes = resolve_artifact(h.run, interpretation).read_bytes()
     state = rebuild_state(ScienceStore(h.run))
@@ -162,7 +163,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     assert resolve_measurement(h.run, good).value == 2
     assert good.test_id == bad.test_id and good.execution_id != bad.execution_id
     assert all(p.read_bytes() == content for p, content in parent_bytes.items())
-    current_interpretation = interpret_result(h, final.results[-1].ref)
+    current_interpretation = interpret_result(h, ScienceStore(h.run), final.results[-1].ref)
     assert current_interpretation is not None
     updated = rebuild_state(ScienceStore(h.run))
     assert updated.stale_interpretations == [interpretation]

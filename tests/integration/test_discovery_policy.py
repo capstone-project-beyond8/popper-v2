@@ -5,15 +5,17 @@ from typing import Any
 import pytest
 
 from popper.config import load_config
-from popper.discover.policy import propose_moves, select_move
+from popper.coordinator.resources import resource_view
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import Candidate
+from popper.science.settings import load_options
 from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
 from popper.science.transitions import schedule_attempt, selected_move
+from popper.scientist.moves import propose_moves, select_move
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = pytest.mark.integration
@@ -90,8 +92,8 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
         )
 
     h.llm = FakeLLM(respond)
-    proposals = propose_moves(h, snapshot)
-    selection = select_move(h, snapshot, proposals)
+    proposals = propose_moves(h, ScienceStore(h.run), snapshot, resource_view(h, load_options(h.run), rebuild_state(ScienceStore(h.run))))
+    selection = select_move(h, ScienceStore(h.run), snapshot, proposals)
     move = selected_move(ScienceStore(h.run), selection)
     first = schedule_attempt(ScienceStore(h.run), move, None)
     assert schedule_attempt(ScienceStore(h.run), move, None) == first
@@ -106,15 +108,26 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "boundary",
-    ["science:challenge:", "science:selection:", "science:attempt:", "node_commit", "science:result:", "science:interpretation:", "science:disposition:", "deferred_disposition", "science:study"],
+    ["science:challenge:", "science:selection:", "science:attempt:", "node_commit", "science:result:", "science:interpretation:", "science:disposition:", "deferred_disposition", "science:study", "science:proposals:", "correction_disposition"],
 )
 def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
 ) -> None:
     import pandas as pd
 
-    from popper.coordinator.discovery import advance_discovery
-    from popper.ground.steward import Foundation
+    from popper.coordinator.discovery import dispatch_experiment
+    from popper.scientist.episode import discovery_step
+
+    def advance_discovery() -> Path:
+        science = ScienceStore(h.run)
+        while True:
+            request = discovery_step(h, science, resource_view(h, load_options(h.run), rebuild_state(science)))
+            if request is None:
+                continue
+            if request.kind == "publish":
+                assert request.subject is not None
+                return resolve_artifact(h.run, request.subject)
+            dispatch_experiment(h, request)
     from popper.harness.recovery import Journal, read_events
     from popper.science.contracts import AttemptResult
     from popper.science.research import parse_research
@@ -161,15 +174,21 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         parse_research((EXAMPLE / "research.md").read_text("utf-8")),
         Framing.model_validate(FRAMING),
     )
-    foundation = Foundation(prep.parent, [], [], {}, "attempt-000")
-    monkeypatch.setattr("popper.coordinator.discovery.load_frame", lambda _: frame)
-    monkeypatch.setattr("popper.coordinator.discovery.load_foundation", lambda _: foundation)
+    from popper.understand.frame import save_frame
+    save_frame(h.run, h.run.path("reviewed"), frame.research, frame.framing, [], [], review={})
+    h.run.write_json("operationalization.json", [])
+    h.run.write_json("concerns.json", [])
+    h.run.write_json("readiness.json", {})
+    foundation_record = h.run.write_json("accepted-foundation.json", {"preparation": "preparation"})
+    h.run.commit_artifact("foundation", foundation_record)
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         state = rebuild_state(ScienceStore(h.run))
         if req.tag in {"candidate_challenge", "interpret_result"}:
             return _respond(req)
         if req.tag == "research_moves":
+            if boundary == "correction_disposition":
+                return (ToolCall("invalid", "submit_moves", {"moves": [{"action": "test"}]}),)
             move: dict[str, Any]
             if state.results:
                 move = {
@@ -246,7 +265,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     def commit(store: RunStore, name: str, path: Path) -> None:
         nonlocal interrupted
         original_commit(store, name, path)
-        commit_boundary = "science:disposition:" if boundary == "deferred_disposition" else boundary
+        commit_boundary = "science:disposition:" if boundary in {"deferred_disposition", "correction_disposition"} else boundary
         if name.startswith(commit_boundary) and not interrupted:
             interrupted = True
             raise KeyboardInterrupt()
@@ -260,27 +279,15 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
 
     monkeypatch.setattr(RunStore, "commit_artifact", commit)
     monkeypatch.setattr(Journal, "write", write)
-    # Already committed exploration is consumed, so only its opaque node identity is needed.
-    from types import SimpleNamespace
-    from typing import cast
-
-    from popper.treesearch.engine import Node
-
-    exploration = cast(Node, SimpleNamespace(id="explore-000"))
     with pytest.raises(KeyboardInterrupt):
-        advance_discovery(
-            h,
-            frame=h.run.path("frame_reviewed.json"),
-            foundation=h.run.path("foundation.json"),
-            exploration=exploration,
-        )
-    output = advance_discovery(
-        h,
-        frame=h.run.path("frame_reviewed.json"),
-        foundation=h.run.path("foundation.json"),
-        exploration=exploration,
-    )
+        advance_discovery()
+    output = advance_discovery()
     assert output.is_file()
+    if boundary == "correction_disposition":
+        assert len([r for r in h.llm.calls if r.tag == "research_moves"]) == 2
+        assert not rebuild_state(ScienceStore(h.run)).attempts
+        assert not any(r.tag == "select_move" for r in h.llm.calls)
+        return
     state = rebuild_state(ScienceStore(h.run))
     assert len(state.attempts) == 1 and len(state.results) == 1
     assert state.counters["moves"] == 1 and len(state.observations) == 2
@@ -310,9 +317,4 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         output.chmod(0o666)
         output.write_text(output.read_text("utf-8") + " ", encoding="utf-8")
         with pytest.raises(ValueError, match="committed science:study artifact was changed"):
-            advance_discovery(
-                h,
-                frame=h.run.path("frame_reviewed.json"),
-                foundation=h.run.path("foundation.json"),
-                exploration=exploration,
-            )
+            advance_discovery()

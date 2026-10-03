@@ -6,16 +6,17 @@ import pandas as pd
 import pytest
 
 from popper.config import load_config
-from popper.discover.experiment import ExperimentRequest, experiment
-from popper.discover.feedback import interpret_result
+from popper.discover.experiment import experiment
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import Attempt, AttemptResult
 from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.science.evidence import resolve_measurement
+from popper.science.requests import ExperimentRequest
 from popper.science.state import rebuild_state
 from popper.science.store import ScienceStore
+from popper.scientist.feedback import interpret_result
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -81,7 +82,7 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         assert main.support == "not_supported"
         assert resolve_measurement(h.run, main.ref).value == -2.
         original_result = path.read_bytes()
-        interpretation = interpret_result(h, rebuild_state(ScienceStore(h.run)).results[-1].ref)
+        interpretation = interpret_result(h, ScienceStore(h.run), rebuild_state(ScienceStore(h.run)).results[-1].ref)
         state = rebuild_state(ScienceStore(h.run))
         assert interpretation is not None and path.read_bytes() == original_result
         assert state.interpretations[-1].record.result == state.results[-1].ref

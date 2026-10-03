@@ -19,7 +19,19 @@ class ScienceStore:
         return payload
 
     def commits(self) -> list[tuple[str, ArtifactRef]]:
-        return [(str(e["name"]), ArtifactRef(path=e["path"], sha256=e["sha256"], producer=e.get("producer", e["name"]), record_id=e["record_id"])) for e in read_events(self.run.root) if e["event"] == "artifact_commit" and "record_id" in e]
+        return [
+            (
+                str(e["name"]),
+                ArtifactRef(
+                    path=e["path"],
+                    sha256=e["sha256"],
+                    producer=e.get("producer", e["name"]),
+                    record_id=e["record_id"],
+                ),
+            )
+            for e in read_events(self.run.root)
+            if e["event"] == "artifact_commit" and "record_id" in e
+        ]
 
     def commit(
         self, kind: str, record: Record | dict[str, Any], *, key: str | None = None

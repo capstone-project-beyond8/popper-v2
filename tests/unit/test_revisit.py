@@ -2,10 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.policy import check_move
+from popper.coordinator.resources import admit_move
 from popper.harness.records import ArtifactRef
-from popper.science.contracts import ResearchMove
-from popper.science.settings import Discovery
+from popper.science.contracts import ResearchMove, RunResources
 from popper.science.state import ResearchState
 from popper.science.transitions import EligibilityError
 
@@ -13,11 +12,13 @@ from popper.science.transitions import EligibilityError
 def test_scheduled_attempts_bound_revisits(tmp_path: Path) -> None:
     ref = ArtifactRef(path="test.json", sha256="a"*64, producer="test", record_id="t1")
     move = ResearchMove(id="m1", snapshot=ref, action="test", objective="estimate", trigger_refs=[ref], hypothesis_id="h1", test=ref, cost_usd=0, stopping_condition="one test", discriminating_outcomes=["positive", "negative"])
-    check_move(ResearchState(counters={"moves": 0}), move, Discovery())
+    resources = RunResources(spent_usd=0, max_usd=10, max_moves=4, max_revisits=1, max_reframes=1,
+        available_routes=frozenset({"test"}), eligible_hypotheses=frozenset({"h1"}))
+    admit_move(resources, ResearchState(counters={"moves": 0}), move)
     with pytest.raises(EligibilityError, match="revisit"):
-        check_move(ResearchState(counters={"moves": 2, "h1": 2}), move, Discovery())
+        admit_move(resources, ResearchState(counters={"moves": 2, "h1": 2}), move)
     with pytest.raises(EligibilityError, match="move"):
-        check_move(ResearchState(counters={"moves": 4}), move, Discovery())
+        admit_move(resources, ResearchState(counters={"moves": 4}), move)
 
 
 def test_refinement_requires_an_attributed_observation(tmp_path: Path) -> None:

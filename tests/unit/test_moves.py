@@ -4,15 +4,16 @@ import pytest
 from pydantic import ValidationError
 
 from popper.config import load_config
-from popper.discover.policy import eligible_candidates, propose_moves
+from popper.coordinator.resources import eligible_candidates, resource_view
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import MoveProposal
-from popper.science.settings import Discovery
-from popper.science.state import ResearchState, commit_snapshot
+from popper.science.settings import Discovery, load_options
+from popper.science.state import ResearchState, commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
 from popper.science.transitions import validate_moves
+from popper.scientist.moves import propose_moves
 
 
 def test_invalid_move_cannot_be_executable() -> None:
@@ -36,12 +37,25 @@ def test_source_validation_and_limits(tmp_path: Path) -> None:
     assert eligible_candidates(ResearchState(counters={"moves": 4}), Discovery()) == []
 
 
-def test_permanently_incomplete_proposal_stops_after_bounded_correction(tmp_path: Path) -> None:
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_permanently_incomplete_proposal_stops_after_bounded_correction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool) -> None:
     from popper.harness.llm import ToolCall
     fake = FakeLLM(lambda _: (ToolCall("bad", "submit_moves", {"moves": [{"action": "test"}]}),))
     h = Harness(load_config(env={}), fake, RunStore(tmp_path))
     snapshot = commit_snapshot(ScienceStore(h.run), ResearchState())
-    ref = propose_moves(h, snapshot)
+    if interrupted:
+        original = RunStore.commit_artifact
+        tripped = False
+        def commit(store: RunStore, name: str, path: Path) -> None:
+            nonlocal tripped
+            original(store, name, path)
+            if name.startswith("science:disposition:") and not tripped:
+                tripped = True
+                raise KeyboardInterrupt()
+        monkeypatch.setattr(RunStore, "commit_artifact", commit)
+        with pytest.raises(KeyboardInterrupt):
+            propose_moves(h, ScienceStore(h.run), snapshot, resource_view(h, load_options(h.run), rebuild_state(ScienceStore(h.run))))
+    ref = propose_moves(h, ScienceStore(h.run), snapshot, resource_view(h, load_options(h.run), rebuild_state(ScienceStore(h.run))))
     import json
 
     from popper.harness.records import resolve_artifact

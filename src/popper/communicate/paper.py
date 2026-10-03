@@ -13,6 +13,7 @@ from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel, ConfigDict
 
 from popper.communicate.evidence import artifact_path, evidence_rows, load_evidence, render_curve
+from popper.communicate.limitations import limitations
 from popper.communicate.numbers import (
     collect_values,
     entry_values,
@@ -27,7 +28,10 @@ from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import next_sequence
 from popper.science.evidence import resolve_measurement
 from popper.science.output import StudyOutput
+from popper.science.research import render_fields
 from popper.science.results import validate_results
+from popper.science.store import ScienceStore
+from popper.science.views import exploration_view, foundation_view, reviewed_frame
 from popper.treesearch.engine import Node, load_nodes
 from popper.treesearch.judge import validate_image
 
@@ -712,3 +716,33 @@ def write_study(
     ).exists()
     tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, manifest, placed, values, [], [], steered)
     return _commit_report(h, report_dir, tex, missing, identity=identity)
+
+
+def publish_study(h: Harness, study: Path) -> tuple[Path, Path | None, list[str]]:
+    """Render the declared study strategy behind one publication capability."""
+    science = ScienceStore(h.run)
+    output = StudyOutput.model_validate_json(study.read_text("utf-8"))
+    if output.adaptive:
+        notes = research = ""
+        if output.frame:
+            frame = reviewed_frame(science)
+            notes = frame.research.notes.get("writing", "")
+            research = render_fields(frame.research, "domain", "objectives", "assumptions")
+        return write_study(h, study, notes=notes, research=research)
+    frame, prepared = reviewed_frame(science), foundation_view(science)
+    committed = h.run.committed("hypothesis")
+    assert committed is not None and output.historical_evidence is not None
+    hypothesis = json.loads(committed.read_text("utf-8"))[0]
+    warnings = json.loads((committed.parent / "warnings.json").read_text("utf-8"))
+    names = {c.id: c.name.value for c in frame.research.concepts}
+    exploration = exploration_view(science)
+    node = next(n for n in load_nodes(h, "explore") if n.id == exploration.id)
+    return write_paper(h, frame.framing,
+        json.loads((prepared.preparation / "changes.json").read_text("utf-8")), node,
+        hypothesis, resolve_artifact(h.run, output.historical_evidence), prepared.preparation,
+        limitations=limitations(prepared.facts, warnings),
+        operationalization=[{**o, "concept": names.get(o["concept_id"]) or o["concept_id"]}
+                            for o in prepared.facts["operationalization"]],
+        steered=(h.run.path(frame.source.path).parent / "provenance.json").exists(),
+        notes=frame.research.notes.get("writing", ""),
+        research=render_fields(frame.research, "domain", "objectives", "assumptions"))

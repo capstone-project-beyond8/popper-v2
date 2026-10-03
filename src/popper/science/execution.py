@@ -17,7 +17,11 @@ from popper.science.store import ScienceStore
 def execution_binding(science: ScienceStore, test: ArtifactRef) -> ExecutionBinding:
     declaration = ExperimentSpec.model_validate(science.read(test))
     preparation = science.read(declaration.preparation)
-    return ExecutionBinding(test, {name: mount["sha256"] for name, mount in preparation.get("mounts", {}).items()}, {"hypothesis_id": declaration.hypothesis_id, "test_id": declaration.id})
+    return ExecutionBinding(
+        test,
+        {name: mount["sha256"] for name, mount in preparation.get("mounts", {}).items()},
+        {"hypothesis_id": declaration.hypothesis_id, "test_id": declaration.id},
+    )
 
 
 def check_estimate(
@@ -105,8 +109,6 @@ def observe_declared_output(
     ).model_dump(mode="json")
 
 
-
-
 class ExecutionPlan(Record):
     attempt: ArtifactRef
     main: ArtifactRef
@@ -120,13 +122,26 @@ def prepare_execution(science: ScienceStore, attempt_ref: ArtifactRef) -> Execut
     if science.run.committed(name):
         return ExecutionPlan.model_validate(science.read(science.run.artifact_ref(name)))
     intended = ExperimentSpec.model_validate(science.read(attempt.test))
-    baseline = ExperimentSpec.model_validate({
-        **intended.model_dump(mode="json"), "id": f"{intended.id}-baseline",
-        "parent_test": attempt.test.model_dump(mode="json"), "support_rule": None,
-        "methods": [{"family": "difference_in_means", "description": "Transparent baseline contrast",
-                     "inputs": [intended.primary_estimand.exposure, intended.primary_estimand.outcome],
-                     "outputs": ["primary_estimate"], "effect_scale": intended.primary_estimand.unit}],
-    })
+    baseline = ExperimentSpec.model_validate(
+        {
+            **intended.model_dump(mode="json"),
+            "id": f"{intended.id}-baseline",
+            "parent_test": attempt.test.model_dump(mode="json"),
+            "support_rule": None,
+            "methods": [
+                {
+                    "family": "difference_in_means",
+                    "description": "Transparent baseline contrast",
+                    "inputs": [
+                        intended.primary_estimand.exposure,
+                        intended.primary_estimand.outcome,
+                    ],
+                    "outputs": ["primary_estimate"],
+                    "effect_scale": intended.primary_estimand.unit,
+                }
+            ],
+        }
+    )
     baseline_ref = science.commit("test", baseline, key=f"{attempt.id}-baseline")
     payloads = intended.requested_coverage.get("alternatives", [])
     if not isinstance(payloads, list):
@@ -135,12 +150,20 @@ def prepare_execution(science: ScienceStore, attempt_ref: ArtifactRef) -> Execut
     for index, payload in enumerate(payloads):
         if not isinstance(payload, dict):
             raise IntegrityError("variant declaration must be an object")
-        variant = ExperimentSpec.model_validate({**intended.model_dump(mode="json"), **payload,
-            "id": f"{intended.id}-v{index:03d}", "hypothesis_id": intended.hypothesis_id,
-            "parent_test": attempt.test.model_dump(mode="json")})
+        variant = ExperimentSpec.model_validate(
+            {
+                **intended.model_dump(mode="json"),
+                **payload,
+                "id": f"{intended.id}-v{index:03d}",
+                "hypothesis_id": intended.hypothesis_id,
+                "parent_test": attempt.test.model_dump(mode="json"),
+            }
+        )
         if classify_change(intended, variant) == "pivot":
             raise IntegrityError("robustness cannot change the substantive target")
         variants.append(science.commit("test", variant, key=f"{attempt.id}-v{index:03d}"))
-    plan = ExecutionPlan(attempt=attempt_ref, main=attempt.test, baseline=baseline_ref, variants=variants)
+    plan = ExecutionPlan(
+        attempt=attempt_ref, main=attempt.test, baseline=baseline_ref, variants=variants
+    )
     science.commit("execution", plan, key=attempt.id)
     return plan

@@ -2,6 +2,8 @@
 
 Popper is developing toward a persistent AI Scientist backed by Scientific Runtime and Agent Harness. The current implementation works within a bounded tabular-data Run: it grounds researcher intent, retains multiple sourced quantitative candidates, challenges them from a fresh context, selects a ResearchMove, and freshly executes its committed specification. It records interpretations, surviving rivals, limitations and open questions before choosing another move. Cross-run Program continuity and candidate maturation remain target capabilities.
 
+The `scientist` package owns scientific decisions and the current playbook. `science` owns scientific records, evidence and state; Harness/code search executes declared work, and the coordinator handles dispatch and resources. Scientific snapshots exclude live budgets; resume takes spend and cap raises from the journal.
+
 Reports distinguish coverage, attributed fidelity, sensitivity and computed prospective support, and retain scientific feedback beside the evidence. Negative, incomplete and untested work remain visible. Challenge and interpretation are attributed reasoning; standing remains exploratory and reserved data is not used for validation.
 
 Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/ROADMAP.md](docs/ROADMAP.md) · Contributing: [AGENTS.md](AGENTS.md)

@@ -1,5 +1,6 @@
 """Scientific publication transport derived from committed records."""
 
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -7,6 +8,7 @@ from pydantic import Field
 
 from popper.harness.records import ArtifactRef, Record, resolve_artifact
 from popper.harness.store import file_hash
+from popper.science.compatibility import decode_policy
 from popper.science.contracts import MoveSelection
 from popper.science.evidence import MeasurementRef
 from popper.science.state import rebuild_state
@@ -63,8 +65,6 @@ class StudyOutput(Record):
     historical_evidence: ArtifactRef | None = None
 
 
-
-
 def upstream(science: ScienceStore, name: str) -> ArtifactRef | None:
     return science.run.artifact_ref(name) if science.run.committed(name) else None
 
@@ -78,9 +78,7 @@ def build_study(
     evidence: ArtifactRef | None = None,
 ) -> Path:
     state = rebuild_state(science)
-    selections = [
-        ref for name, ref in science.commits() if name.startswith("science:selection:")
-    ]
+    selections = [ref for name, ref in science.commits() if name.startswith("science:selection:")]
     attempted_ids = {a.record.hypothesis_id for a in state.attempts}
     selected_ids = {selected_move(science, ref).hypothesis_id for ref in selections}
     history = [
@@ -172,7 +170,9 @@ def preparation_manifest(science: ScienceStore, preparation: Path) -> ArtifactRe
             "files": files,
             "mounts": {
                 "data": {
-                    "path": (preparation / "processed.parquet").relative_to(science.run.root).as_posix(),
+                    "path": (preparation / "processed.parquet")
+                    .relative_to(science.run.root)
+                    .as_posix(),
                     "sha256": file_hash(preparation / "processed.parquet"),
                 }
             },
@@ -183,3 +183,10 @@ def preparation_manifest(science: ScienceStore, preparation: Path) -> ArtifactRe
     return science.run.artifact_ref("preparation")
 
 
+def partial_study(
+    science: ScienceStore, reason: str, status: Literal["failed", "budget_exceeded"]
+) -> Path | None:
+    metadata = json.loads(science.run.path("run.json").read_text("utf-8"))
+    if not decode_policy(metadata).adaptive:
+        return None
+    return build_study(science, reason, status)

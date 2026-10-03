@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from popper.config import load_config
-from popper.discover.robustness import RobustnessPlan, load_robustness_plan, schedule_context
+from popper.science.historical import RobustnessPlan, load_robustness_plan, schedule_context
 from tests.unit.test_hypothesis import ESTIMAND
 
 

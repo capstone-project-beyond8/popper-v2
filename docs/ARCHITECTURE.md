@@ -105,6 +105,8 @@ Strategies do not substitute for core commitments. Added complexity must address
 | Coordinator | Bounded authorization and scheduling | Authorize, schedule and route moves within Program permissions and episode budgets; track operational status. It neither interprets evidence nor ranks research. |
 | Evaluation | Independent inspection of recorded behavior | Scientific usefulness, evolution, selection, continuity, traceability, recovery and cost (§13.1). Production never imports evaluation. |
 
+**Current implementation.** `science` owns scientific contracts, ingest/options, immutable transitions, execution declarations, evidence assembly and deterministic state. `scientist` owns the current sequential playbook, including grounding-driven reframing, candidate/challenge/interpretation and sourced move selection. `coordinator` composes capabilities and admits work using current journal-backed spend and configured limits. Scientist reasoning that commits a new candidate set yields control so the controller refreshes resources before the next decision. Harness and code search receive opaque execution bindings plus injected validators. Saved format-4 strategy is decoded by the domain and planned by Scientist, then uses the same controller and execution capabilities. Program/Run identities currently bind one run; cross-run continuation remains a target contract.
+
 These are responsibility boundaries, not mandatory packages, agents or services. Existing framing, grounding, discovery and communication functions implement scientific capabilities; they do not define a required phase topology. The package placement and current execution trace live in [ROADMAP.md](ROADMAP.md).
 
 Dependency rules:
@@ -112,6 +114,7 @@ Dependency rules:
 - `harness` imports nothing else in Popper. It supplies generic mechanisms and invokes domain-supplied checks without adopting scientific policy.
 - `treesearch` imports only `harness`; it knows no stage goals.
 - Function packages import only `science`, `harness` and `treesearch`, never each other. `science` owns shared scientific contracts and uses generic Harness record/storage primitives; it never imports model sessions or capabilities. Their artifacts and contracts carry the scientific handoffs; calling a capability again does not require cross-imports.
+- `scientist` imports only `science` and `harness`. Its playbook reads domain views and returns typed capability requests; it never receives execution-engine nodes or imports capabilities.
 - Only `coordinator` knows routing among capabilities. Scientific selection and interpretation belong to Scientist behavior; runtime projection belongs to scientific state semantics. Coordinator transports references and checks authorization/resources rather than duplicating either responsibility.
 - Evaluation may depend on production components; production components never depend on evaluation.
 - These rules are an import contract checked in CI, not a convention [30].
