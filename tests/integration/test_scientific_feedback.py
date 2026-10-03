@@ -12,7 +12,7 @@ from popper.harness.storage.recovery import read_events
 from popper.harness.storage.store import RunStore
 from popper.scientific.runtime.lifecycle.contracts import AttemptResult, Candidate, ResearchMove
 from popper.scientific.runtime.lifecycle.contracts import ExperimentSpec as ScientificTest
-from popper.scientific.runtime.lifecycle.transitions import schedule_attempt
+from popper.scientific.runtime.lifecycle.transitions import EligibilityError, schedule_attempt
 from popper.scientific.runtime.projections.state import commit_snapshot, rebuild_state
 from popper.scientific.runtime.store import ScienceStore
 from popper.scientific.scientist.feedback import interpret_result
@@ -399,7 +399,7 @@ def test_moves_must_carry_the_latest_direction_once_one_exists(tmp_path: Path) -
     assert submissions == 2 and [m["direction"] for m in moves] == [latest.model_dump(mode="json")]
 
 
-def test_evolve_beyond_idea_round_cap_is_deferred_at_admission(tmp_path: Path) -> None:
+def test_evolve_beyond_idea_round_cap_is_not_proposable(tmp_path: Path) -> None:
     from popper.scientific.runtime.settings import load_options
     from popper.scientific.scientist.episode import request_move
     from popper.workflow.resources import resource_view
@@ -414,15 +414,14 @@ def test_evolve_beyond_idea_round_cap_is_deferred_at_admission(tmp_path: Path) -
     assert state.stage_history[0].record.reason == "Idea round produced no committed work; scientific feedback unavailable"
     resources = resource_view(h, load_options(h.run), state)
     assert (resources.idea_rounds, resources.max_idea_rounds) == (1, 1)
+    assert "evolve" not in resources.available_routes
 
-    _, second = _select_move(h, science, source, "evolve")
-    before, spent = rebuild_state(science), h.spent_usd
-    assert dispatch_selected(h, request_move(science, second)) is not None
+    before = rebuild_state(science)
+    with pytest.raises(EligibilityError, match="no executable proposals"):
+        _select_move(h, science, source, "evolve")
     after = rebuild_state(science)
     assert len(after.stage_admissions) == 1 and len(after.stage_history) == 1
-    assert after.dispositions[-1].record.sources == [second]
-    assert after.dispositions[-1].record.reason == "idea round cap reached"
-    assert after.counters == before.counters and h.spent_usd == spent
+    assert after.counters == before.counters
 
 
 def _ref(ref: ArtifactRef) -> dict[str, Any]:

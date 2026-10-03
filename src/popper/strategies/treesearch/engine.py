@@ -337,12 +337,12 @@ def _step(
 def _stage_events(h: Harness, stage: str) -> list[dict[str, Any]]:
     _validate_execution_id(stage)
     return [
-        e for e in read_events(h.run.root) if (e.get("stage_instance") or e.get("stage")) == stage
+        e for e in read_events(h.run.root) if e.get("stage_instance") == stage
     ]
 
 
 def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> list[Node]:
-    """Load nodes for an exact execution identity, falling back to roles in old records."""
+    """Load nodes for an exact execution identity."""
     nodes: list[Node] = []
     events = _stage_events(h, stage)
     committed = {e["node"] for e in events if e["event"] == "node_commit"}
@@ -375,8 +375,7 @@ def load_nodes(h: Harness, stage: str, *, include_abandoned: bool = False) -> li
             continue
         node_dir = h.run.path("tree", stage, str(event["node"]))
         metadata = json.loads((node_dir / "meta.json").read_text("utf-8"))
-        metadata.setdefault("stage_instance", metadata["stage"])
-        if event.get("sha256") and file_hash(node_dir / "meta.json") != event["sha256"]:
+        if file_hash(node_dir / "meta.json") != event["sha256"]:
             raise ValueError("committed node metadata hash mismatch")
         if any(file_hash(h.run.path(path)) != expected for path, expected in metadata.get("outputs", {}).items()):
             raise ValueError("committed node output hash mismatch")

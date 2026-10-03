@@ -229,6 +229,8 @@ class TestProposal(Record):
             not isinstance(item, dict) for item in alternatives
         ):
             raise ValueError("alternatives must be a list of procedure patch objects")
+        if alternatives and "robustness" not in self.components:
+            raise ValueError("declared alternatives require the robustness component")
         if "estimand.json" not in self.outputs or not any(
             k != "estimand.json" for k in self.outputs
         ):

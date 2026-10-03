@@ -152,11 +152,7 @@ def prepare_execution(science: ScienceStore, attempt_ref: ArtifactRef) -> Execut
             }
         )
         baseline_ref = science.commit("test", baseline, key=f"{attempt.id}-baseline")
-    payloads = (
-        intended.requested_coverage.get("alternatives", [])
-        if "robustness" in intended.components
-        else []
-    )
+    payloads = intended.requested_coverage.get("alternatives", [])
     if not isinstance(payloads, list):
         raise IntegrityError("declared alternatives must be a list")
     variants = []

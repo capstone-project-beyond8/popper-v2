@@ -70,3 +70,9 @@ def test_components_default_to_every_component() -> None:
 def test_components_must_include_main_once(components: list[str]) -> None:
     with pytest.raises(ValidationError):
         ScientificTest.model_validate({**spec_payload(), "components": components})
+
+
+def test_declared_alternatives_require_robustness() -> None:
+    coverage = {"seeds": [7], "alternatives": [{"inference": {"interval_level": 0.9}}]}
+    with pytest.raises(ValidationError, match="robustness"):
+        ScientificTest.model_validate({**spec_payload(), "components": ["baseline", "main"], "requested_coverage": coverage})

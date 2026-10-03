@@ -31,6 +31,7 @@ def _candidate_limit_reason(state: ResearchState, hypothesis_id: str, max_moves:
 
 def resource_view(h: Harness, options: ScientificOptions, state: ResearchState) -> RunResources:
     science = ScienceStore(h.run)
+    idea_rounds = sum(science.read(a.record.move)["action"] == "evolve" for a in state.stage_admissions)
     return RunResources(
         spent_usd=h.spent_usd,
         max_usd=h.config.budget.max_usd,
@@ -40,11 +41,12 @@ def resource_view(h: Harness, options: ScientificOptions, state: ResearchState) 
         available_routes=frozenset(
             {
                 "test", "refine", "technical_repair", "measurement_repair", "stop",
-                "audit", "synthesize", "communicate", "evolve", "direct",
+                "audit", "synthesize", "communicate", "direct",
             }
+            | ({"evolve"} if idea_rounds < options.discovery.max_idea_rounds else set())
         ),
         eligible_hypotheses=frozenset(eligible_candidates(state, options.discovery)),
-        idea_rounds=sum(science.read(a.record.move)["action"] == "evolve" for a in state.stage_admissions),
+        idea_rounds=idea_rounds,
         max_idea_rounds=options.discovery.max_idea_rounds,
     )
 
@@ -56,10 +58,10 @@ def admit_move(resources: RunResources, state: ResearchState, move: ResearchMove
         return
     if move.action in PREREQUISITE_ACTIONS:
         return
-    if move.action not in resources.available_routes:
-        raise EligibilityError(f"{move.action} route is deferred")
     if move.action == "evolve" and resources.idea_rounds >= resources.max_idea_rounds:
         raise EligibilityError("idea round cap reached")
+    if move.action not in resources.available_routes:
+        raise EligibilityError(f"{move.action} route is deferred")
     if move.action in NON_EMPIRICAL_ACTIONS:
         return
     reason = _candidate_limit_reason(state, move.hypothesis_id or "", resources.max_moves, resources.max_revisits)
