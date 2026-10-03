@@ -1,13 +1,11 @@
 """Deterministic scientific projection over immutable committed records."""
 
 import json
-import math
 from typing import Any, Literal
 
 from pydantic import Field
 
 from popper.harness.records import ArtifactRef, Record, resolve_artifact
-from popper.harness.results import ResultEntry
 from popper.science.contracts import (
     AcceptedMeasurement,
     Attempt,
@@ -19,8 +17,6 @@ from popper.science.contracts import (
     Interpretation,
     Invalidation,
     Question,
-    Standing,
-    SupportRule,
 )
 from popper.science.evidence import resolve_measurement
 from popper.science.store import ScienceStore
@@ -47,43 +43,6 @@ class ResearchState(Record):
     dispositions: list[Sourced[Disposition]] = Field(default_factory=list)
     exposure: list[ArtifactRef] = Field(default_factory=list)
     counters: dict[str, int] = Field(default_factory=dict)
-
-
-def compute_support(
-    rule: SupportRule | None,
-    result: ResultEntry | None,
-    *,
-    fidelity: str,
-    rule_precedes_execution: bool,
-) -> Standing:
-    if rule is None or result is None or fidelity != "consistent" or result.ci is None:
-        return "unavailable"
-    lo, hi = result.ci
-    if not all(math.isfinite(v) for v in (lo, hi)) or lo > hi:
-        return "unavailable"
-    if not rule_precedes_execution or rule.kind == "descriptive":
-        return "post_hoc"
-    if rule.kind == "directional_ci":
-        assert rule.null is not None
-        if rule.direction == "positive":
-            return (
-                "supported"
-                if lo > rule.null
-                else "not_supported"
-                if hi < rule.null
-                else "inconclusive"
-            )
-        return (
-            "supported" if hi < rule.null else "not_supported" if lo > rule.null else "inconclusive"
-        )
-    assert rule.lower is not None and rule.upper is not None
-    return (
-        "supported"
-        if rule.lower < lo <= hi < rule.upper
-        else "not_supported"
-        if hi < rule.lower or lo > rule.upper
-        else "inconclusive"
-    )
 
 
 def validate_sources(science: ScienceStore, value: Any) -> None:

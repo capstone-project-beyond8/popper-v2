@@ -1,21 +1,22 @@
+
 import json
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
-from popper.harness.config import load_config
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.harness.context import UNTRUSTED_NOTE
 from popper.harness.llm import Completion, FakeLLM, LLMRequest, Message, TransientLLMError
 from popper.harness.recovery import read_events
 from popper.harness.session import BudgetExceeded, Harness
-from popper.harness.store import RunStore
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 
 
 def _harness(tmp_path: Path, fake: FakeLLM) -> Harness:
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     return Harness(load_config(env={}), fake, run)
 
 
@@ -64,7 +65,7 @@ def test_ask_model_retries_once_on_bad_json(tmp_path: Path) -> None:
 
 
 def test_store_is_write_once(tmp_path: Path) -> None:
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     run.write_json("x.json", {})
     with pytest.raises(FileExistsError):
         run.write_json("x.json", {})
@@ -137,7 +138,7 @@ class _Flaky:
 
 
 def _flaky_harness(tmp_path: Path, llm: _Flaky) -> tuple[Harness, list[float]]:
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     delays: list[float] = []
     return Harness(load_config(env={}), llm, run, sleep=delays.append), delays
 

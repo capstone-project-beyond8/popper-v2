@@ -4,10 +4,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from popper.config import load_config
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.feedback import interpret_result
-from popper.discover.policy import make_attempt
-from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
@@ -17,13 +16,14 @@ from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.science.evidence import resolve_measurement
 from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
+from popper.science.transitions import schedule_attempt
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 
 @pytest.mark.parametrize(("affected_role", "other_defect"), [("main", False), ("baseline", False), ("main", True)])
-def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_path: Path, affected_role: str, other_defect: bool) -> None:
+def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_path: Path, affected_role: str, other_defect: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
     h.run.path("data").mkdir()
     pd.DataFrame({"x": [1, 2], "y": [2, 3]}).to_parquet(h.run.path("data/processed.parquet"))
@@ -126,7 +126,21 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
         stopping_condition="corrected declared scale",
         changed_fields=["implementation"],
     )
-    child_ref = make_attempt(h, child_move, parent_ref)
+    original_commit = RunStore.commit_artifact
+    interrupted = False
+
+    def commit(store: RunStore, name: str, path: Path) -> None:
+        nonlocal interrupted
+        original_commit(store, name, path)
+        if name == "science:attempt:m2" and not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(RunStore, "commit_artifact", commit)
+    with pytest.raises(KeyboardInterrupt):
+        schedule_attempt(ScienceStore(h.run), child_move, parent_ref)
+    child_ref = schedule_attempt(ScienceStore(h.run), child_move, parent_ref)
+    assert len(rebuild_state(ScienceStore(h.run)).attempts) == 2
     assert interpretation in rebuild_state(ScienceStore(h.run)).stale_interpretations
     assert resolve_artifact(h.run, interpretation).read_bytes() == interpretation_bytes
     child = Attempt.model_validate_json(resolve_artifact(h.run, child_ref).read_text())

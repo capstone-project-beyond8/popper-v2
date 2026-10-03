@@ -1,13 +1,14 @@
+
 from pathlib import Path
 
 import pytest
 
+from popper.coordinator.run import create_run
 from popper.ground.steward import ground
-from popper.harness.descriptive import describe_table, read_table
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.research import parse_research
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
+from popper.science.descriptive import describe_table, read_table
+from popper.science.research import parse_research
 from tests.integration.test_run import (
     DATA,
     EXAMPLE,
@@ -35,7 +36,7 @@ def test_failed_submit_returns_the_reason_and_the_corrected_one_is_accepted(
         return _submit_ground(FAILING if len(steward) == 1 else DATA)
 
     config = _config()
-    store = RunStore.create(
+    store = create_run(
         tmp_path,
         EXAMPLE / "research.md",
         EXAMPLE / "data.csv",

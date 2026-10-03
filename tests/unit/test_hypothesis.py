@@ -3,8 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.experiment import check_estimate
-from popper.harness.config import Search, load_config
+from popper.config import load_config
+from popper.harness.config import Search
+from popper.science.execution import check_estimate
 from popper.science.hypothesis import HypothesisProposal
 
 ESTIMAND = {

@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from popper.harness.research import UNUSABLE_ROLES, ResearchContext
+from popper.science.research import UNUSABLE_ROLES, ResearchContext
 
 MIN_CLUSTERS = 30
 _CORE = ("meaning", "unit", "type", "role")

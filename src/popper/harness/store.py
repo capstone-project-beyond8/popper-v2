@@ -1,50 +1,18 @@
 """Write-once run directory."""
 
 import hashlib
-import io
 import json
-import math
 import os
 import secrets
-import shutil
 import stat
 import zlib
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import pandas as pd
-
-from popper.harness.config import Config, DataConfig, load_config
 from popper.harness.records import ArtifactRef
 from popper.harness.recovery import Journal, read_events
-from popper.harness.research import ResearchError, check_columns, parse_research
-
-
-def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if config.holdout_fraction == 0:
-        return data.copy(), data.iloc[:0].copy()
-    rng = np.random.default_rng(config.split_seed)
-    if config.group_column is not None:
-        column = config.group_column
-        if column not in data:
-            raise ValueError(f"group column {column!r} does not exist")
-        if (data[column].isna() | (data[column].astype(str).str.strip() == "")).any():
-            raise ValueError("group IDs cannot be missing")
-        groups = data[column].drop_duplicates().to_numpy()
-        selected = rng.permutation(groups)[: math.ceil(len(groups) * config.holdout_fraction)]
-        mask = data[column].isin(selected).to_numpy()
-    else:
-        selected = rng.permutation(len(data))[: math.ceil(len(data) * config.holdout_fraction)]
-        mask = np.zeros(len(data), dtype=bool)
-        mask[selected] = True
-    discovery, held = data.iloc[~mask].copy(), data.iloc[mask].copy()
-    if discovery.empty or held.empty:
-        raise ValueError("holdout split must leave nonempty discovery and holdout partitions")
-    return discovery, held
 
 
 def next_sequence(folder: Path, prefix: str = "", suffix: str = "") -> int:
@@ -72,92 +40,6 @@ def _xor_stream(data: bytes, key: bytes) -> bytes:
 class RunStore:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
-
-    @classmethod
-    def create(
-        cls,
-        runs_dir: Path,
-        research: Path,
-        data: Path,
-        *,
-        config: Config | None = None,
-        auto: bool = False,
-    ) -> "RunStore":
-        snapshot = config or load_config(env={})
-        split_config = snapshot.data
-        frame = pd.read_csv(data, dtype=str, keep_default_na=False)
-        mismatches = check_columns(
-            parse_research(research.read_text("utf-8")), [str(c) for c in frame.columns]
-        )
-        if mismatches:
-            raise ResearchError("; ".join(mismatches))
-        discovery, held = split_rows(frame, split_config)
-        run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
-        store = cls(runs_dir / run_id)
-        store.root.mkdir(parents=True)
-        shutil.copyfile(research, store.root / "research.md")
-        (store.root / "data").mkdir()
-        raw_path = store.path("data", "raw.csv")
-        discovery.to_csv(raw_path, index=False, lineterminator="\n")
-        plain = held.to_csv(index=False, lineterminator="\n").encode("utf-8")
-        key = secrets.token_bytes(32)
-        key_file = key_path(run_id)
-        key_file.parent.mkdir(parents=True, exist_ok=True)
-        with key_file.open("xb") as f:
-            f.write(key)
-        key_file.chmod(stat.S_IREAD | stat.S_IWRITE)
-        sealed_path = store.path("data", "holdout.sealed")
-        sealed_path.write_bytes(_xor_stream(zlib.compress(plain), key))
-        for path in (raw_path, sealed_path):
-            path.chmod(stat.S_IREAD)
-        store.write_json(
-            "data/split.json",
-            {
-                **split_config.model_dump(),
-                "discovery_rows": len(discovery),
-                "holdout_rows": len(held),
-                "verification_eligible": not held.empty,
-                "discovery_hash": file_hash(store.path("data", "raw.csv")),
-                "holdout_hash": hashlib.sha256(plain).hexdigest(),
-            },
-        )
-        config_data = snapshot.model_dump(mode="json")
-        config_data["data"] = split_config.model_dump()
-        store.write_json(
-            "run.json",
-            {
-                "format_version": 5,
-                "status": "running",
-                "auto": auto,
-                "config": config_data,
-                "inputs": {"research": str(research.resolve()), "data": str(data.resolve())},
-                "source_hash": file_hash(data),
-                "research_hash": file_hash(research),
-            },
-        )
-        manifest = store.write_json(
-            "inputs/manifest.json",
-            {
-                "files": {
-                    rel: file_hash(store.path(rel))
-                    for rel in ("research.md", "data/raw.csv", "data/split.json")
-                },
-            },
-        )
-        store.commit_artifact("inputs", manifest)
-        return store
-
-    def read_holdout(self) -> pd.DataFrame:
-        """Unseal the held-back rows with the run key kept outside the run directory."""
-        key_file = key_path(self.root.name)
-        if not key_file.is_file():
-            raise FileNotFoundError(f"holdout key not found at {key_file}")
-        sealed = self.path("data", "holdout.sealed").read_bytes()
-        plain = zlib.decompress(_xor_stream(sealed, key_file.read_bytes()))
-        expected = json.loads(self.path("data", "split.json").read_text("utf-8"))["holdout_hash"]
-        if hashlib.sha256(plain).hexdigest() != expected:
-            raise ValueError("holdout rows do not match the recorded hash")
-        return pd.read_csv(io.BytesIO(plain), dtype=str, keep_default_na=False)
 
     def path(self, *parts: str) -> Path:
         return self.root.joinpath(*parts)
@@ -263,3 +145,20 @@ class RunStore:
         # A hard link publishes a complete file atomically without overwriting an existing target.
         os.link(source, target)
         return target
+
+
+def seal_bytes(path: Path, payload: bytes, *, key_id: str) -> None:
+    key = secrets.token_bytes(32)
+    key_file = key_path(key_id)
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    with key_file.open("xb") as stream:
+        stream.write(key)
+    key_file.chmod(stat.S_IREAD | stat.S_IWRITE)
+    path.write_bytes(_xor_stream(zlib.compress(payload), key))
+
+
+def unseal_bytes(path: Path, *, key_id: str) -> bytes:
+    key_file = key_path(key_id)
+    if not key_file.is_file():
+        raise FileNotFoundError(f"holdout key not found at {key_file}")
+    return zlib.decompress(_xor_stream(path.read_bytes(), key_file.read_bytes()))

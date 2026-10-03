@@ -1,10 +1,11 @@
+
 import json
 from pathlib import Path
 
 import pytest
 
-from popper.coordinator.run import resume, run
-from popper.harness.config import load_config
+from popper.config import load_config
+from popper.coordinator.run import create_run, resume, run
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.recovery import Journal, load_state, read_events
 from popper.harness.session import Harness
@@ -19,7 +20,7 @@ pytestmark = pytest.mark.integration
 def historical_stage(tmp_path: Path) -> tuple[Harness, dict[Path, bytes]]:
     """Independently encoded records from the unscoped stage format."""
     cfg = load_config(env={})
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     node_dir = store.path("tree", "main", "main-000")
     payloads = {
         node_dir
@@ -112,7 +113,7 @@ def test_resume_rejects_caps_that_cannot_raise_the_remaining_budget(
 ) -> None:
     cfg = _config()
     cfg.budget.max_usd = 0.1
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     Journal(store.path("journal.jsonl")).write("llm_call", usd=0.2)
     before = read_events(store.root)
     with pytest.raises(ValueError, match="cap"):
@@ -123,7 +124,7 @@ def test_resume_rejects_caps_that_cannot_raise_the_remaining_budget(
 def test_raised_cap_survives_another_resume_without_overwriting_run_config(tmp_path: Path) -> None:
     cfg = _config()
     cfg.budget.max_usd = 0
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     original = store.path("run.json").read_bytes()
     observed: list[float] = []
 
@@ -147,7 +148,7 @@ def test_budget_raise_survives_failure_before_its_checkpoint(
 ) -> None:
     cfg = _config()
     cfg.budget.max_usd = 0
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     Journal(store.path("journal.jsonl")).write("llm_call", usd=0.2)
     original = store.path("run.json").read_bytes()
 
@@ -186,7 +187,7 @@ def test_stage_resume_after_judge_interrupt_does_not_reuse_incomplete_execution(
             raise KeyboardInterrupt()
         return (ToolCall("submit", "submit", {"code": script}),)
 
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     spec = StageSpec("stage", "goal", "context", {}, ("results.json",),
                      seed_node="baseline-000", instance_id=instance_id)
     with pytest.raises(KeyboardInterrupt):
@@ -233,7 +234,7 @@ def test_resume_after_node_commit_reconstructs_stage_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, instance_id: str | None,
 ) -> None:
     cfg = _config()
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     h = Harness(
         cfg,
         FakeLLM(
@@ -279,7 +280,7 @@ def test_resume_after_node_commit_reconstructs_stage_end(
 
 def test_locked_run_cannot_be_resumed_and_journal_is_untouched(tmp_path: Path) -> None:
     cfg = _config()
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     with store.lock():
         before = read_events(store.root)
         with pytest.raises(RuntimeError, match="in use"):

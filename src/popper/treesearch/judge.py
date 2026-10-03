@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
+from popper.harness.execution import ExecutionBinding
 from popper.harness.interpreter import ExecResult
 from popper.harness.prompts import load_prompt
 from popper.harness.recovery import Journal
@@ -89,7 +90,7 @@ def make_diagnostic(h: "Harness", node: "Node") -> None:
         "plt.tight_layout(); plt.savefig('samples.png')\n"
     )
     result = h.execute(code, node.dir / "judge_figures", inputs={}, node=node.id, purpose="plot",
-                       test=node.test_ref, stage_instance=node.stage_instance)
+                       binding=ExecutionBinding(node.test_ref, {}, {}), stage_instance=node.stage_instance)
     if result.exit_code != 0 or result.timed_out:
         raise ValueError(f"could not create blinded diagnostic: {result.stderr}")
 

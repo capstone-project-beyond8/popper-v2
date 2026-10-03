@@ -10,12 +10,13 @@ import pandas as pd
 import pytest
 
 from popper.communicate.paper import compile_pdf
+from popper.config import Config, load_config
 from popper.coordinator.run import resume, run
-from popper.harness.config import Config, load_config
 from popper.harness.llm import Completion, FakeLLM, LLMRequest, ToolCall
 from popper.harness.recovery import load_state, read_events, recorded_spend
-from popper.harness.research import parse_research
 from popper.harness.store import RunStore
+from popper.science.inputs import read_holdout
+from popper.science.research import parse_research
 from popper.science.store import ScienceStore
 
 pytestmark = pytest.mark.integration
@@ -447,7 +448,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert "phase" in events and "exec" in events
     data = out.run_dir / "data"
     raw_ids = set(pd.read_csv(data / "raw.csv").student_id)
-    held_only = set(store.read_holdout().student_id) - raw_ids
+    held_only = set(read_holdout(store).student_id) - raw_ids
     assert held_only  # duplicated source rows may share ids across the split; the rest may not
     assert set(pd.read_parquet(data / "processed.parquet").student_id) <= raw_ids
     assert not any("holdout" in req.prompt for req in (*llm.calls, *fake.calls))

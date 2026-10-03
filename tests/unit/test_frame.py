@@ -1,3 +1,4 @@
+
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,12 +8,13 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from popper.harness.config import load_config
-from popper.harness.descriptive import DescriptiveReport, describe_table
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.harness.llm import FakeLLM, ToolCall
-from popper.harness.research import ResearchContext, parse_research
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
+from popper.science.descriptive import DescriptiveReport, describe_table
+from popper.science.research import ResearchContext, parse_research
+from popper.science.settings import load_options
 from popper.treesearch.engine import StageFailed
 from popper.understand.frame import (
     FramePatch,
@@ -186,7 +188,7 @@ def test_framing_warnings() -> None:
 
 
 def _harness(tmp_path: Path, llm: FakeLLM, researcher: Any = None) -> Harness:
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     return Harness(load_config(env={}), llm, run, researcher=researcher)
 
 
@@ -263,7 +265,7 @@ def test_theorist_reader_denies_execution_logs_and_other_phase_diagnostics(tmp_p
     ctx, ida = _context()
     h = _harness(tmp_path, FakeLLM(lambda _: ""))
     folder = h.run.new_attempt("understand")
-    reader = next(t for t in _tools(h, folder, ctx, ida, {}, [], {}) if t.name == "read_artifact")
+    reader = next(t for t in _tools(h, folder, ctx, ida, {}, [], {}, load_config(env={}).understand) if t.name == "read_artifact")
     assert reader.handler is not None
     h.run.write_text("ground/attempt-000000/execution/code.py", "print('correlation')")
     h.run.write_text("ground/attempt-000000/execution/stdout.txt", "correlation = 0.99")
@@ -290,7 +292,7 @@ def test_theorist_reader_only_reads_its_own_framing_artifacts(tmp_path: Path) ->
             path = f"{directory}/{name}"
             h.run.write_text(path, "correlation = 0.99")
             forbidden.append(path)
-    reader = next(t for t in _tools(h, folder, ctx, ida, {}, [], {}) if t.name == "read_artifact")
+    reader = next(t for t in _tools(h, folder, ctx, ida, {}, [], {}, load_config(env={}).understand) if t.name == "read_artifact")
     assert reader.handler is not None
     assert own in reader.description
     assert all(path not in reader.description for path in forbidden)
@@ -360,7 +362,7 @@ def test_answers_create_variables_and_unapplied_ones_warn(tmp_path: Path) -> Non
     )
     replies = iter([asks, _submit("s", "c005_mean")])
     h = _harness(tmp_path, _scripted(replies), lambda q, p: answers[list(answers)[int(q[1:])]])
-    h.config.understand.max_questions = 9
+    load_options(h.run).understand.max_questions = 9
     frame = understand(h, ctx, ida)
     meaning = frame.research.variables["gender"].meaning
     assert (meaning.status, meaning.value) == ("confirmed", "pupil gender")

@@ -1,14 +1,15 @@
+
 import json
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.discover.experiment import experiment, run_experiment_stage
-from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
 from tests.unit.test_hypothesis import ESTIMAND, PROPOSAL
 
 pytestmark = pytest.mark.integration
@@ -18,7 +19,7 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 def test_insufficient_repair_budget_fails_before_model_work(tmp_path: Path) -> None:
     cfg = load_config(env={})
     cfg.search.stage_steps["robustness"] = cfg.robustness.min_variants + 1
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     pd.DataFrame({"score": [1], "hours": [2]}).to_parquet(store.path("data", "processed.parquet"))
 
     def respond(req: LLMRequest) -> str:
@@ -56,7 +57,7 @@ def test_main_seeds_from_baseline_and_judge_is_blinded(tmp_path: Path) -> None:
         return (ToolCall("submit", "submit", {"code": code}),)
 
     cfg = load_config(env={})
-    store = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
+    store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     pd.DataFrame({"score": [1], "hours": [2]}).to_parquet(store.path("data", "processed.parquet"))
     fake = FakeLLM(respond)
     h = Harness(cfg, fake, store)

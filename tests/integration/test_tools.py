@@ -1,10 +1,12 @@
+
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.harness.agent import Tool
-from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
@@ -16,7 +18,7 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performanc
 
 
 def _setup(tmp_path: Path) -> tuple[Harness, dict[str, Tool], Path]:
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
     node_dir = run.path("tree", "data", "data-001")
     run.write_json("tree/seed/results.json", {"seed": {"value": 1}})
@@ -36,6 +38,40 @@ def test_inspect_data_lists_columns(tmp_path: Path) -> None:
     header = (EXAMPLE / "data.csv").read_text(encoding="utf-8").splitlines()[0]
     assert all(col in out for col in header.split(","))
     assert "<untrusted>" in out
+
+
+@pytest.mark.parametrize("defect", [None, "changed", "missing", "metadata"])
+def test_execution_binding_enforces_inputs_and_owned_identity(tmp_path: Path, defect: str | None) -> None:
+    from popper.harness.execution import ExecutionBinding
+    from popper.harness.records import IntegrityError
+    from popper.harness.recovery import read_events
+    from popper.harness.store import file_hash
+
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    source = h.run.write_json("opaque.json", {"purpose": "generic execution"})
+    h.run.commit_artifact("opaque", source)
+    data = h.run.write_text("input.txt", "original")
+    expected = file_hash(data)
+    if defect == "changed":
+        data.write_text("modified")
+    binding = ExecutionBinding(
+        source=h.run.artifact_ref("opaque"), expected_inputs={"data": expected},
+        metadata={"execution_id": "forged"} if defect == "metadata" else {"owner": "task"},
+    )
+    inputs = {} if defect == "missing" else {"data": data}
+    work = tmp_path / "execution"
+    if defect:
+        with pytest.raises(IntegrityError):
+            h.execute("print('executed')", work, inputs=inputs, node="n", purpose="submitted", binding=binding)
+        assert not work.exists()
+        assert not any(e["event"] == "exec_start" for e in read_events(tmp_path))
+    else:
+        result = h.execute("print('executed')", work, inputs=inputs, node="n", purpose="submitted", binding=binding)
+        assert result.exit_code == 0 and "executed" in result.stdout
+        receipt = next(e for e in read_events(tmp_path) if e["event"] == "exec_start")
+        assert binding.source is not None
+        assert receipt["test_ref"] == binding.source.model_dump(mode="json")
+        assert receipt["input_hashes"] == {"data": expected}
 
 
 def test_inspect_data_rejects_unknown_input(tmp_path: Path) -> None:

@@ -1,6 +1,5 @@
 """Read-only tool over an explicit reachable committed artifact set."""
 
-import json
 
 from pydantic import Field
 
@@ -13,30 +12,6 @@ from popper.harness.session import Harness
 class ReadRequest(Record):
     path: str
     offset: int = Field(default=0, ge=0)
-
-
-def reachable_refs(h: Harness, source: ArtifactRef) -> list[ArtifactRef]:
-    found: dict[str, ArtifactRef] = {}
-
-    def visit(value: object) -> None:
-        if isinstance(value, dict):
-            if {"path", "sha256", "producer", "record_id"} <= value.keys():
-                ref = ArtifactRef.model_validate(value)
-                if ref.path in found:
-                    return
-                path = resolve_artifact(h.run, ref)
-                found[ref.path] = ref
-                if path.suffix == ".json":
-                    visit(json.loads(path.read_text("utf-8")))
-            else:
-                for item in value.values():
-                    visit(item)
-        elif isinstance(value, list):
-            for item in value:
-                visit(item)
-
-    visit(source.model_dump(mode="json"))
-    return list(found.values())
 
 
 def read_artifact_tool(h: Harness, refs: list[ArtifactRef]) -> Tool:

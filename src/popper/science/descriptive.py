@@ -9,8 +9,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from popper.harness.research import Entry, ResearchContext
-from popper.harness.results import validate_results
+from popper.science.research import Entry, ResearchContext
+from popper.science.results import validate_results
 
 _LEVEL_LIMIT = 20
 _PATTERN_LIMIT = 10
@@ -321,3 +321,7 @@ def format_description(report: DescriptiveReport) -> str:
         by_reason.setdefault(reason, []).append(key)
     lines.extend(f"Omitted ({reason}): {', '.join(keys)}" for reason, keys in by_reason.items())
     return "\n".join(lines)
+
+
+def describe_input(path: Path) -> str:
+    return format_description(describe_table(read_table(path)))

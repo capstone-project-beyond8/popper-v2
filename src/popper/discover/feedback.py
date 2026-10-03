@@ -4,11 +4,11 @@ import json
 from collections.abc import Callable
 
 from popper.harness.agent import Tool, agent_loop
-from popper.harness.artifacts import reachable_refs, read_artifact_tool
+from popper.harness.artifacts import read_artifact_tool
 from popper.harness.config import Role
 from popper.harness.context import fence
 from popper.harness.prompts import load_prompt
-from popper.harness.records import ArtifactRef, Record
+from popper.harness.records import ArtifactRef, Record, reachable_refs
 from popper.harness.session import Harness
 from popper.science.contracts import (
     Challenge,
@@ -34,7 +34,7 @@ def _assess[T: Record](
     deferral_key = f"{tag}:{subject.record_id}"
     if h.run.committed(f"science:disposition:{deferral_key}"):
         return None
-    allowed = reachable_refs(h, snapshot)
+    allowed = reachable_refs(h.run, snapshot)
     collected: list[T] = []
 
     def submit(proposal: T) -> str:

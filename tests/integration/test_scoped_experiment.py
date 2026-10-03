@@ -5,9 +5,9 @@ from typing import Any
 import pandas as pd
 import pytest
 
+from popper.config import load_config
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.feedback import interpret_result
-from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
 from popper.harness.store import RunStore

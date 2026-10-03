@@ -1,12 +1,7 @@
 """Run configuration: packaged defaults, deep-merged with an optional user file."""
 
-import os
-from collections.abc import Mapping
-from importlib.resources import files
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Role = Literal["theorist", "analyst", "steward", "judge", "writer"]
@@ -56,35 +51,6 @@ class Execution(_Strict):
     max_output_chars: int
 
 
-class DataConfig(_Strict):
-    holdout_fraction: float = Field(default=0.2, ge=0, lt=1)
-    split_seed: int = 7
-    group_column: str | None = None
-
-
-class Robustness(_Strict):
-    stability_share: float = Field(default=0.8, gt=0, le=1)
-    min_variants: int = Field(default=3, ge=3)
-
-
-class Understand(_Strict):
-    max_turns: int = Field(default=30, ge=1)
-    max_submits: int = Field(default=3, ge=1)
-    max_questions: int = Field(default=5, ge=1)
-    max_reframes: int = Field(default=1, ge=0)
-
-
-class Ground(_Strict):
-    max_turns: int = Field(default=40, ge=1)
-    max_submits: int = Field(default=3, ge=1)
-
-
-class Discovery(_Strict):
-    hypotheses: Literal[2, 3] = 3
-    max_moves: int = Field(default=4, ge=1)
-    max_revisits: int = Field(default=1, ge=0)
-
-
 class Price(_Strict):
     input: _NonnegativeFinite  # USD per million tokens
     output: _NonnegativeFinite
@@ -104,54 +70,8 @@ class Budget(_Strict):
         return self.prices[keys[0]]
 
 
-class Config(_Strict):
+class HarnessConfig(_Strict):
     models: Models
     search: Search
     execution: Execution
     budget: Budget
-    data: DataConfig = Field(default_factory=DataConfig)
-    robustness: Robustness = Field(default_factory=Robustness)
-    understand: Understand = Field(default_factory=Understand)
-    ground: Ground = Field(default_factory=Ground)
-    discovery: Discovery = Field(default_factory=Discovery)
-
-    @model_validator(mode="after")
-    def enough_robustness_steps(self) -> "Config":
-        if self.search.steps_for("robustness") < self.robustness.min_variants + 1:
-            raise ValueError(
-                "robustness budget needs room for ordinary variants and an adversarial check"
-            )
-        return self
-
-
-def _merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
-    out = dict(base)
-    for key, value in override.items():
-        current = out.get(key)
-        if isinstance(current, dict) and isinstance(value, Mapping):
-            out[key] = _merge(current, value)
-        else:
-            out[key] = value
-    return out
-
-
-def load_config(
-    path: Path | None = None, env: Mapping[str, str] | None = None, *, base: Path | None = None
-) -> Config:
-    """Load defaults, example base, explicit overrides, then the environment model route."""
-    env = os.environ if env is None else env
-    text = (files("popper.harness") / "default_config.yaml").read_text(encoding="utf-8")
-    data: dict[str, Any] = yaml.safe_load(text)
-    for overlay in (base, path):
-        if overlay is not None:
-            data = _merge(data, yaml.safe_load(overlay.read_text(encoding="utf-8")) or {})
-    model = env.get("POPPER_MODEL")
-    if model:
-        data["models"] = dict.fromkeys(data["models"], model)
-    cfg = Config.model_validate(data)
-    for role, routed in cfg.models.model_dump().items():
-        try:
-            cfg.budget.price(routed)
-        except ValueError as exc:
-            raise ValueError(f"route {role}: {exc}") from None
-    return cfg

@@ -4,7 +4,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from popper.harness.config import Config, load_config
+from popper.config import Config, load_config
 
 
 def test_discovery_defaults_and_old_config() -> None:

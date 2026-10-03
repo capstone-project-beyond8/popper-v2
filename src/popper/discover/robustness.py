@@ -1,5 +1,4 @@
 """Recorded analytic specifications and stability computed from executed results."""
-
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -7,11 +6,12 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from popper.harness.config import Config
-from popper.harness.results import ResultEntry
+from popper.harness.config import Search
 from popper.harness.session import Harness
 from popper.science.compatibility import HistoricalMethod
 from popper.science.hypothesis import Text
+from popper.science.results import ResultEntry
+from popper.science.settings import Robustness, load_options
 from popper.treesearch.engine import Node, load_nodes, select_best
 
 Dimension = Literal["cleaning", "model", "subgroup", "resampling", "adversarial"]
@@ -77,22 +77,22 @@ class RobustnessPlan(BaseModel):
         return self
 
 
-def schedule_context(config: Config, *, reserve_repair: bool = True) -> dict[str, Any]:
-    steps = config.search.steps_for("robustness") - int(reserve_repair)
-    if reserve_repair and steps < config.robustness.min_variants + 1:
+def schedule_context(search: Search, policy: Robustness, *, reserve_repair: bool = True) -> dict[str, Any]:
+    steps = search.steps_for("robustness") - int(reserve_repair)
+    if reserve_repair and steps < policy.min_variants + 1:
         raise ValueError("robustness budget needs room for variants, an adversary and a repair")
     return {
         "steps": steps,
-        "min_variants": config.robustness.min_variants,
+        "min_variants": policy.min_variants,
     }
 
 
-def load_robustness_plan(path: Path, config: Config) -> RobustnessPlan:
+def load_robustness_plan(path: Path, search: Search, policy: Robustness) -> RobustnessPlan:
     record = json.loads(path.read_text("utf-8"))
     if record.get("format_version") != 2:
         raise ValueError("unsupported robustness schedule version")
     return RobustnessPlan.model_validate(
-        record["schedule"], context=schedule_context(config, reserve_repair=False)
+        record["schedule"], context=schedule_context(search, policy, reserve_repair=False)
     )
 
 
@@ -134,7 +134,7 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, preparat
     committed = h.run.committed("robustness_plan")
     if committed:
         return committed
-    context = schedule_context(h.config)
+    context = schedule_context(h.config.search, load_options(h.run).robustness)
     proposal = h.ask_model(
         "theorist",
         schema=RobustnessPlan,
@@ -143,7 +143,7 @@ def plan_robustness(h: Harness, hypothesis: dict[str, Any], main: Node, preparat
         prompt=(
             f"Plan a bounded multiverse for this hypothesis:\n{json.dumps(hypothesis)}\n"
             f"Recorded data changes:\n{(preparation / 'changes.json').read_text('utf-8')}\n"
-            f"Use at most {context['steps']} attempts, at least {h.config.robustness.min_variants} ordinary variants "
+            f"Use at most {context['steps']} attempts, at least {load_options(h.run).robustness.min_variants} ordinary variants "
             "and one adversarial permutation of the exposure; one stage step is reserved for repair. "
             "Cover cleaning, model, subgroup and resampling, "
             "or record an inapplicable reason. Code keeps the declared outcome, exposure, "
@@ -184,7 +184,7 @@ def collect_evidence(
     selected: Mapping[str, Node],
     plan: Path,
 ) -> Path:
-    schedule = load_robustness_plan(plan, h.config)
+    schedule = load_robustness_plan(plan, h.config.search, load_options(h.run).robustness)
     nodes = [
         node
         for stage in ("baseline", "main", "robustness")
@@ -207,8 +207,8 @@ def collect_evidence(
         main,
         variants,
         adversarial,
-        share=h.config.robustness.stability_share,
-        min_variants=h.config.robustness.min_variants,
+        share=load_options(h.run).robustness.stability_share,
+        min_variants=load_options(h.run).robustness.min_variants,
     )
     supporting = sum(supports(main, variant) for variant in variants)
     destination = h.run.new_attempt("discover/evidence").relative_to(h.run.root).as_posix()

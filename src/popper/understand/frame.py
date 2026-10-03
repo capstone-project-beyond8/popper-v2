@@ -1,5 +1,4 @@
 """Understand: one Theorist session builds the research frame from the research context."""
-
 import json
 import re
 from collections.abc import Mapping
@@ -13,9 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, fence, part, valid_names
-from popper.harness.descriptive import DescriptiveReport, format_description
 from popper.harness.prompts import load_prompt
-from popper.harness.research import (
+from popper.harness.session import Harness
+from popper.harness.store import RunStore
+from popper.harness.validation import format_errors
+from popper.science.descriptive import DescriptiveReport, format_description
+from popper.science.research import (
     UNUSABLE_ROLES,
     Assumption,
     Concept,
@@ -24,9 +26,7 @@ from popper.harness.research import (
     Variable,
     render_research,
 )
-from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.harness.validation import format_errors
+from popper.science.settings import Understand, load_options
 from popper.treesearch.engine import StageFailed
 from popper.treesearch.tools import node_tools
 
@@ -329,6 +329,7 @@ def _tools(
     rejected: Mapping[str, object],
     asked: list[dict[str, Any]],
     result: dict[str, Any],
+    limits: Understand,
 ) -> list[Tool]:
     columns = {c["name"] for c in ida.layout["columns"]}
     readers = [
@@ -341,7 +342,7 @@ def _tools(
     def ask_researcher(args: dict[str, Any]) -> str:
         if h.researcher is None:
             return _NO_RESEARCHER
-        if len(asked) >= h.config.understand.max_questions:
+        if len(asked) >= limits.max_questions:
             raise ValueError("question limit reached; leave the item proposed or unknown")
         question, proposed = str(args["question"]), str(args["proposed_answer"])
         answer = h.researcher(question, proposed)
@@ -429,6 +430,7 @@ def understand(
     research: ResearchContext,
     ida: DescriptiveReport,
     *,
+    limits: Understand | None = None,
     guidance: str = "",
     rejected: Mapping[str, object] = {},
     review: Mapping[str, object] | None = None,
@@ -458,14 +460,14 @@ def understand(
     )
     asked: list[dict[str, Any]] = []
     result: dict[str, Any] = {}
-    config = h.config.understand
+    config = limits or load_options(h.run).understand
     submitted = agent_loop(
         h,
         "theorist",
         tag="theorist",
         system="You are a careful research theorist who frames studies before any analysis.",
         task=task,
-        tools=_tools(h, attempt, research, ida, rejected, asked, result),
+        tools=_tools(h, attempt, research, ida, rejected, asked, result, config),
         max_turns=config.max_turns,
         max_submits=config.max_submits,
     )

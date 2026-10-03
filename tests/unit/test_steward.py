@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from popper.config import load_config
 from popper.ground.steward import (
     Concern,
     Operationalization,
@@ -14,12 +15,11 @@ from popper.ground.steward import (
     readiness,
 )
 from popper.harness.agent import _run as run_tool
-from popper.harness.config import load_config
-from popper.harness.descriptive import DescriptiveReport
 from popper.harness.llm import FakeLLM, ToolCall
-from popper.harness.research import ResearchContext
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.descriptive import DescriptiveReport
+from popper.science.research import ResearchContext
 
 IDA = DescriptiveReport({"c000_mean": {"value": 1.0}}, {})
 MAPPING = [

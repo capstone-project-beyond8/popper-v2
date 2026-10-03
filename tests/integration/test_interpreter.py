@@ -4,10 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.harness import interpreter
-from popper.harness.config import load_config
 from popper.harness.interpreter import ExecResult, run_script
-from popper.harness.store import RunStore
+from popper.science.inputs import read_holdout
 
 pytestmark = pytest.mark.integration
 
@@ -187,8 +188,8 @@ def test_native_reader_cannot_recover_holdout_rows(tmp_path: Path) -> None:
     source.write_text("id,v\n" + "".join(f"{i},val-{i}-unique\n" for i in range(10)))
     research = tmp_path / "research.md"
     research.write_text("study")
-    store = RunStore.create(tmp_path / "runs", research, source)
-    held = store.read_holdout()["v"].tolist()
+    store = create_run(tmp_path / "runs", research, source)
+    held = read_holdout(store)["v"].tolist()
     assert held
     raw = store.path("data", "raw.csv").read_text("utf-8").splitlines()[1:]
     assert raw

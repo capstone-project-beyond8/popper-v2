@@ -1,27 +1,30 @@
 """Run the five phases in order and record the outcome."""
-
 import json
 import math
+import secrets
 import stat
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from popper.communicate.paper import write_paper, write_study
+from popper.config import Config, load_config, scientific_options
 from popper.coordinator.discovery import advance_discovery
 from popper.coordinator.limitations import limitations
 from popper.discover.explore import explore
 from popper.ground.steward import Concern, Foundation, ground, load_foundation
-from popper.harness.config import Config
-from popper.harness.descriptive import DescriptiveReport, describe_table, read_table
 from popper.harness.llm import LLM
 from popper.harness.recovery import load_state, read_events, recorded_spend
-from popper.harness.research import ResearchContext, parse_research, render_fields
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.science.compatibility import decode_policy
+from popper.science.descriptive import DescriptiveReport, describe_table, read_table
+from popper.science.inputs import ingest
 from popper.science.output import StudyOutput, build_study
+from popper.science.research import ResearchContext, parse_research, render_fields
+from popper.science.settings import load_options
 from popper.science.store import ScienceStore
 from popper.treesearch.engine import StageFailed
 from popper.understand.frame import Frame, load_frame, understand
@@ -67,7 +70,7 @@ def run(
     runs_dir: Path,
     progress: Callable[[str], None] | None = None,
 ) -> RunOutcome:
-    store = RunStore.create(runs_dir, research, data, config=config, auto=auto)
+    store = create_run(runs_dir, research, data, config=config, auto=auto)
     h = Harness(config, llm, store, researcher=None if auto else researcher)
     if progress is not None:
         h.progress = progress
@@ -259,7 +262,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             _phase(h, "ground")
             foundation = _foundation(h, frame)
             concerns = [c for c in foundation.concerns if c.kind == "frame"]
-            if not concerns or _reframes(store) >= h.config.understand.max_reframes:
+            if not concerns or _reframes(store) >= load_options(h.run).understand.max_reframes:
                 break
             h.journal.write("reframe", concerns=[c.type for c in concerns])
             understand(h, frame.research, report, guidance=_guidance(concerns, frame))
@@ -353,3 +356,11 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
             },
         )
     return _outcome(store)
+
+
+def create_run(runs_dir: Path, research: Path, data: Path, *, config: Config | None = None, auto: bool = False) -> RunStore:
+    snapshot = config or load_config(env={})
+    run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+    store = RunStore(runs_dir / run_id)
+    ingest(store, research, data, options=scientific_options(snapshot), config_payload=snapshot.model_dump(mode="json"), auto=auto)
+    return store

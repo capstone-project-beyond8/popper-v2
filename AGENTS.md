@@ -1,7 +1,7 @@
 # Repository operating guide
 
 - Code is the source of truth. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the target design: components, contracts and invariants that specs and plans follow. [docs/ROADMAP.md](docs/ROADMAP.md) sets the product milestones, their acceptance criteria and rough size estimates.
-- Commands, dependencies and tool settings are in [pyproject.toml](pyproject.toml). Default run configuration is in [src/popper/harness/default_config.yaml](src/popper/harness/default_config.yaml).
+- Commands, dependencies and tool settings are in [pyproject.toml](pyproject.toml). Default run configuration is in [src/popper/default_config.yaml](src/popper/default_config.yaml).
 
 ## Layout
 

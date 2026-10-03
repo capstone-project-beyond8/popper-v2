@@ -27,7 +27,7 @@ Start a bounded research episode from a research context and a CSV file:
 uv run --env-file .env popper run examples/student_performance
 ```
 
-Defaults live in `src/popper/harness/default_config.yaml`. A directory's `config.yaml` overlays those defaults; `--config my.yaml` overlays it key-by-key. `POPPER_MODEL` takes precedence for all roles. Both student examples group the holdout split by `student_id`, keeping duplicate entities together. Default holdout fraction is 0.2 with seed 7; set fraction 0 to disable reservation (not eligible for later verification).
+Defaults live in `src/popper/default_config.yaml`. A directory's `config.yaml` overlays those defaults; `--config my.yaml` overlays it key-by-key. `POPPER_MODEL` takes precedence for all roles. Both student examples group the holdout split by `student_id`, keeping duplicate entities together. Default holdout fraction is 0.2 with seed 7; set fraction 0 to disable reservation (not eligible for later verification).
 
 Each run writes a folder under `runs/`: immutable `run.json` with saved config, discovery `data/raw.csv`, reserved `data/holdout.sealed`, split counts/hashes, numbered state checkpoints, committed artifacts and append-only journal events. Submitted scripts/logs/results live under `tree/<stage-instance>/<node>/execution/`; scratch and diagnostic invocations have distinct execution IDs. Reports live under `report/attempt-<sequence>/`, with PDF builds in fresh `build-<sequence>/` directories. Follow the journal's artifact commits for candidates, challenges, tests, selections, scheduled attempts, interpretations, episode output and report.
 

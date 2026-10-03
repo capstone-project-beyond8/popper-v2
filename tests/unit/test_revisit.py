@@ -2,11 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.policy import EligibilityError, check_move
-from popper.harness.config import Discovery
+from popper.discover.policy import check_move
 from popper.harness.records import ArtifactRef
 from popper.science.contracts import ResearchMove
+from popper.science.settings import Discovery
 from popper.science.state import ResearchState
+from popper.science.transitions import EligibilityError
 
 
 def test_scheduled_attempts_bound_revisits(tmp_path: Path) -> None:
@@ -20,8 +21,7 @@ def test_scheduled_attempts_bound_revisits(tmp_path: Path) -> None:
 
 
 def test_refinement_requires_an_attributed_observation(tmp_path: Path) -> None:
-    from popper.discover.policy import make_attempt
-    from popper.harness.config import load_config
+    from popper.config import load_config
     from popper.harness.llm import FakeLLM
     from popper.harness.records import resolve_artifact
     from popper.harness.session import Harness
@@ -30,6 +30,7 @@ def test_refinement_requires_an_attributed_observation(tmp_path: Path) -> None:
     from popper.science.contracts import ExperimentSpec as ScientificTest
     from popper.science.state import commit_snapshot, rebuild_state
     from popper.science.store import ScienceStore
+    from popper.science.transitions import schedule_attempt
     from tests.unit.test_test_identity import spec_payload
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
@@ -45,8 +46,8 @@ def test_refinement_requires_an_attributed_observation(tmp_path: Path) -> None:
     snapshot = commit_snapshot(ScienceStore(h.run), rebuild_state(ScienceStore(h.run)))
     proposal = ResearchMove(id="m2", snapshot=snapshot, action="refine", objective="resolve incomplete uncertainty estimate", trigger_refs=[source], hypothesis_id="h1", test=refined, cost_usd=0, stopping_condition="declared interval available", discriminating_outcomes=["adequate inference", "remaining uncertainty"])
     with pytest.raises(EligibilityError, match="attributed"):
-        make_attempt(h, proposal, parent)
-    child = make_attempt(h, proposal.model_copy(update={"trigger_refs": [result]}), parent)
+        schedule_attempt(ScienceStore(h.run), proposal, parent)
+    child = schedule_attempt(ScienceStore(h.run), proposal.model_copy(update={"trigger_refs": [result]}), parent)
     scheduled = Attempt.model_validate_json(resolve_artifact(h.run, child).read_text())
     assert scheduled.test == refined and scheduled.parent == parent and scheduled.revisit_count == 1
     assert scheduled.reuse == {}

@@ -1,6 +1,6 @@
 import pytest
 
-from popper.harness.research import (
+from popper.science.research import (
     ResearchContext,
     ResearchError,
     check_columns,

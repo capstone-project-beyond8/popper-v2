@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from popper.communicate.paper import write_study
-from popper.harness.config import load_config
+from popper.config import load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore

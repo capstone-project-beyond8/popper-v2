@@ -11,11 +11,13 @@ from pydantic import Field, ValidationInfo, model_validator
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, Record
-from popper.harness.research import ResearchContext, render_research
 from popper.harness.session import Harness
 from popper.science.compatibility import StudyPolicy
 from popper.science.contracts import Candidate, CandidateProposal
+from popper.science.descriptive import describe_input
 from popper.science.hypothesis import Hypothesis, HypothesisProposal
+from popper.science.research import ResearchContext, render_research
+from popper.science.results import validate_results
 from popper.science.store import ScienceStore
 from popper.science.warnings import hypothesis_warnings
 from popper.treesearch.engine import Node, StageSpec, run_stage
@@ -69,6 +71,8 @@ def explore(
 ) -> Node:
     context = f"{_frame_context(h, 'analyst:explore', research, framing, foundation)}\n\n{_notes(h, research, 'explore')}"
     spec = StageSpec(
+            describe_input=describe_input,
+            validate_results=validate_results,
         name="explore",
         goal=GOAL,
         context=context,

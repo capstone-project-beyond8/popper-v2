@@ -1,3 +1,4 @@
+
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -6,17 +7,17 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.harness.agent import Tool, agent_loop
-from popper.harness.config import load_config
 from popper.harness.llm import LLM, Completion, FakeLLM, LLMRequest, ToolCall, _to_converse
 from popper.harness.session import BudgetExceeded, Harness
-from popper.harness.store import RunStore
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 
 
 def _harness(tmp_path: Path, llm: LLM) -> Harness:
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     return Harness(load_config(env={}), llm, run)
 
 

@@ -326,3 +326,18 @@ class RunResources(Record):
     max_revisits: int
     max_reframes: int
     available_routes: frozenset[str]
+
+
+class Program(Record):
+    id: Text
+    intent: ArtifactRef
+    binding: Literal["single_run"] = "single_run"
+
+
+class Run(Record):
+    id: Text
+    program_id: Text
+    format_version: Literal[4, 5]
+    inputs: ArtifactRef
+    initial_intent: ArtifactRef
+    auto: bool

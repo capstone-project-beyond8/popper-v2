@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
+from popper.config import load_config
 from popper.discover.robustness import RobustnessPlan, load_robustness_plan, schedule_context
-from popper.harness.config import load_config
 from tests.unit.test_hypothesis import ESTIMAND
 
 
@@ -102,10 +102,10 @@ def test_saved_schedule_uses_configured_budget(tmp_path: Path) -> None:
         )
     path = tmp_path / "robustness_plan.json"
     path.write_text(json.dumps({"format_version": 2, "schedule": proposal}))
-    assert len(load_robustness_plan(path, cfg).attempts) == 7
+    assert len(load_robustness_plan(path, cfg.search, cfg.robustness).attempts) == 7
     cfg.search.stage_steps["robustness"] = 6
     with pytest.raises(ValueError, match="budget"):
-        load_robustness_plan(path, cfg)
+        load_robustness_plan(path, cfg.search, cfg.robustness)
 
 
 def test_new_schedule_reserves_repair_without_invalidating_saved_schedule(tmp_path: Path) -> None:
@@ -116,10 +116,10 @@ def test_new_schedule_reserves_repair_without_invalidating_saved_schedule(tmp_pa
     )
     path = tmp_path / "robustness_plan.json"
     path.write_text(json.dumps({"format_version": 2, "schedule": full}))
-    assert len(load_robustness_plan(path, cfg).attempts) == 6
-    assert len(RobustnessPlan.model_validate(schedule(), context=schedule_context(cfg)).attempts) == 5
+    assert len(load_robustness_plan(path, cfg.search, cfg.robustness).attempts) == 6
+    assert len(RobustnessPlan.model_validate(schedule(), context=schedule_context(cfg.search, cfg.robustness)).attempts) == 5
     with pytest.raises(ValueError, match="budget"):
-        RobustnessPlan.model_validate(full, context=schedule_context(cfg))
+        RobustnessPlan.model_validate(full, context=schedule_context(cfg.search, cfg.robustness))
 
 
 def test_new_schedule_rejects_budget_without_room_for_repair(tmp_path: Path) -> None:
@@ -130,6 +130,6 @@ def test_new_schedule_rejects_budget_without_room_for_repair(tmp_path: Path) -> 
     recorded["inapplicable"]["resampling"] = "No valid resampling design"
     path = tmp_path / "robustness_plan.json"
     path.write_text(json.dumps({"format_version": 2, "schedule": recorded}))
-    assert len(load_robustness_plan(path, cfg).attempts) == 4
+    assert len(load_robustness_plan(path, cfg.search, cfg.robustness).attempts) == 4
     with pytest.raises(ValueError, match="repair"):
-        schedule_context(cfg)
+        schedule_context(cfg.search, cfg.robustness)

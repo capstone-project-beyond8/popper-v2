@@ -1,7 +1,6 @@
 """Journal, budget and the single entry point for model calls."""
 
 import hashlib
-import json
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -10,8 +9,9 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from popper.harness.config import Config, Role
+from popper.harness.config import HarnessConfig, Role
 from popper.harness.context import UNTRUSTED_NOTE, fence
+from popper.harness.execution import ExecutionBinding
 from popper.harness.interpreter import ExecResult, run_script
 from popper.harness.llm import (
     LLM,
@@ -21,7 +21,6 @@ from popper.harness.llm import (
     ToolSpec,
     TransientLLMError,
 )
-from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
 from popper.harness.recovery import Journal, read_events
 from popper.harness.store import RunStore, file_hash
 from popper.harness.validation import format_errors
@@ -37,7 +36,7 @@ class BudgetExceeded(Exception):
 
 @dataclass
 class Harness:
-    config: Config
+    config: HarnessConfig
     llm: LLM
     run: RunStore
     journal: Journal = field(init=False)
@@ -58,25 +57,17 @@ class Harness:
         inputs: Mapping[str, Path],
         node: str,
         purpose: Literal["scratch", "submitted", "plot"],
-        test: ArtifactRef | None = None,
+        binding: ExecutionBinding | None = None,
         stage_instance: str | None = None,
     ) -> ExecResult:
-        if test is not None:
-            declaration = json.loads(resolve_artifact(self.run, test).read_text("utf-8"))
-            preparation = declaration.get("preparation")
-            if preparation:
-                source = json.loads(resolve_artifact(self.run, ArtifactRef.model_validate(preparation)).read_text("utf-8"))
-                if not isinstance(source, dict):
-                    raise IntegrityError("preparation must cite an input manifest")
-                for name, mounted in source.get("mounts", {}).items():
-                    if name in inputs and file_hash(inputs[name]) != mounted["sha256"]:
-                        raise IntegrityError("mounted source differs from committed preparation")
+        if binding is not None:
+            binding.validate(self.run, inputs)
         execution_id = f"exec-{sum(e['event'] == 'exec_start' for e in read_events(self.run.root)):06d}"
         fields = {
             "node": node, "purpose": purpose, "path": str(workdir.resolve()),
             "execution_id": execution_id, "code_hash": hashlib.sha256(code.encode()).hexdigest(),
             "input_hashes": {name: file_hash(path) for name, path in inputs.items()},
-            "test_ref": test.model_dump(mode="json") if test else None,
+            "test_ref": binding.source.model_dump(mode="json") if binding and binding.source else None,
             "stage_instance": stage_instance,
         }
         self.journal.write("exec_start", **fields)

@@ -9,16 +9,11 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
-from popper.harness.descriptive import DescriptiveReport
-from popper.harness.research import (
-    Entry,
-    ResearchContext,
-    Variable,
-    check_columns,
-)
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.harness.validation import format_errors
+from popper.science.descriptive import DescriptiveReport
+from popper.science.research import Entry, ResearchContext, Variable, check_columns
 from popper.understand.frame import (
     Direction,
     Frame,

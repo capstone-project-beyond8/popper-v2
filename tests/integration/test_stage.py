@@ -1,14 +1,16 @@
+
 import json
 import random
 from pathlib import Path
 
 import pytest
 
-from popper.harness.config import load_config
+from popper.config import load_config
+from popper.coordinator.run import create_run
 from popper.harness.llm import FakeLLM, LLMError, LLMRequest, ToolCall
 from popper.harness.recovery import read_events
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
+from popper.science.results import validate_results
 from popper.treesearch.engine import AttemptSpec, StageFailed, StageSpec, load_nodes, run_stage
 
 pytestmark = pytest.mark.integration
@@ -16,7 +18,7 @@ pytestmark = pytest.mark.integration
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 FEEDBACK = '{"node_buggy": false, "goal_met": true, "node_score": 7, "analysis": "fine"}'
 Reply = str | tuple[ToolCall, ...] | LLMError
-SPEC = StageSpec("stage", "goal", "ctx", {}, ("results.json", "out.txt"))
+SPEC = StageSpec("stage", "goal", "ctx", {}, ("results.json", "out.txt"), validate_results=validate_results)
 
 
 def _tool(name: str, **args: object) -> tuple[ToolCall, ...]:
@@ -36,7 +38,7 @@ def _harness(tmp_path: Path, analyst: list[Reply], judge: list[Reply] | None = N
             raise reply
         return reply
 
-    run = RunStore.create(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
+    run = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv")
     h = Harness(load_config(env={}), FakeLLM(respond), run)
     h.config.search.num_drafts = 1
     h.config.search.debug_prob = 1.0

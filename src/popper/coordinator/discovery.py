@@ -1,30 +1,24 @@
 """One sequential scheduler over Discover-owned scientific decisions."""
-
 import json
 from pathlib import Path
 
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.explore import generate_candidates, propose_hypothesis
 from popper.discover.feedback import challenge_candidates, interpret_result
-from popper.discover.policy import (
-    EligibilityError,
-    eligible_candidates,
-    make_attempt,
-    propose_moves,
-    select_move,
-)
+from popper.discover.policy import eligible_candidates, propose_moves, select_move
 from popper.ground.steward import load_foundation
-from popper.harness.descriptive import read_table
 from popper.harness.records import ArtifactRef, resolve_artifact
-from popper.harness.research import render_fields
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import file_hash
 from popper.science.compatibility import decode_policy
 from popper.science.contracts import Disposition, MoveSelection
+from popper.science.descriptive import read_table
 from popper.science.output import StudyOutput, build_study, preparation_manifest, upstream
+from popper.science.research import render_fields
+from popper.science.settings import load_options
 from popper.science.state import commit_snapshot, load_snapshot, rebuild_state
 from popper.science.store import ScienceStore
-from popper.science.transitions import selected_move
+from popper.science.transitions import EligibilityError, schedule_attempt, selected_move
 from popper.treesearch.engine import Node
 from popper.understand.frame import load_frame
 
@@ -146,7 +140,7 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                 continue
             if h.spent_usd >= h.config.budget.max_usd:
                 raise BudgetExceeded("discovery resource cap reached")
-            if not eligible_candidates(state, h.config.discovery):
+            if not eligible_candidates(state, load_options(h.run).discovery):
                 return build_study(
                     ScienceStore(h.run), "Scheduled move or revisit limit reached; no eligible candidate remains"
                 )
@@ -239,7 +233,7 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                 ),
                 None,
             )
-            make_attempt(h, move, parent)
+            schedule_attempt(ScienceStore(h.run), move, parent)
     except BudgetExceeded as exc:
         return build_study(ScienceStore(h.run), str(exc), "budget_exceeded")
     except EligibilityError as exc:

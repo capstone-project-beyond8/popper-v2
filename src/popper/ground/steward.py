@@ -1,5 +1,4 @@
 """Ground: one Data Steward session prepares the data; the harness re-runs and checks its script."""
-
 import json
 from dataclasses import dataclass
 from functools import partial
@@ -18,12 +17,18 @@ from pydantic import (
 
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, fence, part, valid_names
-from popper.harness.descriptive import DescriptiveReport, describe_table, format_description
 from popper.harness.prompts import load_prompt
-from popper.harness.research import ResearchContext, render_research
-from popper.harness.results import validate_results
 from popper.harness.session import Harness
 from popper.harness.store import next_sequence
+from popper.science.descriptive import (
+    DescriptiveReport,
+    describe_input,
+    describe_table,
+    format_description,
+)
+from popper.science.research import ResearchContext, render_research
+from popper.science.results import validate_results
+from popper.science.settings import Ground, load_options
 from popper.treesearch.engine import StageFailed
 from popper.treesearch.tools import node_tools
 
@@ -282,7 +287,7 @@ def _tools(
         return "Preparation accepted."
 
     return [
-        *(t for t in node_tools(h, inputs, attempt) if not t.terminal),
+        *(t for t in node_tools(h, inputs, attempt, describe_input=describe_input) if not t.terminal),
         Tool.from_model(
             "submit_ground",
             "Submit the complete preparation script with the operationalization and concerns. "
@@ -313,7 +318,7 @@ def load_foundation(h: Harness) -> Foundation | None:
     )
 
 
-def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Foundation:
+def ground(h: Harness, research: ResearchContext, framing: dict[str, Any], *, limits: Ground | None = None) -> Foundation:
     run = h.run
     attempt = run.new_attempt("ground")
     ida_raw = DescriptiveReport(**json.loads(run.path("data", "ida-raw.json").read_text("utf-8")))
@@ -343,7 +348,7 @@ def ground(h: Harness, research: ResearchContext, framing: dict[str, Any]) -> Fo
         )
     )
     accepted: dict[str, Any] = {}
-    config = h.config.ground
+    config = limits or load_options(h.run).ground
     submitted = agent_loop(
         h,
         "steward",

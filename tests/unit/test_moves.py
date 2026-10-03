@@ -3,14 +3,16 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from popper.discover.policy import eligible_candidates, propose_moves, validate_moves
-from popper.harness.config import Discovery, load_config
+from popper.config import load_config
+from popper.discover.policy import eligible_candidates, propose_moves
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import MoveProposal
+from popper.science.settings import Discovery
 from popper.science.state import ResearchState, commit_snapshot
 from popper.science.store import ScienceStore
+from popper.science.transitions import validate_moves
 
 
 def test_invalid_move_cannot_be_executable() -> None:
@@ -27,10 +29,10 @@ def test_source_validation_and_limits(tmp_path: Path) -> None:
     h.run.commit_artifact("snapshot", refpath)
     snapshot = h.run.artifact_ref("snapshot")
     move = MoveProposal(action="stop", objective="finish", trigger_refs=[snapshot], cost_usd=0, stopping_condition="nothing eligible")
-    assert validate_moves(h, snapshot, [move])[0].id.startswith("move-")
+    assert validate_moves(ScienceStore(h.run), snapshot, [move])[0].id.startswith("move-")
     foreign = snapshot.model_copy(update={"path": "foreign.json"})
     with pytest.raises(ValueError):
-        validate_moves(h, snapshot, [move.model_copy(update={"trigger_refs": [foreign]})])
+        validate_moves(ScienceStore(h.run), snapshot, [move.model_copy(update={"trigger_refs": [foreign]})])
     assert eligible_candidates(ResearchState(counters={"moves": 4}), Discovery()) == []
 
 

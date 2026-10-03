@@ -13,11 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from popper.harness.agent import agent_loop
 from popper.harness.config import Search
 from popper.harness.context import ARTIFACT_CHARS, CODE_CHARS, part
+from popper.harness.execution import ExecutionBinding
 from popper.harness.llm import LLMError
 from popper.harness.prompts import load_prompt
-from popper.harness.records import ArtifactRef, resolve_artifact
+from popper.harness.records import ArtifactRef
 from popper.harness.recovery import read_events
-from popper.harness.results import validate_results
 from popper.harness.session import Harness
 from popper.harness.store import file_hash
 from popper.treesearch.judge import JudgeReference, judge_input, make_diagnostic
@@ -76,7 +76,7 @@ class AttemptSpec:
     context: str
     check: Callable[[Path], str | Mapping[str, Any] | None] | None = None
     judge_reference: JudgeReference | None = None
-    test: ArtifactRef | None = None
+    binding: ExecutionBinding | None = None
 
 
 @dataclass(frozen=True)
@@ -90,13 +90,15 @@ class StageSpec:
     min_figures: int = 0
     check: Callable[[Path], str | Mapping[str, Any] | None] | None = None
     describe: Callable[[Path], str] | None = None
+    describe_input: Callable[[Path], str] | None = None
+    validate_results: Callable[[object], dict[str, dict[str, Any]]] | None = None
     blind_estimates: bool = False
     steps: int | None = None
     seed_node: str | None = None
     attempts: tuple[AttemptSpec, ...] = ()
     judge_reference: JudgeReference | None = None
     instance_id: str | None = None
-    test: ArtifactRef | None = None
+    binding: ExecutionBinding | None = None
 
     def __post_init__(self) -> None:
         _validate_execution_id(self.execution_id)
@@ -204,13 +206,17 @@ def _reason(
     return f"improve {parent.id} (score {parent.score:g})"
 
 
-def _read_results(workdir: Path) -> dict[str, dict[str, Any]]:
+def _read_results(workdir: Path, validator: Callable[[object], dict[str, dict[str, Any]]] | None = None) -> dict[str, dict[str, Any]]:
     """Validated results.json content; raises ValueError describing the first problem."""
     try:
         raw = json.loads((workdir / "results.json").read_bytes())
     except OSError as exc:
         raise ValueError(f"results.json unreadable: {exc}") from exc
-    return validate_results(raw)
+    if validator:
+        return validator(raw)
+    if not isinstance(raw, dict) or not all(isinstance(k, str) and isinstance(v, dict) for k,v in raw.items()):
+        raise ValueError("results.json must contain named JSON objects")
+    return raw
 
 
 def _step(
@@ -244,7 +250,7 @@ def _step(
         attempt_id=attempt.id if attempt else None,
         seed_node=spec.seed_node,
         stage_instance=spec.execution_id,
-        test_ref=spec.test,
+        test_ref=spec.binding.source if spec.binding else None,
     )
     node.dir.mkdir(parents=True)
     h.journal.write(
@@ -278,7 +284,7 @@ def _step(
             tag=f"analyst:{spec.execution_id}",
             system=_SYSTEM,
             task=prompt,
-            tools=node_tools(h, spec.inputs, node.dir, test=spec.test, stage_instance=spec.execution_id),
+            tools=node_tools(h, spec.inputs, node.dir, describe_input=spec.describe_input, binding=spec.binding, stage_instance=spec.execution_id),
             max_turns=max_turns,
         )
     except LLMError as exc:
@@ -294,6 +300,8 @@ def _step(
         _execute(h, spec, node, limit)
     node.outputs = {p.relative_to(h.run.root).as_posix(): file_hash(p) for p in node.execution_dir.rglob("*") if p.is_file()}
     meta = {k: v for k, v in asdict(node).items() if k not in ("code", "results", "dir")}
+    if spec.binding:
+        meta.update(spec.binding.metadata)
     meta["test_ref"] = node.test_ref.model_dump(mode="json") if node.test_ref else None
     h.run.write_json(f"tree/{spec.execution_id}/{node_id}/meta.json", meta)
     h.run.write_text(f"tree/{spec.execution_id}/{node_id}/analysis.md", node.analysis)
@@ -378,7 +386,7 @@ def _failed_check(spec: StageSpec, node: Node, exit_code: int | None, timed_out:
     if len(list((node.execution_dir / "figures").glob("*.png"))) < spec.min_figures:
         return f"expected at least {spec.min_figures} figure(s) in figures/"
     try:
-        node.results = _read_results(node.execution_dir)
+        node.results = _read_results(node.execution_dir, spec.validate_results)
     except ValueError as exc:
         return f"invalid results.json: {exc}"
     observed = spec.check(node.execution_dir) if spec.check else None
@@ -395,13 +403,13 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         inputs=spec.inputs,
         node=node.id,
         purpose="submitted",
-        test=spec.test, stage_instance=spec.execution_id,
+        binding=spec.binding, stage_instance=spec.execution_id,
     )
     node.execution_id = res.execution_id
     node.implementation_id = f"impl-{res.execution_id}"
-    if spec.test is not None:
-        intended = json.loads(resolve_artifact(h.run, spec.test).read_text("utf-8"))
-        node.test_id, node.hypothesis_id = intended["id"], intended["hypothesis_id"]
+    if spec.binding:
+        for key, value in spec.binding.metadata.items():
+            setattr(node, key, value)
     node.figures = sorted(p.name for p in (node.execution_dir / "figures").glob("*.png"))
     failed = _failed_check(spec, node, res.exit_code, res.timed_out)
     if failed:
@@ -442,7 +450,7 @@ def _execute(h: Harness, spec: StageSpec, node: Node, limit: int) -> None:
         node.analysis = f"judge call failed: {exc}"
         return
     node.analysis = "\n".join([verdict.analysis, *verdict.figure_issues])
-    if spec.test:
+    if spec.binding and spec.binding.source:
         evidenced = bool(verdict.fidelity_requirements and verdict.fidelity_evidence and verdict.fidelity_reason)
         node.fidelity = {
             "status": verdict.fidelity_status if evidenced and verdict.fidelity_status else "unresolved",
@@ -533,7 +541,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
                 context=f"{spec.context}\n{attempt.context}",
                 check=attempt.check or spec.check,
                 judge_reference=attempt.judge_reference or spec.judge_reference,
-                test=attempt.test or spec.test,
+                binding=attempt.binding or spec.binding,
             )
             reason = f"{kind} specification {attempt.id}"
         else:

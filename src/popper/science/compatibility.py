@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from popper.harness.config import Discovery
+from popper.science.settings import Discovery
 
 HistoricalMethod = Literal[
     "difference_in_means", "linear_regression", "logistic_regression", "log_transform",

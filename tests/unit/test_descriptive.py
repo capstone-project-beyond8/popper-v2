@@ -4,14 +4,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from popper.harness.descriptive import (
+from popper.science.descriptive import (
     DescriptiveReport,
     describe_table,
     format_description,
     read_table,
 )
-from popper.harness.research import ResearchContext, parse_research
-from popper.harness.results import validate_results
+from popper.science.research import ResearchContext, parse_research
+from popper.science.results import validate_results
 
 
 def research(front: str) -> ResearchContext:

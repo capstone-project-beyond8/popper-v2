@@ -5,8 +5,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
+from popper.science.results import ResultEntry
 
 
 def artifact_path(root: Path, reference: str) -> Path:

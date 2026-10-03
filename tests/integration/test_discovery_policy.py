@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from popper.discover.policy import make_attempt, propose_moves, select_move
-from popper.harness.config import load_config
+from popper.config import load_config
+from popper.discover.policy import propose_moves, select_move
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
@@ -13,7 +13,7 @@ from popper.harness.store import RunStore
 from popper.science.contracts import Candidate
 from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
-from popper.science.transitions import selected_move
+from popper.science.transitions import schedule_attempt, selected_move
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = pytest.mark.integration
@@ -93,8 +93,8 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
     proposals = propose_moves(h, snapshot)
     selection = select_move(h, snapshot, proposals)
     move = selected_move(ScienceStore(h.run), selection)
-    first = make_attempt(h, move, None)
-    assert make_attempt(h, move, None) == first
+    first = schedule_attempt(ScienceStore(h.run), move, None)
+    assert schedule_attempt(ScienceStore(h.run), move, None) == first
     assert rebuild_state(ScienceStore(h.run)).counters == {"moves": 1, "hypothesis-001": 1}
     assert move.test is not None
     assert resolve_artifact(h.run, move.test).is_file()
@@ -116,8 +116,8 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     from popper.coordinator.discovery import advance_discovery
     from popper.ground.steward import Foundation
     from popper.harness.recovery import Journal, read_events
-    from popper.harness.research import parse_research
     from popper.science.contracts import AttemptResult
+    from popper.science.research import parse_research
     from popper.understand.frame import Frame, Framing
     from tests.integration.test_run import EXAMPLE, FRAMING, _respond
 

@@ -1,16 +1,16 @@
 """Analyst node tools: inspect data, run scratch snippets, view figures, read artifacts."""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from popper.harness.agent import Tool
 from popper.harness.context import ARTIFACT_CHARS, fence, head
-from popper.harness.descriptive import describe_table, format_description, read_table
-from popper.harness.records import ArtifactRef
+from popper.harness.execution import ExecutionBinding
 from popper.harness.session import Harness
 
 ARTIFACTS = {"results.json", "analysis.md", "changes.json", "framing.json", "hypotheses.json"}
@@ -38,8 +38,9 @@ def node_tools(
     execution_logs: bool = True,
     diagnostic_tag: str | None = None,
     artifact_roots: Mapping[str, Path] | None = None,
-    test: ArtifactRef | None = None,
+    binding: ExecutionBinding | None = None,
     stage_instance: str | None = None,
+    describe_input: Callable[[Path], str] | None = None,
 ) -> list[Tool]:
     root = h.run.root.resolve()
     allowed_artifacts = (
@@ -65,7 +66,8 @@ def node_tools(
             raise ValueError(f"unknown input {name!r}; available: {', '.join(inputs)}")
         path = inputs[name]
         if path.suffix in (".csv", ".parquet"):
-            text = format_description(describe_table(read_table(path)))
+            table = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path, dtype=str, keep_default_na=False)
+            text = describe_input(path) if describe_input else json.dumps({"columns": table.columns.tolist(), "rows": len(table)})
         else:
             text = path.read_text(encoding="utf-8", errors="replace")
         return fence(head(text, ARTIFACT_CHARS))
@@ -81,7 +83,7 @@ def node_tools(
             inputs=inputs,
             node=node_dir.name,
             purpose="scratch",
-            test=test, stage_instance=stage_instance,
+            binding=binding, stage_instance=stage_instance,
         )
         timed = " (timed out)" if r.timed_out else ""
         output = fence(f"exit code {r.exit_code}{timed}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")

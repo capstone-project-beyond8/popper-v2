@@ -1,11 +1,12 @@
+
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from popper.harness.research import parse_research
-from popper.harness.store import RunStore
+from popper.coordinator.run import create_run
+from popper.science.research import parse_research
 from popper.understand.frame import Frame, Framing
 from popper.understand.review import (
     Review,
@@ -141,7 +142,7 @@ def test_edit_needs_value_and_valid_type(tmp_path: Path) -> None:
 
 def test_written_review_round_trips(tmp_path: Path) -> None:
     example = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
-    run = RunStore.create(tmp_path, example / "research.md", example / "data.csv")
+    run = create_run(tmp_path, example / "research.md", example / "data.csv")
     frame = _frame("q1")
     (run.path("understand") / frame.attempt).mkdir(parents=True)
     path = write_review(frame, run)

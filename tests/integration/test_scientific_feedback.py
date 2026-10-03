@@ -3,9 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from popper.config import load_config
 from popper.discover.feedback import challenge_candidates, interpret_result
-from popper.discover.policy import make_attempt
-from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.recovery import read_events
@@ -15,6 +14,7 @@ from popper.science.contracts import AttemptResult, Candidate, ResearchMove
 from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
+from popper.science.transitions import schedule_attempt
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = pytest.mark.integration
@@ -103,7 +103,7 @@ def test_interpretation_requires_result_and_preserves_execution_outcome(tmp_path
     spec = spec_payload()
     spec.update({"hypothesis_id": "h1", "preparation": candidate_ref.model_dump(mode="json")})
     test_ref = ScienceStore(h.run).commit("test", ScientificTest.model_validate(spec), key="t1")
-    attempt_ref = make_attempt(h, ResearchMove(
+    attempt_ref = schedule_attempt(ScienceStore(h.run), ResearchMove(
         id="m1", snapshot=commit_snapshot(ScienceStore(h.run), rebuild_state(ScienceStore(h.run))), action="test", objective="Test explanation",
         trigger_refs=[candidate_ref], hypothesis_id="h1", test=test_ref,
         discriminating_outcomes=["Positive", "Negative", "Inconclusive"], cost_usd=0, stopping_condition="One test",

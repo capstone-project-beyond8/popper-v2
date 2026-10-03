@@ -4,8 +4,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from popper.harness.config import DataConfig
-from popper.harness.store import RunStore, split_rows
+from popper.coordinator.run import create_run
+from popper.harness.store import RunStore
+from popper.science.inputs import read_holdout, split_rows
+from popper.science.settings import DataConfig
 
 
 def test_split_is_seeded_and_preserves_rows() -> None:
@@ -59,12 +61,18 @@ def test_discovery_files_keep_source_cells_exactly(tmp_path: Path) -> None:
     source.write_bytes(("\r\n".join(",".join(r) for r in [header, *rows]) + "\r\n").encode())
     research = tmp_path / "research.md"
     research.write_text("study")
-    store = RunStore.create(tmp_path / "runs", research, source)
+    store = create_run(tmp_path / "runs", research, source)
+    from popper.science.inputs import load_episode
+    program, episode = load_episode(store)
+    assert program.binding == "single_run"
+    assert episode.program_id == program.id
+    assert episode.id == store.root.name
+    assert program.intent.path == "research.md" and program.intent.backing == store.artifact_ref("inputs")
     cells = []
     raw = store.path("data", "raw.csv").read_bytes()
     assert b"\r" not in raw
     cells += list(csv.reader(raw.decode().splitlines()))[1:]
-    cells += store.read_holdout().values.tolist()
+    cells += read_holdout(store).values.tolist()
     assert sorted(cells) == sorted(rows)
 
 
@@ -73,12 +81,12 @@ def _sealed_store(tmp_path: Path) -> RunStore:
     source.write_text("id,v\n" + "".join(f"{i},val-{i}-unique\n" for i in range(10)))
     research = tmp_path / "research.md"
     research.write_text("study")
-    return RunStore.create(tmp_path / "runs", research, source)
+    return create_run(tmp_path / "runs", research, source)
 
 
 def test_holdout_is_sealed_and_round_trips(tmp_path: Path) -> None:
     store = _sealed_store(tmp_path)
-    held = store.read_holdout()
+    held = read_holdout(store)
     assert len(held) == 2
     sealed = store.path("data", "holdout.sealed").read_bytes()
     assert not store.path("data", "holdout.csv").exists()
@@ -90,4 +98,4 @@ def test_missing_key_is_a_clear_error(tmp_path: Path, monkeypatch: pytest.Monkey
     store = _sealed_store(tmp_path)
     monkeypatch.setenv("POPPER_KEY_DIR", str(tmp_path / "elsewhere"))
     with pytest.raises(FileNotFoundError, match="holdout key not found at .*elsewhere"):
-        store.read_holdout()
+        read_holdout(store)

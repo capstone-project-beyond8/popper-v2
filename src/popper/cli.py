@@ -9,11 +9,11 @@ from pathlib import Path
 
 from popper import __version__
 from popper.communicate.paper import compile_pdf
+from popper.config import load_config
 from popper.coordinator.run import RunOutcome, resume, run
-from popper.harness.config import load_config
 from popper.harness.llm import BedrockLLM
-from popper.harness.research import ResearchError
 from popper.harness.store import RunStore
+from popper.science.research import ResearchError
 
 _NO_PDF = "PDF not built (install tectonic, latexmk or pdflatex, or see {log})"
 

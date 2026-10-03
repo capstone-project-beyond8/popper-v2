@@ -62,3 +62,29 @@ def resolve_artifact(store: "RunStore", ref: ArtifactRef) -> Path:
     return path
 
 
+
+
+def reachable_refs(store: "RunStore", source: ArtifactRef) -> list[ArtifactRef]:
+    found: dict[str, ArtifactRef] = {}
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            if {"path", "sha256", "producer", "record_id"} <= value.keys():
+                ref = ArtifactRef.model_validate(value)
+                if ref.path in found:
+                    return
+                path = resolve_artifact(store, ref)
+                found[ref.path] = ref
+                if path.suffix == ".json":
+                    visit(json.loads(path.read_text("utf-8")))
+            else:
+                for item in value.values():
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(source.model_dump(mode="json"))
+    return list(found.values())
+
+
