@@ -17,6 +17,8 @@ from popper.harness.storage.records import (
     resolve_artifact,
 )
 from popper.scientific.runtime.lifecycle.contracts import (
+    DEFERRED_ROUTES,
+    PREREQUISITE_ACTIONS,
     Disposition,
     MoveProposal,
     MoveSelection,
@@ -62,9 +64,9 @@ def propose_moves(
     collected: list[ResearchMove] = []
 
     def submit(proposal: Proposals) -> str:
-        if any(m.action in {"frame", "ground", "explore", "candidates", "challenge"} for m in proposal.moves):
+        if any(m.action in PREREQUISITE_ACTIONS for m in proposal.moves):
             raise ValueError("prerequisite actions are selected by the bootstrap playbook")
-        unavailable = {move.action for move in proposal.moves} - resources.available_routes - {"pivot", "reframe", "acquisition"}
+        unavailable = {move.action for move in proposal.moves} - resources.available_routes - DEFERRED_ROUTES
         if unavailable:
             raise ValueError(f"unavailable research routes: {sorted(unavailable)}")
         eligible = resources.eligible_hypotheses

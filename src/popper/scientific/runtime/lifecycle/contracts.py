@@ -31,6 +31,29 @@ Action = Literal[
     "candidates",
     "challenge",
 ]
+STAGE_OF: dict[Action, MacroStage | None] = {
+    "test": "discover",
+    "technical_repair": "discover",
+    "measurement_repair": "discover",
+    "refine": "discover",
+    "synthesize": "discover",
+    "explore": "discover",
+    "candidates": "discover",
+    "challenge": "discover",
+    "audit": "verify",
+    "communicate": "communicate",
+    "frame": "understand",
+    "ground": "ground",
+    "stop": None,
+    "pivot": None,
+    "reframe": None,
+    "acquisition": None,
+}
+PREREQUISITE_ACTIONS: frozenset[Action] = frozenset({"frame", "ground", "explore", "candidates", "challenge"})
+DEFERRED_ROUTES: frozenset[Action] = frozenset({"pivot", "reframe", "acquisition"})
+NON_EMPIRICAL_ACTIONS: frozenset[Action] = (
+    frozenset[Action]({"audit", "communicate", "synthesize", "stop"}) | PREREQUISITE_ACTIONS
+)
 
 
 class MethodSpec(Record):
@@ -278,10 +301,10 @@ class MoveProposal(Record):
 
     @model_validator(mode="after")
     def executable_fields(self) -> Self:
-        if self.action in {"audit", "communicate", "synthesize", "stop", "frame", "ground", "explore", "candidates", "challenge"}:
+        if self.action in NON_EMPIRICAL_ACTIONS:
             if self.test is not None or self.test_proposal is not None or self.discriminating_outcomes:
                 raise ValueError("non-experimental moves cannot carry empirical commitments")
-        elif self.action not in {"pivot", "reframe", "acquisition"}:
+        elif self.action not in DEFERRED_ROUTES:
             if (
                 not self.hypothesis_id
                 or not self.discriminating_outcomes

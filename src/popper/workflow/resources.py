@@ -4,7 +4,12 @@ import json
 
 from popper.harness.session import BudgetExceeded, Harness
 from popper.scientific.runtime.compatibility import decode_policy
-from popper.scientific.runtime.lifecycle.contracts import ResearchMove, RunResources
+from popper.scientific.runtime.lifecycle.contracts import (
+    NON_EMPIRICAL_ACTIONS,
+    PREREQUISITE_ACTIONS,
+    ResearchMove,
+    RunResources,
+)
 from popper.scientific.runtime.lifecycle.transitions import EligibilityError
 from popper.scientific.runtime.projections.state import ResearchState
 from popper.scientific.runtime.settings import Discovery, ScientificOptions
@@ -47,11 +52,11 @@ def admit_move(resources: RunResources, state: ResearchState, move: ResearchMove
         raise BudgetExceeded("discovery resource cap reached")
     if move.action == "stop":
         return
-    if move.action in {"frame", "ground", "explore", "candidates", "challenge"}:
+    if move.action in PREREQUISITE_ACTIONS:
         return
     if move.action not in resources.available_routes:
         raise EligibilityError(f"{move.action} route is deferred")
-    if move.action in {"audit", "synthesize", "communicate", "frame", "ground", "explore", "candidates", "challenge"}:
+    if move.action in NON_EMPIRICAL_ACTIONS:
         return
     reason = _candidate_limit_reason(state, move.hypothesis_id or "", resources.max_moves, resources.max_revisits)
     if reason is not None:

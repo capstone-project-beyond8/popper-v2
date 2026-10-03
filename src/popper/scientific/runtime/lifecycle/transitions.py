@@ -10,12 +10,12 @@ from popper.harness.storage.records import (
     resolve_artifact,
 )
 from popper.scientific.runtime.lifecycle.contracts import (
+    STAGE_OF,
     Attempt,
     Diagnosis,
     Disposition,
     ExperimentSpec,
     Invalidation,
-    MacroStage,
     MoveProposal,
     MoveSelection,
     ResearchMove,
@@ -57,9 +57,9 @@ def admit_stage(science: ScienceStore, selection: ArtifactRef) -> ArtifactRef:
     state = rebuild_state(science)
     if load_snapshot(science, move.snapshot).frontier != state.frontier:
         raise EligibilityError("stale scientific frontier")
-    if move.action == "stop" or move.action in {"pivot", "reframe", "acquisition"}:
+    stage = STAGE_OF[move.action]
+    if stage is None:
         raise EligibilityError("selected move has no executable stage")
-    stage: MacroStage = "verify" if move.action == "audit" else "communicate" if move.action == "communicate" else "understand" if move.action == "frame" else "ground" if move.action == "ground" else "discover"
     move_ref = science.commit("move", move, key=move.id)
     return science.commit("admission", StageAdmission(
         id=move.id, stage=stage, move=move_ref, snapshot=move.snapshot,

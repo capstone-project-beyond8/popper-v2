@@ -9,7 +9,8 @@ from popper.harness.storage.records import ArtifactRef, IntegrityError, resolve_
 from popper.scientific.runtime.compatibility import StudyPolicy
 from popper.scientific.runtime.evidence.historical import schedule_context
 from popper.scientific.runtime.lifecycle.contracts import (
-    Action,
+    DEFERRED_ROUTES,
+    PREREQUISITE_ACTIONS,
     Disposition,
     MoveSelection,
     Program,
@@ -229,7 +230,7 @@ def discovery_step(
                         or (terminal.kind == "stopped" and move.action == "stop")
                         or (
                             terminal.kind == "deferred"
-                            and move.action in {"pivot", "reframe", "acquisition"}
+                            and move.action in DEFERRED_ROUTES
                         )
                     ) and current_frontier(science, move.snapshot, state.frontier[:-1]):
                         return _publication(science, terminal.reason)
@@ -303,7 +304,7 @@ def discovery_step(
                     key=move.id,
                 )
                 return _publication(science, move.stopping_condition)
-            if move.action in {"pivot", "reframe", "acquisition"}:
+            if move.action in DEFERRED_ROUTES:
                 science.commit(
                     "disposition",
                     Disposition(
@@ -364,8 +365,8 @@ def _bootstrap(science: ScienceStore, request: CapabilityRequest, source: Artifa
     assert source is not None
     state = rebuild_state(science)
     snapshot = commit_snapshot(science, state)
-    actions: dict[str, Action] = {"frame": "frame", "ground": "ground", "explore": "explore", "candidates": "candidates", "challenge": "challenge"}
-    action = actions[request.kind]
+    action = request.kind
+    assert action in PREREQUISITE_ACTIONS
     key = f"bootstrap:{request.kind}:{source.record_id}:{len(state.frontier)}"
     if science.run.committed(f"science:proposals:{key}"):
         original = science.read(science.run.artifact_ref(f"science:proposals:{key}"))
