@@ -391,6 +391,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert len([e for e in read_events(root) if e["event"] == "budget_raise"]) == 2
     tex = out.tex.read_text(encoding="utf-8")
     assert "reviewed and steered by the researcher" in tex
+    assert "access to the raw discovery rows" in tex
     assert "The evidence is confirmed." not in tex
     results = next((out.run_dir / "tree" / main_instance).glob("*/execution/results.json"))
     slope = json.loads(results.read_text(encoding="utf-8"))["primary_estimate"]["value"]

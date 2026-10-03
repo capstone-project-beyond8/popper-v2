@@ -18,7 +18,7 @@ from popper.scientific.runtime.projections.views import (
     reviewed_frame,
 )
 from popper.scientific.runtime.store import ScienceStore
-from popper.stages.communicate.limitations import audit_limitations
+from popper.stages.communicate.limitations import audit_limitations, limitations
 from popper.stages.communicate.numbers import (
     entry_values,
     latex_escape,
@@ -214,7 +214,13 @@ def write_study(
     steered = output.frame is not None and (
         resolve_artifact(h.run, output.frame).parent / "provenance.json"
     ).exists()
-    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, output.model_dump(mode="json"), placed, values, audit_limitations(output.audits), [], steered)
+    warnings = [f"{c.id}: {w}" for c in output.candidates for w in c.warnings]
+    stated = (
+        limitations(foundation_view(ScienceStore(h.run), output.foundation).facts, warnings)
+        if output.foundation
+        else warnings
+    )
+    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, output.model_dump(mode="json"), placed, values, [*stated, *audit_limitations(output.audits)], [], steered)
     return _commit_report(h, report_dir, tex, missing, identity=identity)
 
 
