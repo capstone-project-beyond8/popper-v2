@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from popper.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
-from popper.harness.storage.records import resolve_artifact
+from popper.harness.storage.records import ArtifactRef, resolve_artifact
 from popper.harness.storage.recovery import read_events
 from popper.harness.storage.store import RunStore
 from popper.scientific.runtime.lifecycle.contracts import AttemptResult, Candidate, ResearchMove
@@ -246,7 +247,7 @@ def test_selected_non_experimental_work_retains_sources_and_questions(tmp_path: 
         assert output.validation_standing == "unavailable"
 
 
-@pytest.mark.parametrize("action", ["audit", "synthesize", "communicate"])
+@pytest.mark.parametrize("action", ["audit", "synthesize", "communicate", "evolve", "direct"])
 def test_saved_policy_corrects_unavailable_actions(tmp_path: Path, action: str) -> None:
     from popper.scientific.runtime.settings import load_options
     from popper.scientific.scientist.moves import propose_moves
@@ -278,9 +279,11 @@ def test_saved_policy_corrects_unavailable_actions(tmp_path: Path, action: str) 
 
 
 @pytest.mark.parametrize("interrupted", [False, True])
+@pytest.mark.parametrize("action", ["synthesize", "direct"])
 def test_synthesis_exhaustion_terminalizes_sourced_work(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool, action: str,
 ) -> None:
+    deferral, tool = {"synthesize": ("synthesize_state", "submit_synthesis"), "direct": ("update_direction", "submit_direction")}[action]
     from popper.scientific.runtime.lifecycle.contracts import Question
     from popper.scientific.runtime.settings import load_options
     from popper.scientific.scientist.episode import request_move
@@ -289,7 +292,7 @@ def test_synthesis_exhaustion_terminalizes_sourced_work(
     from popper.workflow.run import dispatch_selected
 
     h = candidate_state(tmp_path)
-    h.run.write_json("run.json", {"format_version": 6, "config": h.config.model_dump(mode="json")})
+    h.run.write_json("run.json", {"format_version": 6 if action == "synthesize" else 7, "config": h.config.model_dump(mode="json")})
     science = ScienceStore(h.run)
     source = h.run.artifact_ref("science:candidates:initial")
     science.commit("question", Question(text="Can the rival be distinguished?", author="theorist", sources=[source]))
@@ -297,14 +300,14 @@ def test_synthesis_exhaustion_terminalizes_sourced_work(
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         if req.tag == "research_moves":
-            return (ToolCall("move", "submit_moves", {"moves": [{"action": "synthesize",
+            return (ToolCall("move", "submit_moves", {"moves": [{"action": action,
                 "objective": "Retain the rival", "trigger_refs": [source.model_dump(mode="json")],
                 "cost_usd": 0, "stopping_condition": "Evidence incomplete"}],
                 "omitted": {"h1": "Need data", "h2": "Need data"}}),)
         if req.tag == "select_move":
             proposed = science.read(h.run.artifact_ref(f"science:proposals:{snapshot.record_id}"))
             return json.dumps({"proposal_id": proposed["moves"][0]["id"], "rationale": "Retain the rival"})
-        return (ToolCall("bad", "submit_synthesis", {}),)
+        return (ToolCall("bad", tool, {}),)
 
     h.llm = FakeLLM(respond)
     proposals = propose_moves(h, science, snapshot, resource_view(h, load_options(h.run), rebuild_state(science)))
@@ -313,7 +316,7 @@ def test_synthesis_exhaustion_terminalizes_sourced_work(
         original_commit = RunStore.commit_artifact
         def interrupt(store: RunStore, name: str, path: Path) -> None:
             original_commit(store, name, path)
-            if name.startswith("science:disposition:synthesize_state:"):
+            if name.startswith(f"science:disposition:{deferral}:"):
                 raise KeyboardInterrupt()
         monkeypatch.setattr(RunStore, "commit_artifact", interrupt)
         with pytest.raises(KeyboardInterrupt):
@@ -331,3 +334,132 @@ def test_synthesis_exhaustion_terminalizes_sourced_work(
     before_calls = len(h.llm.calls)
     assert dispatch_selected(h, request) == outcome
     assert len(h.llm.calls) == before_calls and len(rebuild_state(science).stage_history) == 1
+
+
+def _idea_world(tmp_path: Path, version: int = 7, **discovery: int) -> tuple[Harness, ScienceStore, ArtifactRef]:
+    h = candidate_state(tmp_path)
+    config = h.config.model_dump(mode="json")
+    config["discovery"].update(discovery)
+    h.run.write_json("run.json", {"format_version": version, "config": config})
+    return h, ScienceStore(h.run), h.run.artifact_ref("science:candidates:initial")
+
+
+def _select_move(
+    h: Harness, science: ScienceStore, source: ArtifactRef, action: str, *, directed: bool = True,
+) -> tuple[ArtifactRef, ArtifactRef]:
+    """Script the PI to propose and select one non-empirical move; returns (snapshot, selection)."""
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.moves import propose_moves, select_move
+    from popper.workflow.resources import resource_view
+
+    state = rebuild_state(science)
+    snapshot = commit_snapshot(science, state)
+    move: dict[str, Any] = {
+        "action": action, "objective": "Keep the inquiry coherent", "trigger_refs": [source.model_dump(mode="json")],
+        "cost_usd": 0, "stopping_condition": "Bounded episode",
+    }
+    if directed and state.directions:
+        move |= {"direction": state.directions[-1].ref.model_dump(mode="json"), "contribution": "Advances the stated question"}
+
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag == "research_moves":
+            return (ToolCall("move", "submit_moves", {"moves": [move], "omitted": {"h1": "Held", "h2": "Held"}}),)
+        if req.tag == "select_move":
+            proposed = science.read(h.run.artifact_ref(f"science:proposals:{snapshot.record_id}"))
+            return json.dumps({"proposal_id": proposed["moves"][0]["id"], "rationale": "Most informative"})
+        if req.tag == "update_direction":
+            return (ToolCall("direction", "submit_direction", {
+                "central_question": "Which explanation accounts for the association?",
+                "explanations": ["Selection", "Confounding"], "uncertainties": ["Missing measurements"],
+                "evidence_sequence": ["Contrast the exposure groups"], "sources": [source.model_dump(mode="json")],
+            }),)
+        pytest.fail(f"unexpected model call: {req.tag}")
+
+    h.llm = FakeLLM(respond)
+    proposals = propose_moves(h, science, snapshot, resource_view(h, load_options(h.run), rebuild_state(science)))
+    return snapshot, select_move(h, science, snapshot, proposals)
+
+
+def test_direct_move_commits_sourced_direction_and_supersedes(tmp_path: Path) -> None:
+    from popper.scientific.runtime.projections.output import episode_summary
+    from popper.scientific.scientist.episode import request_move
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    for _ in range(2):
+        _, selection = _select_move(h, science, source, "direct")
+        assert dispatch_selected(h, request_move(science, selection)) is None
+        state = rebuild_state(science)
+        work = state.stage_history[-1].record
+        assert work.status == "completed" and work.outputs == [state.directions[-1].ref]
+    first, second = rebuild_state(science).directions
+    assert source in first.record.sources and first.record.supersedes is None
+    assert second.record.supersedes == first.ref
+    summary = episode_summary(science)
+    assert [d["ref"] for d in summary["directions"]] == [first.ref.model_dump(mode="json"), second.ref.model_dump(mode="json")]
+
+
+def test_moves_must_carry_the_latest_direction_once_one_exists(tmp_path: Path) -> None:
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.episode import request_move
+    from popper.scientific.scientist.moves import propose_moves
+    from popper.workflow.resources import resource_view
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    _, selection = _select_move(h, science, source, "direct")
+    dispatch_selected(h, request_move(science, selection))
+    latest = rebuild_state(science).directions[-1].ref
+    snapshot = commit_snapshot(science, rebuild_state(science))
+    submissions = 0
+
+    def respond(_: LLMRequest) -> tuple[ToolCall, ...]:
+        nonlocal submissions
+        submissions += 1
+        move: dict[str, Any] = {
+            "action": "synthesize", "objective": "Retain the rival", "trigger_refs": [source.model_dump(mode="json")],
+            "cost_usd": 0, "stopping_condition": "Bounded episode",
+        }
+        if submissions == 2:
+            move |= {"direction": latest.model_dump(mode="json"), "contribution": "Keeps the rivals visible"}
+        return (ToolCall("move", "submit_moves", {"moves": [move], "omitted": {"h1": "Held", "h2": "Held"}}),)
+
+    h.llm = FakeLLM(respond)
+    resources = resource_view(h, load_options(h.run), rebuild_state(science))
+    moves = science.read(propose_moves(h, science, snapshot, resources))["moves"]
+    assert submissions == 2 and [m["direction"] for m in moves] == [latest.model_dump(mode="json")]
+
+
+def test_evolve_beyond_idea_round_cap_is_deferred_at_admission(tmp_path: Path) -> None:
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.episode import request_move
+    from popper.workflow.resources import resource_view
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path, max_idea_rounds=1)
+    _, selection = _select_move(h, science, source, "evolve")
+    assert dispatch_selected(h, request_move(science, selection)) is not None
+    state = rebuild_state(science)
+    assert state.stage_history[0].record.status == "deferred"
+    assert state.stage_history[0].record.reason == "idea evolution is unavailable"
+    resources = resource_view(h, load_options(h.run), state)
+    assert (resources.idea_rounds, resources.max_idea_rounds) == (1, 1)
+
+    _, second = _select_move(h, science, source, "evolve")
+    before, spent = rebuild_state(science), h.spent_usd
+    assert dispatch_selected(h, request_move(science, second)) is not None
+    after = rebuild_state(science)
+    assert len(after.stage_admissions) == 1 and len(after.stage_history) == 1
+    assert after.dispositions[-1].record.sources == [second]
+    assert after.dispositions[-1].record.reason == "idea round cap reached"
+    assert after.counters == before.counters and h.spent_usd == spent
+
+
+@pytest.mark.parametrize("version", [5, 6])
+def test_idea_routes_are_unavailable_before_idea_evolution(tmp_path: Path, version: int) -> None:
+    from popper.scientific.runtime.settings import load_options
+    from popper.workflow.resources import resource_view
+
+    h, science, _ = _idea_world(tmp_path, version)
+    resources = resource_view(h, load_options(h.run), rebuild_state(science))
+    assert not {"evolve", "direct"} & resources.available_routes and not resources.idea_evolution

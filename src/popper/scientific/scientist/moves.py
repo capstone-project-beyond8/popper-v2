@@ -76,6 +76,14 @@ def propose_moves(
             raise ValueError(
                 f"omitted eligible candidates need attributed reasons: {sorted(missing)}"
             )
+        if resources.idea_evolution and state.directions:
+            latest = state.directions[-1].ref
+            for move in proposal.moves:
+                if move.action != "stop" and (move.direction != latest or not move.contribution):
+                    raise ValueError(
+                        "every non-stop move must set direction to the latest research direction "
+                        "reference and state its contribution"
+                    )
         collected[:] = validate_moves(science, snapshot, proposal.moves)
         return "Validated sourced proposals."
 

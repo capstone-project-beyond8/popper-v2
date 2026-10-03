@@ -1,4 +1,4 @@
-Generate exactly {count} distinct, testable candidate hypotheses within the reviewed research frame.
+Generate exactly {count} distinct, testable candidate hypotheses within the reviewed research frame.{allowance}
 These are discovery-informed conjectures for further testing, not established findings or independently validated claims.
 
 {framing}

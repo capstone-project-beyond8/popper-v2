@@ -91,12 +91,20 @@ def propose_hypothesis(
 
 
 class CandidateSetProposal(Record):
-    candidates: list[CandidateProposal] = Field(min_length=2, max_length=3)
+    candidates: list[CandidateProposal] = Field(min_length=1)
+    omission: str | None = None
 
     @model_validator(mode="after")
     def configured_count(self, info: ValidationInfo) -> "CandidateSetProposal":
-        if len(self.candidates) != (info.context or {}).get("count", 3):
-            raise ValueError("candidate set must contain exactly the configured count")
+        context = info.context or {}
+        count = context.get("count", 3)
+        if not context.get("idea_evolution"):
+            if len(self.candidates) != count:
+                raise ValueError("candidate set must contain exactly the configured count")
+        elif len(self.candidates) > count:
+            raise ValueError("candidate set exceeds the configured count")
+        elif len(self.candidates) < count and not (self.omission and self.omission.strip()):
+            raise ValueError("fewer candidates than the configured count need a non-empty omission reason")
         return self
 
 
@@ -130,6 +138,10 @@ def generate_candidates(
         prompt=load_prompt(
             "popper.stages.discover", "candidates.md",
             count=str(policy.hypothesis_count),
+            allowance=(
+                " Fewer are allowed (at least one) only with an omission string stating why fewer are justified."
+                if policy.idea_evolution else ""
+            ),
             framing=frame_context("candidates", h.journal, research, dict(framing), dict(foundation)),
             notes=research_notes(h.journal, research, "hypothesis"),
             results=context_part("Exploration results", json.dumps(best.results), ARTIFACT_CHARS, untrusted=True),
@@ -138,6 +150,7 @@ def generate_candidates(
         validation_context={
             "columns": processed.columns.tolist(),
             "count": policy.hypothesis_count,
+            "idea_evolution": policy.idea_evolution,
         },
     )
     candidates = []
@@ -158,4 +171,5 @@ def generate_candidates(
                 warnings=warnings,
             ).model_dump(mode="json")
         )
-    return science.commit("candidates", {"version": 1, "candidates": candidates, **({"admission": admission.model_dump(mode="json")} if admission else {})}, key="initial")
+    omission = {"omission": proposal.omission} if len(candidates) < policy.hypothesis_count else {}
+    return science.commit("candidates", {"version": 1, "candidates": candidates, **omission, **({"admission": admission.model_dump(mode="json")} if admission else {})}, key="initial")

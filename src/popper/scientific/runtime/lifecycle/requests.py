@@ -15,7 +15,7 @@ class ExperimentRequest:
 
 @dataclass(frozen=True)
 class CapabilityRequest:
-    kind: Literal["frame", "ground", "explore", "candidates", "challenge", "experiment", "publish", "audit", "synthesize", "await_review", "finish"]
+    kind: Literal["frame", "ground", "explore", "candidates", "challenge", "experiment", "publish", "audit", "synthesize", "evolve", "direct", "await_review", "finish"]
     subject: ArtifactRef | None = None
     selection: ArtifactRef | None = None
     guidance: str = ""
@@ -28,7 +28,7 @@ class CapabilityRequest:
 
     def __post_init__(self) -> None:
         if (
-            self.kind in {"ground", "explore", "candidates", "challenge", "experiment", "publish", "audit", "synthesize", "await_review", "finish"}
+            self.kind in {"ground", "explore", "candidates", "challenge", "experiment", "publish", "audit", "synthesize", "evolve", "direct", "await_review", "finish"}
             and self.subject is None
         ):
             raise ValueError(f"{self.kind} requires a committed subject")
@@ -36,7 +36,7 @@ class CapabilityRequest:
             raise ValueError("framing guidance requires its foundation subject")
         if self.kind == "challenge" and self.snapshot is None:
             raise ValueError("challenge requires a committed snapshot")
-        if self.snapshot is not None and self.kind not in {"challenge", "audit", "synthesize"} and self.selection is None and self.admission is None:
+        if self.snapshot is not None and self.kind not in {"challenge", "audit", "synthesize", "evolve", "direct"} and self.selection is None and self.admission is None:
             raise ValueError("snapshot requires a selected stage dispatch")
-        if self.snapshot is not None and self.kind not in {"challenge", "audit", "synthesize", "publish", "experiment", "frame", "ground", "explore", "candidates", "finish"}:
+        if self.snapshot is not None and self.kind not in {"challenge", "audit", "synthesize", "evolve", "direct", "publish", "experiment", "frame", "ground", "explore", "candidates", "finish"}:
             raise ValueError("snapshot is not valid for this dispatch")

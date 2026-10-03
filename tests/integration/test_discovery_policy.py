@@ -530,3 +530,60 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         output.write_text(output.read_text("utf-8") + " ", encoding="utf-8")
         with pytest.raises(ValueError, match="committed science:study artifact was changed"):
             advance_discovery()
+
+
+def _candidate_set(h: Harness, version: int, reply: dict[str, Any], capacity: int = 3) -> Any:
+    from popper.scientific.scientist.episode import discovery_step
+    from popper.stages.discover.candidates import generate_candidates
+
+    saved = h.config.model_dump(mode="json")
+    saved["discovery"] = {"hypotheses": capacity}
+    h.run.write_json("run.json", {"format_version": version, "config": saved})
+    _committed_discovery_inputs(h)
+    science = ScienceStore(h.run)
+    policy = decode_policy(json.loads(h.run.path("run.json").read_text()))
+    options = load_options(h.run)
+    request = discovery_step(h, science, resource_view(h, options, rebuild_state(science)), policy, options)
+    assert request is not None and request.kind == "candidates"
+    h.llm = FakeLLM(lambda _: json.dumps(reply))
+    return science, generate_candidates(h, science, request.subject, policy)  # type: ignore[arg-type]
+
+
+def _reply(count: int, **extra: str) -> dict[str, Any]:
+    payload = spec_payload()
+    return {"candidates": [{
+        "statement": f"Explanation {i}", "rationale": "sourced question",
+        "primary_estimand": payload["primary_estimand"], "expected_direction": "positive",
+        "refuting_result": "negative", "planned_test": "contrast", "methods": payload["methods"],
+    } for i in range(count)], **extra}
+
+
+def test_idea_evolution_allows_fewer_candidates_with_a_reason(tmp_path: Path) -> None:
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    science, ref = _candidate_set(h, 7, _reply(1, omission="Only one explanation is distinguishable"))
+    record = science.read(ref)
+    assert len(record["candidates"]) == 1
+    assert record["omission"] == "Only one explanation is distinguishable"
+
+
+@pytest.mark.parametrize(("version", "reply"), [
+    (7, _reply(1)),
+    (7, _reply(1, omission="  ")),
+    (7, _reply(4, omission="Too many")),
+    (6, _reply(2, omission="Fewer is not allowed here")),
+])
+def test_candidate_count_rules_refuse_unjustified_sets(tmp_path: Path, version: int, reply: dict[str, Any]) -> None:
+    from pydantic import ValidationError
+
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    with pytest.raises(ValidationError):
+        _candidate_set(h, version, reply)
+    assert h.run.committed("science:candidates:initial") is None
+
+
+@pytest.mark.parametrize("capacity", [1, 5])
+def test_configured_capacity_bounds_the_candidate_set(tmp_path: Path, capacity: int) -> None:
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    science, ref = _candidate_set(h, 6, _reply(capacity), capacity)
+    record = science.read(ref)
+    assert len(record["candidates"]) == capacity and "omission" not in record

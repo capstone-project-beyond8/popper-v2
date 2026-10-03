@@ -1,7 +1,6 @@
 """Declared scientific episode policies."""
 
 import json
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,9 +35,10 @@ class Ground(_Strict):
 
 
 class Discovery(_Strict):
-    hypotheses: Literal[2, 3] = 3
+    hypotheses: int = Field(default=3, ge=1)
     max_moves: int = Field(default=4, ge=1)
     max_revisits: int = Field(default=1, ge=0)
+    max_idea_rounds: int = Field(default=3, ge=1)
 
 
 class ScientificOptions(_Strict):

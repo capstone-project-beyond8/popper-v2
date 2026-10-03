@@ -45,9 +45,10 @@ from popper.scientific.runtime.projections.views import (
 from popper.scientific.runtime.settings import load_options
 from popper.scientific.runtime.store import ScienceStore
 from popper.scientific.scientist.episode import EpisodeContext, finish_episode, next_step
-from popper.scientific.scientist.feedback import synthesize_state
+from popper.scientific.scientist.feedback import synthesize_state, update_direction
 from popper.stages.communicate.paper import publish_study
 from popper.stages.discover.explore import explore
+from popper.stages.discover.ideas import evolve_ideas
 from popper.stages.ground.steward import ground
 from popper.stages.understand.frame import load_frame, understand
 from popper.stages.understand.review import (
@@ -258,6 +259,10 @@ def dispatch_selected(h: Harness, request: CapabilityRequest) -> CapabilityReque
                     outputs = [audit_evidence(science, work.snapshot)]
                 case "synthesize":
                     outputs = [synthesize_state(h, science, work.snapshot)]
+                case "evolve":
+                    outputs = evolve_ideas(h, science, admission)
+                case "direct":
+                    outputs = [update_direction(h, science, work.snapshot)]
                 case "publish":
                     study = build_study(science, move.stopping_condition, key=f"publication:{admission.record_id}")
                     study_ref = h.run.artifact_ref("study")

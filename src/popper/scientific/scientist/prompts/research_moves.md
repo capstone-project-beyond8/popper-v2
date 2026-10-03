@@ -32,6 +32,7 @@ Refinement creates an operationally changed test_proposal with the candidate's e
 estimand, cites the result/question/diagnosis motivating it and lists changed_fields. A first
 test can use test_proposal. Do not use both test and test_proposal to describe competing procedures.
 Stop must omit test and outcomes; cite intent and terminal condition. A paper is optional.
+When available_routes lists evolve, it delegates idea work (revise, split, merge, retire, challenge or promote ideas); direct updates the research direction. Both omit empirical commitments and use the decision snapshot. Once a research direction exists, every move except stop must set direction to the latest direction ArtifactRef and a non-empty contribution saying how the move advances it.
 Pivot/reframe/acquisition are retained deferred routes. No analysis execution tools are available here.
 They are recommendations, not completed work or a way to bypass the fixed target identity.
 Current resources constrain feasibility, not scientific truth. A stop with unresolved questions

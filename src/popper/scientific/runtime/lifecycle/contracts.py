@@ -30,6 +30,8 @@ Action = Literal[
     "explore",
     "candidates",
     "challenge",
+    "evolve",
+    "direct",
 ]
 STAGE_OF: dict[Action, MacroStage | None] = {
     "test": "discover",
@@ -40,6 +42,8 @@ STAGE_OF: dict[Action, MacroStage | None] = {
     "explore": "discover",
     "candidates": "discover",
     "challenge": "discover",
+    "evolve": "discover",
+    "direct": "understand",
     "audit": "verify",
     "communicate": "communicate",
     "frame": "understand",
@@ -52,7 +56,7 @@ STAGE_OF: dict[Action, MacroStage | None] = {
 PREREQUISITE_ACTIONS: frozenset[Action] = frozenset({"frame", "ground", "explore", "candidates", "challenge"})
 DEFERRED_ROUTES: frozenset[Action] = frozenset({"pivot", "reframe", "acquisition"})
 NON_EMPIRICAL_ACTIONS: frozenset[Action] = (
-    frozenset[Action]({"audit", "communicate", "synthesize", "stop"}) | PREREQUISITE_ACTIONS
+    frozenset[Action]({"audit", "communicate", "synthesize", "stop", "evolve", "direct"}) | PREREQUISITE_ACTIONS
 )
 
 
@@ -407,6 +411,9 @@ class RunResources(Record):
     max_reframes: int
     available_routes: frozenset[str]
     eligible_hypotheses: frozenset[str]
+    idea_evolution: bool = False
+    idea_rounds: int = 0
+    max_idea_rounds: int = 3
 
 
 class Program(Record):

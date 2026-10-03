@@ -350,8 +350,8 @@ def finish_episode(
 
 def request_move(science: ScienceStore, selection: ArtifactRef) -> CapabilityRequest:
     move = selected_move(science, selection)
-    if move.action in {"audit", "synthesize", "communicate", "stop"}:
-        kind: Literal["audit", "synthesize", "publish", "finish"] = "publish" if move.action == "communicate" else "finish" if move.action == "stop" else move.action
+    if move.action in {"audit", "synthesize", "evolve", "direct", "communicate", "stop"}:
+        kind: Literal["audit", "synthesize", "evolve", "direct", "publish", "finish"] = "publish" if move.action == "communicate" else "finish" if move.action == "stop" else move.action
         return CapabilityRequest(kind, move.snapshot, selection=selection, snapshot=move.snapshot)
     if move.action in {"frame", "ground", "explore", "candidates", "challenge"}:
         return CapabilityRequest(move.action, move.trigger_refs[0], selection=selection, snapshot=move.snapshot,

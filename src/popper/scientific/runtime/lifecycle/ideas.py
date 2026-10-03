@@ -144,6 +144,11 @@ def _heads(state: "ResearchState") -> dict[str, "Sourced[IdeaRevision]"]:
     return {k: v for k, v in latest.items() if v.record.status == "active"}
 
 
+def active_ideas(state: "ResearchState") -> int:
+    """Number of ideas whose latest revision is active."""
+    return len(_heads(state))
+
+
 def _head(heads: dict[str, "Sourced[IdeaRevision]"], ref: ArtifactRef) -> "Sourced[IdeaRevision]":
     found = next((item for item in heads.values() if item.ref == ref), None)
     if found is None:

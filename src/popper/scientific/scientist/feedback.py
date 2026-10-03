@@ -14,6 +14,7 @@ from popper.scientific.runtime.lifecycle.contracts import (
     InterpretationProposal,
     Synthesis,
 )
+from popper.scientific.runtime.lifecycle.ideas import DirectionProposal, commit_direction
 from popper.scientific.runtime.lifecycle.transitions import EligibilityError
 from popper.scientific.runtime.projections.state import (
     compact_state,
@@ -58,6 +59,42 @@ def synthesize_state(h: Harness, science: ScienceStore, snapshot: ArtifactRef) -
         science.commit("disposition", Disposition(kind="deferred", reason=reason, sources=[snapshot]), key=deferral_key)
         raise EligibilityError(reason)
     return science.commit("synthesis", Synthesis(**collected[0].model_dump(), snapshot=snapshot, author="theorist"), key=snapshot.record_id)
+
+
+def update_direction(h: Harness, science: ScienceStore, snapshot: ArtifactRef) -> ArtifactRef:
+    name = f"science:direction:{snapshot.record_id}"
+    if h.run.committed(name):
+        ref = h.run.artifact_ref(name)
+        validate_sources(science, science.read(ref))
+        return ref
+    deferral_key = f"update_direction:{snapshot.record_id}"
+    deferral_name = f"science:disposition:{deferral_key}"
+    if h.run.committed(deferral_name):
+        disposition = Disposition.model_validate(science.read(h.run.artifact_ref(deferral_name)))
+        validate_sources(science, disposition.model_dump(mode="json"))
+        raise EligibilityError(disposition.reason)
+    state = load_snapshot(science, snapshot)
+    allowed = reachable_refs(h.run, snapshot)
+    collected: list[DirectionProposal] = []
+
+    def submit(proposal: DirectionProposal) -> str:
+        validate_sources(science, proposal.model_dump(mode="json"))
+        if any(ref not in allowed for ref in proposal.sources):
+            raise ValueError("direction source is outside the input frontier")
+        collected[:] = [proposal]
+        return "Sourced research direction accepted; recorded evidence standing is unchanged."
+
+    response = agent_loop(
+        h, "theorist", tag="update_direction", system="State the sourced research direction and retain unresolved questions.",
+        task=load_prompt("popper.scientific.scientist", "update_direction.md", state=fence(json.dumps(compact_state(state))), snapshot=snapshot.model_dump_json()),
+        tools=[read_artifact_tool(h, allowed), Tool.from_model("submit_direction", "Submit the sourced research direction.", DirectionProposal, submit, terminal=True)],
+        max_turns=h.config.search.max_turns, max_submits=2,
+    )
+    if response is None:
+        reason = "Bounded direction correction exhausted; research direction unavailable"
+        science.commit("disposition", Disposition(kind="deferred", reason=reason, sources=[snapshot]), key=deferral_key)
+        raise EligibilityError(reason)
+    return commit_direction(science, collected[0], snapshot, author="theorist")
 
 
 def interpret_result(h: Harness, science: ScienceStore, result: ArtifactRef) -> ArtifactRef | None:
