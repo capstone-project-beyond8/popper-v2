@@ -1,0 +1,348 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1624 828" role="img" aria-label="Popper architecture: the PI picks work across five stages (Understand, Ground, Discover, Verify, Communicate), specialists do it, evidence can send work back, the Scientific Runtime keeps saved records, and one Agent Harness runs every agent">
+<style>
+svg{
+  --ink:#1D2330; --muted:#5B6474; --line:#8A93A3; --card:#FFFFFF;
+  --p1:#E3ECF8; --p1s:#6F8FC2;
+  --p2:#E2F1E6; --p2s:#5E9A72;
+  --p3:#FBF0D6; --p3s:#B98F2E;
+  --p4:#F4E0E0; --p4s:#B56565;
+  --p5:#E9E3F5; --p5s:#7D6BB0;
+  --band:#ECEEF2; --onfill:#FFFFFF;
+  --b1:#CCDCF2; --b2:#CBE6D3; --b3:#F6E1AE; --b4:#EDC9C9; --b5:#D9CFEE;
+  --pi:#DDEFEE; --pis:#4E9A94; --pib:#BFE0DD; --hc:#E1E7F0; --ht:#CDD6E4;
+  --ok:#3F8F5B; --neg:#3C6FB5; --inc:#9A8F7A; --pruned:#B7BDC7; --bug:#C4524A; --star:#C9962B;
+  }
+@media (prefers-color-scheme: dark){svg{
+  --ink:#E6E9EF; --muted:#9AA3B2; --line:#6B7485; --card:#1E232C;
+  --p1:#1D2A3D; --p1s:#5F82BC; --p2:#1C2E24; --p2s:#4F9468; --p3:#33291A; --p3s:#A7822E;
+  --p4:#3A2324; --p4s:#B06464; --p5:#2A2439; --p5s:#7E6CB6; --band:#20252E; --onfill:#FFFFFF;
+  --b1:#27395A; --b2:#24402F; --b3:#4A3A1E; --b4:#522E30; --b5:#3A3155;
+  --pi:#1B3231; --pis:#4E9A94; --pib:#24483F; --hc:#262D39; --ht:#323C4D;
+  --ok:#4FA36C; --neg:#5C8AD0; --inc:#8E8570; --pruned:#5A6170; --bug:#D06A60; --star:#E0B34E;
+  }}
+.bg{fill:var(--card)}
+svg text{fill:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif}
+.t-stage{font-size:15px;font-weight:600}
+.t-box{font-size:12.5px;font-weight:500}
+.t-bold{font-size:12.5px;font-weight:600}
+.t-pill{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;fill:var(--onfill)}
+.box{fill:var(--card);stroke:var(--line);stroke-width:1}
+.later{fill:var(--card);stroke:var(--line);stroke-width:1;stroke-dasharray:4 3}
+.arrow{stroke:var(--ink);stroke-width:1.3;fill:none;marker-end:url(#ah)}
+.arrow-soft{stroke:var(--line);stroke-width:1.2;fill:none;stroke-dasharray:4 3;marker-end:url(#ahs)}
+.back{stroke:var(--p2s);stroke-width:1.5;fill:none;stroke-dasharray:5 3;marker-end:url(#ahb)}
+.back-line{stroke:var(--p2s);stroke-width:1.5;fill:none;stroke-dasharray:5 3}
+.back-chip{fill:var(--card);stroke:var(--p2s);stroke-width:1.2}
+.t-back{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;fill:var(--p2s);font-weight:600}
+.s1{fill:var(--b1);stroke:var(--p1s)} .s2{fill:var(--b2);stroke:var(--p2s)} .s3{fill:var(--b3);stroke:var(--p3s)}
+.s4{fill:var(--b4);stroke:var(--p4s)} .s5{fill:var(--b5);stroke:var(--p5s)} .pib{fill:var(--pib);stroke:var(--pis)}
+.rt{fill:var(--ht)} .hc{fill:var(--hc)} .ht{fill:var(--ht);stroke:var(--line)}
+.tag{fill:var(--card);stroke:var(--ink);stroke-width:1}
+.tag-sub{fill:var(--card);stroke:var(--ink);stroke-width:1;stroke-dasharray:3 2}
+.tag-code{fill:var(--band);stroke:var(--line);stroke-width:1}
+.t-chip-s{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;fill:var(--ink)}
+.t-tag{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;fill:var(--ink)}
+.dash{stroke:var(--p4s);stroke-width:2;stroke-dasharray:6 5}
+.ic{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+</style>
+<rect class="bg" width="100%" height="100%"/>
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink)"/></marker>
+  <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/></marker>
+  <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--p2s)"/></marker>
+  <symbol id="i-chart" viewBox="0 0 16 16"><path class="ic" d="M2 14.5 H14 M4.5 12.5 V9 M8 12.5 V4 M11.5 12.5 V7" style="stroke-width:2.2"/></symbol>
+  <symbol id="i-question" viewBox="0 0 16 16"><path class="ic" d="M2 2.5 H14 V11 H8 L5 14 V11 H2 Z"/><path class="ic" d="M6.6 5.4 A1.5 1.5 0 1 1 8.6 6.8 Q8 7.1 8 7.9"/><circle cx="8" cy="9.4" r="0.6" fill="currentColor"/></symbol>
+  <symbol id="i-person" viewBox="0 0 16 16"><circle class="ic" cx="8" cy="5" r="3"/><path class="ic" d="M2.5 14.5 A5.5 5 0 0 1 13.5 14.5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle class="ic" cx="7" cy="7" r="4.5"/><path class="ic" d="M10.4 10.4 L14 14" style="stroke-width:2.2"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 16 16"><path class="ic" d="M10.5 1.8 A4 4 0 0 0 7 7.3 L2.2 12.1 L3.9 13.8 L8.7 9 A4 4 0 0 0 14.2 5.5 L11.9 6.4 L9.6 6.4 L9.6 4.1 Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path class="ic" d="M8 2 L15 14 H1 Z"/><path class="ic" d="M8 6.2 V9.6"/><circle cx="8" cy="11.8" r="0.7" fill="currentColor"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 16 16"><path class="ic" d="M8 1.8 L15 5.3 L8 8.8 L1 5.3 Z M1 8.4 L8 11.9 L15 8.4 M1 11.4 L8 14.9 L15 11.4"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 16 16"><path class="ic" d="M5.6 10.6 A4.6 4.6 0 1 1 10.4 10.6 V12.2 H5.6 Z M6.3 14.5 H9.7"/></symbol>
+  <symbol id="i-bang" viewBox="0 0 16 16"><path class="ic" d="M2 2.5 H14 V11 H8 L5 14 V11 H2 Z"/><path class="ic" d="M8 4.8 V7.6"/><circle cx="8" cy="9.4" r="0.7" fill="currentColor"/></symbol>
+  <symbol id="i-plan" viewBox="0 0 16 16"><rect class="ic" x="3" y="2.5" width="10" height="12" rx="1"/><path class="ic" d="M5.5 6 H10.5 M5.5 9 H10.5 M5.5 12 H8.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 2.5 L13.5 8 L4.5 13.5 Z" fill="currentColor"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path class="ic" d="M1 8 Q8 1 15 8 Q8 15 1 8 Z"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path class="ic" d="M3 1.5 H10 L13 4.5 V14.5 H3 Z M10 1.5 V4.5 H13"/><path class="ic" d="M5.5 8 H10.5 M5.5 11 H10.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><rect x="2.5" y="7" width="11" height="7.5" rx="1.5" fill="currentColor"/><path class="ic" d="M5 7 V5 A3 3 0 0 1 11 5 V7" style="stroke-width:1.8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><circle class="ic" cx="8" cy="8" r="6.5"/><path class="ic" d="M5 8.2 L7.1 10.3 L11.2 5.9"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16"><path class="ic" d="M1.5 2.5 H10.5 V8.5 H5.5 L3 11 V8.5 H1.5 Z M12.5 5.5 H14.5 V11.5 H13 V13.5 L11 11.5 H7 V10.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle class="ic" cx="8" cy="8" r="5" style="stroke-width:3;stroke-dasharray:2.2 1.7"/><circle class="ic" cx="8" cy="8" r="2"/></symbol>
+  <symbol id="i-map" viewBox="0 0 16 16"><path class="ic" d="M1.5 3.5 L5.5 2 L10.5 3.5 L14.5 2 V12.5 L10.5 14 L5.5 12.5 L1.5 14 Z M5.5 2 V12.5 M10.5 3.5 V14"/></symbol>
+  <symbol id="i-book" viewBox="0 0 16 16"><path class="ic" d="M8 3.6 C6 2.1 3.6 2.1 1.5 2.6 V12.6 C3.6 12.1 6 12.1 8 13.6 C10 12.1 12.4 12.1 14.5 12.6 V2.6 C12.4 2.1 10 2.1 8 3.6 Z M8 3.6 V13.6"/></symbol>
+  <symbol id="i-window" viewBox="0 0 16 16"><rect class="ic" x="1.5" y="2.5" width="13" height="11" rx="1"/><path class="ic" d="M1.5 5.5 H14.5 M4 8.5 H9 M4 11 H11"/></symbol>
+  <symbol id="i-box" viewBox="0 0 16 16"><path class="ic" d="M2 5 L8 2 L14 5 V11 L8 14 L2 11 Z M2 5 L8 8 L14 5 M8 8 V14"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 16 16"><path class="ic" d="M2 12.5 A6 6 0 1 1 14 12.5"/><path class="ic" d="M8 12 L11 7.5" style="stroke-width:2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path class="ic" d="M8 1.5 L14 3.8 V8 C14 11.4 11.4 13.6 8 14.8 C4.6 13.6 2 11.4 2 8 V3.8 Z"/><path class="ic" d="M5.4 8.2 L7.3 10 L10.8 6.4"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 16 16"><path class="ic" d="M8 2 V14 M5 14.5 H11 M2.5 4.5 H13.5 M2.5 4.5 L0.8 9 H4.2 Z M13.5 4.5 L11.8 9 H15.2 Z"/></symbol>
+</defs>
+
+<!-- legend -->
+<rect x="64" y="17" width="32" height="14" rx="7" class="tag"/><text x="69" y="27" class="t-tag">role</text>
+<rect x="102" y="17" width="32" height="14" rx="7" class="tag-code"/><text x="107" y="27" class="t-tag">code</text>
+<rect x="140" y="17" width="50" height="14" rx="7" class="tag-sub"/><text x="145" y="27" class="t-tag">planned</text>
+<path d="M1420 24 H1450" class="back"/><text x="1456" y="28" class="t-tag" style="font-size:10px">go back</text>
+<path d="M1514 24 H1544" class="arrow-soft"/><text x="1550" y="28" class="t-tag" style="font-size:10px">optional</text>
+
+<!-- PI -->
+<rect x="64" y="48" width="1536" height="60" rx="10" fill="var(--pi)" stroke="var(--pis)" stroke-width="1.5"/>
+<text x="82" y="83" class="t-stage">PI / AI Scientist</text>
+<rect x="214" y="71" width="86" height="14" rx="7" class="tag"/><text x="220" y="81" class="t-tag">Theorist today</text>
+<rect x="320" y="68" width="94" height="20" rx="10" class="tag"/><text x="367" y="81.5" text-anchor="middle" class="t-chip-s">read evidence</text>
+<path d="M414 78 H430" class="arrow"/>
+<rect x="432" y="68" width="76" height="20" rx="10" class="tag"/><text x="470" y="81.5" text-anchor="middle" class="t-chip-s">pick work</text>
+<path d="M508 78 H524" class="arrow"/>
+<rect x="526" y="68" width="64" height="20" rx="10" class="tag"/><text x="558" y="81.5" text-anchor="middle" class="t-chip-s">delegate</text>
+<path d="M590 78 H606" class="arrow"/>
+<rect x="608" y="68" width="70" height="20" rx="10" class="tag"/><text x="643" y="81.5" text-anchor="middle" class="t-chip-s">interpret</text>
+<path d="M690 78 H1298" class="arrow"/>
+<rect x="1300" y="58" width="284" height="40" rx="6" class="box pib"/>
+<use href="#i-gear" x="1314" y="70" width="16" height="16" style="color:var(--muted)"/>
+<text x="1338" y="83" class="t-bold">Coordinator</text>
+<rect x="1540" y="71" width="34" height="14" rx="7" class="tag-code"/><text x="1546" y="81" class="t-tag">code</text>
+
+<!-- dispatch -->
+<path d="M1466 99 V156" class="arrow"/>
+<path d="M1466 132 H198" stroke="var(--ink)" stroke-width="1.3" fill="none"/>
+<path d="M198 132 V156" class="arrow"/>
+<path d="M494 132 V156" class="arrow"/>
+<path d="M832 132 V156" class="arrow"/>
+<path d="M1170 132 V156" class="arrow"/>
+
+<!-- holdout boundary -->
+<line x1="1022" y1="160" x2="1022" y2="462" class="dash"/>
+<use href="#i-lock" x="1014" y="138" width="16" height="16" style="color:var(--p4s)"/>
+
+<!-- stage columns -->
+<rect x="64" y="160" width="268" height="302" rx="10" fill="var(--p1)" stroke="var(--p1s)"/>
+<text x="82" y="186" class="t-stage">Understand</text>
+<rect x="360" y="160" width="268" height="302" rx="10" fill="var(--p2)" stroke="var(--p2s)"/>
+<text x="378" y="186" class="t-stage">Ground</text>
+<rect x="656" y="160" width="352" height="302" rx="10" fill="var(--p3)" stroke="var(--p3s)"/>
+<text x="674" y="186" class="t-stage">Discover</text>
+<rect x="1036" y="160" width="268" height="302" rx="10" fill="var(--p4)" stroke="var(--p4s)"/>
+<text x="1054" y="186" class="t-stage">Verify</text>
+<rect x="1332" y="160" width="268" height="302" rx="10" fill="var(--p5)" stroke="var(--p5s)"/>
+<text x="1350" y="186" class="t-stage">Communicate</text>
+
+<!-- Understand -->
+<rect x="82" y="202" width="232" height="44" rx="6" class="box s1"/>
+<use href="#i-chart" x="94" y="216" width="16" height="16" style="color:var(--p1s)"/>
+<text x="118" y="229" class="t-box">Profile the data</text>
+<rect x="276" y="239" width="34" height="14" rx="7" class="tag-code"/><text x="282" y="249" class="t-tag">code</text>
+<path d="M198 247 V264" class="arrow"/>
+<rect x="82" y="266" width="232" height="44" rx="6" class="box s1"/>
+<use href="#i-question" x="94" y="280" width="16" height="16" style="color:var(--p1s)"/>
+<text x="118" y="293" class="t-box">Frame the question</text>
+<rect x="253" y="303" width="57" height="14" rx="7" class="tag"/><text x="259" y="313" class="t-tag">Theorist</text>
+<path d="M198 311 V328" class="arrow"/>
+<rect x="82" y="330" width="232" height="44" rx="6" class="box s1" style="stroke:var(--p1s);stroke-width:2"/>
+<use href="#i-person" x="94" y="344" width="16" height="16" style="color:var(--p1s)"/>
+<text x="118" y="357" class="t-bold">You review</text>
+<rect x="242" y="367" width="68" height="14" rx="7" class="tag"/><text x="248" y="377" class="t-tag">researcher</text>
+<path d="M314 352 H346 V224 H376" class="arrow"/>
+
+<!-- Ground -->
+<rect x="378" y="202" width="232" height="44" rx="6" class="box s2"/>
+<use href="#i-search" x="390" y="216" width="16" height="16" style="color:var(--p2s)"/>
+<text x="414" y="229" class="t-box">Inspect the data</text>
+<rect x="527" y="239" width="79" height="14" rx="7" class="tag"/><text x="533" y="249" class="t-tag">Data Steward</text>
+<path d="M494 247 V264" class="arrow"/>
+<rect x="378" y="266" width="232" height="44" rx="6" class="box s2"/>
+<use href="#i-wrench" x="390" y="280" width="16" height="16" style="color:var(--p2s)"/>
+<text x="414" y="293" class="t-box">Prepare</text>
+<rect x="572" y="303" width="34" height="14" rx="7" class="tag-code"/><text x="578" y="313" class="t-tag">code</text>
+<path d="M494 311 V328" class="arrow"/>
+<rect x="378" y="330" width="232" height="44" rx="6" class="box s2"/>
+<use href="#i-alert" x="390" y="344" width="16" height="16" style="color:var(--p2s)"/>
+<text x="414" y="357" class="t-box">Assess the limits</text>
+<path d="M494 375 V392" class="arrow"/>
+<rect x="378" y="394" width="232" height="44" rx="6" class="box s2" style="stroke:var(--p2s);stroke-width:2"/>
+<use href="#i-layers" x="390" y="408" width="16" height="16" style="color:var(--p2s)"/>
+<text x="414" y="421" class="t-bold">Foundation</text>
+<path d="M610 416 H642 V224 H672" class="arrow"/>
+
+<!-- Discover -->
+<rect x="674" y="202" width="147" height="44" rx="6" class="box s3"/>
+<use href="#i-bulb" x="686" y="216" width="16" height="16" style="color:var(--p3s)"/>
+<text x="710" y="229" class="t-box">Hypothesize</text>
+<rect x="760" y="239" width="57" height="14" rx="7" class="tag"/><text x="766" y="249" class="t-tag">Theorist</text>
+<path d="M748 247 V264" class="arrow"/>
+<rect x="674" y="266" width="147" height="44" rx="6" class="box s3"/>
+<use href="#i-bang" x="686" y="280" width="16" height="16" style="color:var(--p3s)"/>
+<text x="710" y="293" class="t-box">Challenge</text>
+<rect x="775" y="303" width="42" height="14" rx="7" class="tag"/><text x="781" y="313" class="t-tag">Judge</text>
+<path d="M748 311 V328" class="arrow"/>
+<rect x="674" y="330" width="147" height="44" rx="6" class="box s3"/>
+<use href="#i-plan" x="686" y="344" width="16" height="16" style="color:var(--p3s)"/>
+<text x="710" y="357" class="t-box">Design the test</text>
+<path d="M821 352 H841" class="arrow"/>
+<rect x="843" y="266" width="147" height="108" rx="6" class="box s3" style="stroke:var(--p3s);stroke-width:2"/>
+<use href="#i-play" x="855" y="280" width="16" height="16" style="color:var(--p3s)"/>
+<text x="879" y="293" class="t-bold">Experiment</text>
+<g stroke="var(--line)" stroke-width="1.2">
+  <line x1="916" y1="314" x2="890" y2="333"/><line x1="916" y1="314" x2="942" y2="333"/>
+  <line x1="890" y1="333" x2="874" y2="352"/><line x1="890" y1="333" x2="906" y2="352"/>
+  <line x1="942" y1="333" x2="942" y2="352"/>
+</g>
+<circle cx="916" cy="314" r="5.5" fill="var(--card)" stroke="var(--ink)"/>
+<circle cx="890" cy="333" r="5.5" fill="var(--bug)"/>
+<circle cx="942" cy="333" r="5.5" fill="var(--ok)"/>
+<circle cx="874" cy="352" r="5.5" fill="var(--pruned)"/>
+<circle cx="906" cy="352" r="5.5" fill="var(--ok)"/>
+<circle cx="942" cy="352" r="5.5" fill="var(--ok)" stroke="var(--star)" stroke-width="2"/>
+<rect x="889" y="367" width="51" height="14" rx="7" class="tag"/><text x="895" y="377" class="t-tag">Analyst</text>
+<rect x="944" y="367" width="42" height="14" rx="7" class="tag"/><text x="950" y="377" class="t-tag">Judge</text>
+<path d="M916 265 V248" class="arrow"/>
+<rect x="843" y="202" width="147" height="44" rx="6" class="box s3"/>
+<use href="#i-eye" x="855" y="216" width="16" height="16" style="color:var(--p3s)"/>
+<text x="879" y="229" class="t-box">Interpret</text>
+<path d="M842 224 H823" class="arrow"/>
+<path d="M866 375 V392" class="arrow"/>
+<rect x="674" y="394" width="316" height="44" rx="6" class="box s3" style="stroke:var(--p3s);stroke-width:2"/>
+<use href="#i-file" x="686" y="408" width="16" height="16" style="color:var(--p3s)"/>
+<text x="710" y="421" class="t-bold">Results</text>
+<rect x="770" y="406" width="92" height="20" rx="4" class="tag-code"/><text x="816" y="419.5" text-anchor="middle" class="t-chip-s">results.json</text>
+<rect x="952" y="431" width="34" height="14" rx="7" class="tag-code"/><text x="958" y="441" class="t-tag">code</text>
+<path d="M990 416 H1000 V224 H1052" class="arrow-soft"/>
+
+<!-- Verify -->
+<rect x="1150" y="174" width="136" height="18" rx="9" class="tag-code"/>
+<use href="#i-lock" x="1157" y="177" width="12" height="12" style="color:var(--p4s)"/>
+<text x="1174" y="186.5" class="t-chip-s">holdout sealed</text>
+<rect x="1054" y="202" width="232" height="44" rx="6" class="later s4"/>
+<use href="#i-plan" x="1066" y="216" width="16" height="16" style="color:var(--p4s)"/>
+<text x="1090" y="229" class="t-box">Lock the plan</text>
+<rect x="1227" y="239" width="55" height="14" rx="7" class="tag-sub"/><text x="1233" y="249" class="t-tag">Verifier</text>
+<path d="M1170 247 V264" class="arrow"/>
+<rect x="1054" y="266" width="232" height="44" rx="6" class="later s4" style="stroke-width:2"/>
+<use href="#i-play" x="1066" y="280" width="16" height="16" style="color:var(--p4s)"/>
+<text x="1090" y="293" class="t-bold">Run on holdout</text>
+<rect x="1230" y="278" width="48" height="20" rx="4" class="tag-code"/><text x="1254" y="291.5" text-anchor="middle" class="t-chip-s">1 look</text>
+<path d="M1170 311 V328" class="arrow"/>
+<rect x="1054" y="330" width="232" height="44" rx="6" class="later s4"/>
+<use href="#i-shield" x="1066" y="344" width="16" height="16" style="color:var(--p4s)"/>
+<text x="1090" y="357" class="t-box">Audit</text>
+<rect x="1228" y="367" width="50" height="14" rx="7" class="tag-sub"/><text x="1234" y="377" class="t-tag">Auditor</text>
+<path d="M1170 375 V392" class="arrow"/>
+<rect x="1054" y="394" width="232" height="44" rx="6" class="later s4"/>
+<use href="#i-scale" x="1066" y="408" width="16" height="16" style="color:var(--p4s)"/>
+<text x="1090" y="421" class="t-box">Verdict</text>
+<g transform="translate(1186,416)">
+  <circle cx="0" cy="0" r="10" fill="var(--ok)"/><path d="M-4.5 0.3 L-1.3 3.5 L4.5 -3" stroke="var(--onfill)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="26" cy="0" r="10" fill="var(--neg)"/><path d="M22 -4 L30 4 M30 -4 L22 4" stroke="var(--onfill)" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="52" cy="0" r="10" fill="var(--inc)"/><text x="52" y="4.5" text-anchor="middle" style="font-size:13px;font-weight:700;fill:var(--onfill)">?</text>
+</g>
+<path d="M1286 416 H1318" stroke="var(--line)" stroke-width="1.2" stroke-dasharray="4 3" fill="none"/><circle cx="1318" cy="416" r="2.5" fill="var(--ink)"/>
+
+<!-- Communicate -->
+<rect x="1350" y="202" width="232" height="44" rx="6" class="box s5" style="stroke:var(--p5s);stroke-width:2"/>
+<use href="#i-file" x="1362" y="216" width="16" height="16" style="color:var(--p5s)"/>
+<text x="1386" y="229" class="t-bold">Write the report</text>
+<rect x="1494" y="239" width="34" height="14" rx="7" class="tag-code"/><text x="1500" y="249" class="t-tag">code</text>
+<rect x="1532" y="239" width="46" height="14" rx="7" class="tag"/><text x="1538" y="249" class="t-tag">Writer</text>
+<path d="M1466 247 V264" class="arrow"/>
+<rect x="1350" y="266" width="232" height="44" rx="6" class="later s5"/>
+<use href="#i-chat" x="1362" y="280" width="16" height="16" style="color:var(--p5s)"/>
+<text x="1386" y="293" class="t-box">Review</text>
+<rect x="1522" y="303" width="56" height="14" rx="7" class="tag-sub"/><text x="1528" y="313" class="t-tag">Reviewer</text>
+<path d="M1466 311 V328" class="arrow"/>
+<rect x="1350" y="330" width="232" height="44" rx="6" class="later s5"/>
+<use href="#i-check" x="1362" y="344" width="16" height="16" style="color:var(--p5s)"/>
+<text x="1386" y="357" class="t-box">Check every claim</text>
+<rect x="1528" y="367" width="50" height="14" rx="7" class="tag-sub"/><text x="1534" y="377" class="t-tag">Auditor</text>
+
+<!-- go back -->
+<path d="M1466 462 V500 H198 V465" class="back"/>
+<path d="M494 500 V465" class="back"/>
+<path d="M832 500 V465" class="back"/>
+<path d="M1170 462 V500" class="back-line"/>
+<rect x="681" y="490" width="54" height="20" rx="10" class="back-chip"/><text x="708" y="503.5" text-anchor="middle" class="t-back">repair</text>
+<rect x="741" y="490" width="52" height="20" rx="10" class="back-chip"/><text x="767" y="503.5" text-anchor="middle" class="t-back">refine</text>
+<rect x="799" y="490" width="46" height="20" rx="10" class="back-chip"/><text x="822" y="503.5" text-anchor="middle" class="t-back">pivot</text>
+<rect x="851" y="490" width="64" height="20" rx="10" class="back-chip"/><text x="883" y="503.5" text-anchor="middle" class="t-back">reground</text>
+<rect x="921" y="490" width="62" height="20" rx="10" class="back-chip"/><text x="952" y="503.5" text-anchor="middle" class="t-back">reframe</text>
+
+<!-- Results to Communicate, drawn over the return stub with a gap -->
+<path d="M930 439 V478 H1318 V224 H1348" stroke="var(--card)" stroke-width="6" fill="none"/>
+<path d="M930 439 V478 H1318 V224 H1348" class="arrow"/>
+
+<!-- Scientific Runtime -->
+<rect x="64" y="528" width="1536" height="104" rx="10" fill="var(--band)" stroke="var(--line)"/>
+<text x="82" y="552" class="t-stage">Scientific Runtime</text>
+<rect x="82" y="562" width="218" height="34" rx="6" class="box rt" style="stroke:var(--ink);stroke-width:1.5"/>
+<use href="#i-map" x="94" y="571" width="16" height="16" style="color:var(--muted)"/>
+<text x="118" y="584" class="t-bold">Research state</text>
+<rect x="340" y="569" width="64" height="20" rx="10" class="tag"/><text x="372" y="582.5" text-anchor="middle" class="t-chip-s">question</text>
+<path d="M406 579 H420" class="arrow"/>
+<rect x="422" y="569" width="76" height="20" rx="10" class="tag"/><text x="460" y="582.5" text-anchor="middle" class="t-chip-s">hypothesis</text>
+<path d="M500 579 H514" class="arrow"/>
+<rect x="516" y="569" width="70" height="20" rx="10" class="tag"/><text x="551" y="582.5" text-anchor="middle" class="t-chip-s">test spec</text>
+<path d="M588 579 H602" class="arrow"/>
+<rect x="604" y="569" width="44" height="20" rx="10" class="tag"/><text x="626" y="582.5" text-anchor="middle" class="t-chip-s">code</text>
+<path d="M650 579 H664" class="arrow"/>
+<rect x="666" y="569" width="36" height="20" rx="10" class="tag"/><text x="684" y="582.5" text-anchor="middle" class="t-chip-s">run</text>
+<path d="M704 579 H718" class="arrow"/>
+<rect x="720" y="569" width="54" height="20" rx="10" class="tag"/><text x="747" y="582.5" text-anchor="middle" class="t-chip-s">result</text>
+<path d="M776 579 H790" class="arrow"/>
+<rect x="792" y="569" width="100" height="20" rx="10" class="tag"/><text x="842" y="582.5" text-anchor="middle" class="t-chip-s">interpretation</text>
+<rect x="1300" y="562" width="282" height="34" rx="6" class="box rt" style="stroke:var(--ink);stroke-width:1.5"/>
+<use href="#i-book" x="1312" y="571" width="16" height="16" style="color:var(--muted)"/>
+<text x="1336" y="584" class="t-bold">Saved records</text>
+<rect x="1494" y="569" width="76" height="20" rx="4" class="tag-code"/><text x="1532" y="582.5" text-anchor="middle" class="t-chip-s">write-once</text>
+<path d="M1320 597 V614 H191 V600" class="arrow-soft"/>
+<path d="M82 579 H36 V78 H62" class="arrow"/>
+<path d="M1440 648 V599" class="arrow"/>
+
+<!-- Agent Harness -->
+<g transform="translate(0,24)">
+<rect x="64" y="624" width="1536" height="164" rx="10" fill="var(--band)" stroke="var(--line)"/>
+<text x="82" y="648" class="t-stage">Agent Harness</text>
+
+<rect x="80" y="660" width="485" height="112" rx="8" class="box hc"/>
+<use href="#i-person" x="96" y="669" width="16" height="16" style="color:var(--muted)"/>
+<text x="120" y="682" class="t-bold">Agents</text>
+<rect x="96" y="696" width="60" height="20" rx="10" class="tag"/><text x="126" y="709.5" text-anchor="middle" class="t-chip-s">Theorist</text>
+<rect x="162" y="696" width="84" height="20" rx="10" class="tag"/><text x="204" y="709.5" text-anchor="middle" class="t-chip-s">Data Steward</text>
+<rect x="252" y="696" width="56" height="20" rx="10" class="tag"/><text x="280" y="709.5" text-anchor="middle" class="t-chip-s">Analyst</text>
+<rect x="314" y="696" width="46" height="20" rx="10" class="tag"/><text x="337" y="709.5" text-anchor="middle" class="t-chip-s">Judge</text>
+<rect x="366" y="696" width="50" height="20" rx="10" class="tag"/><text x="391" y="709.5" text-anchor="middle" class="t-chip-s">Writer</text>
+<rect x="96" y="730" width="28" height="20" rx="10" class="tag-sub"/><text x="110" y="743.5" text-anchor="middle" class="t-chip-s">PI</text>
+<rect x="130" y="730" width="48" height="20" rx="10" class="tag-sub"/><text x="154" y="743.5" text-anchor="middle" class="t-chip-s">Critic</text>
+<rect x="184" y="730" width="58" height="20" rx="10" class="tag-sub"/><text x="213" y="743.5" text-anchor="middle" class="t-chip-s">Verifier</text>
+<rect x="248" y="730" width="60" height="20" rx="10" class="tag-sub"/><text x="278" y="743.5" text-anchor="middle" class="t-chip-s">Reviewer</text>
+<rect x="314" y="730" width="54" height="20" rx="10" class="tag-sub"/><text x="341" y="743.5" text-anchor="middle" class="t-chip-s">Auditor</text>
+
+<rect x="589" y="660" width="485" height="112" rx="8" class="box hc"/>
+<text x="605" y="682" class="t-bold">Agent loop</text>
+<g transform="translate(71,48)">
+<rect x="534" y="664" width="72" height="20" rx="10" class="tag"/><text x="570" y="677.5" text-anchor="middle" class="t-chip-s">context</text>
+<rect x="622" y="638" width="64" height="20" rx="10" class="tag"/><text x="654" y="651.5" text-anchor="middle" class="t-chip-s">model</text>
+<rect x="698" y="664" width="80" height="20" rx="10" class="tag"/><text x="738" y="677.5" text-anchor="middle" class="t-chip-s">tool call</text>
+<rect x="622" y="690" width="64" height="20" rx="10" class="tag"/><text x="654" y="703.5" text-anchor="middle" class="t-chip-s">result</text>
+<path d="M580 663 Q 584 648 619 648" class="arrow"/>
+<path d="M687 648 Q 724 648 728 662" class="arrow"/>
+<path d="M728 685 Q 724 700 689 700" class="arrow"/>
+<path d="M621 700 Q 584 700 580 686" class="arrow"/>
+<path d="M778 674 H816" class="arrow"/>
+<rect x="818" y="656" width="96" height="36" rx="6" class="box s4" style="stroke:var(--p4s);stroke-width:1.5"/>
+<text x="866" y="677.5" text-anchor="middle" class="t-chip-s">submit</text>
+<rect x="849" y="685" width="34" height="14" rx="7" class="tag-code"/><text x="855" y="695" class="t-tag">code</text>
+<path d="M900 692 V712 H754 V686" class="arrow-soft"/>
+</g>
+
+<rect x="1098" y="660" width="485" height="112" rx="8" class="box hc"/>
+<text x="1114" y="682" class="t-bold">Around every session</text>
+<rect x="1114" y="694" width="220" height="32" rx="6" class="ht"/>
+<use href="#i-window" x="1124" y="702" width="16" height="16" style="color:var(--muted)"/>
+<text x="1148" y="714.5" class="t-chip-s" style="font-weight:600">Context</text>
+<rect x="1346" y="694" width="220" height="32" rx="6" class="ht"/>
+<use href="#i-box" x="1356" y="702" width="16" height="16" style="color:var(--muted)"/>
+<text x="1380" y="714.5" class="t-chip-s" style="font-weight:600">Sandbox · no keys</text>
+<rect x="1114" y="734" width="220" height="32" rx="6" class="ht"/>
+<use href="#i-book" x="1124" y="742" width="16" height="16" style="color:var(--muted)"/>
+<text x="1148" y="754.5" class="t-chip-s" style="font-weight:600">Journal + run store</text>
+<rect x="1346" y="734" width="220" height="32" rx="6" class="ht"/>
+<use href="#i-gauge" x="1356" y="742" width="16" height="16" style="color:var(--muted)"/>
+<text x="1380" y="754.5" class="t-chip-s" style="font-weight:600">Budgets</text>
+</g>
+</svg>
