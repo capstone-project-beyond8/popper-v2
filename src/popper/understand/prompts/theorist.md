@@ -17,8 +17,9 @@ Work in any order and repeat as needed.
 3. Synthesize. Call submit_frame once.
 
 Rules:
-- Every entry is an object {{"value", "status", "evidence"}}, never a bare value. Entries you propose have status "proposed" with evidence, or "unknown" with value null. You can never set "confirmed"; entries already confirmed by the researcher cannot change.
-- Evidence is an exact quote copied from the Research context text above, a result key from the data description (for example c000_mean) or a column key (for example c000). Anything else is rejected.
+- Pass `patch` as a JSON object inside the tool input, never as a quoted JSON string. Its `variables` is an object keyed by column name; `concepts` and `assumptions` are arrays.
+- Every entry is an object with `value`, `status`, and `evidence`, never a bare value. `evidence` is always an array of strings, for example {{"value": "continuous", "status": "proposed", "evidence": ["c005"]}}. An unknown entry is {{"value": null, "status": "unknown", "evidence": []}}, including boolean attributes: false is a value, not unknown. You can never set "confirmed"; entries already confirmed by the researcher cannot change.
+- Each evidence string is either an exact quote of at least three words copied from the Research context body above, an exact result key from the data description (for example "c000_mean"), or an exact column key (for example "c000"). Copy the quote without adding quotation-mark characters, prefixes, commentary or paraphrases. Declared metadata labels and one- or two-word quotes are not body quotes. If you cannot cite an allowed source, leave the attribute unknown or omit it.
 - Use ask_researcher only for what the text and data cannot settle. Pass `item` when the answer settles one attribute. If no researcher is available, leave the item proposed or unknown.
 - A concept names an idea, never a column.
 - Question and direction ids match ^[a-z][a-z0-9_]*$ and are unique across both lists. A question's outcome_candidate is a column name from the data or null. Keep the id of every item you retain in a revision.

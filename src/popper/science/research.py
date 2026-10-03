@@ -42,7 +42,14 @@ class Entry[T](_Strict):
 
     value: T | None = None
     status: Status = "unknown"
-    evidence: list[str] = []
+    evidence: list[str] = Field(
+        default_factory=list,
+        description="Array of source citations, not explanations. For an agent-proposed entry, "
+        "provide at least one exact descriptive result key or column key (for example c000), "
+        "or an unchanged quote of at least three words from the research body. Do not add "
+        "commentary, prefixes or quotation-mark characters. An unknown entry has null value "
+        "and may use an empty array. Never encode this array as a string.",
+    )
 
     @model_validator(mode="before")
     @classmethod

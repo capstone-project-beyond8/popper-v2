@@ -86,8 +86,10 @@ class FramePatch(_Model):
 class SubmitFrameInput(_Model):
     patch: FramePatch = Field(
         default_factory=FramePatch,
-        description="Only supplied fields are changed. Agent entries must be proposed or unknown; "
-        "proposed entries cite exact body quotes or descriptive result/column keys as evidence.",
+        description="A JSON object, never JSON-encoded text. Only supplied fields are changed. "
+        "Agent entries must be proposed or unknown. Each entry's evidence is an array of strings, "
+        "not a string; proposed entries cite exact body quotes of at least three words "
+        "or descriptive result/column keys.",
     )
     framing: Framing
 
