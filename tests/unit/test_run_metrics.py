@@ -117,36 +117,31 @@ def test_metrics_keep_sessions_costs_and_failures_separate() -> None:
     assert report["phases"]["communicate"]["cumulative_usd"] == 0.4
 
 
-@pytest.mark.parametrize(("version", "finished"), [(4, True), (5, True), (6, False), (6, True)])
+@pytest.mark.parametrize("finished", [False, True])
 def test_metrics_deliver_committed_science_without_mutation(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], version: int, finished: bool,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], finished: bool,
 ) -> None:
     store = RunStore(tmp_path)
-    store.write_json("run.json", {"format_version": version, "config": {}})
+    store.write_json("run.json", {"format_version": 7, "config": {}})
     science = ScienceStore(store)
     source = science.commit("intent", {"research": "Association does not resolve the rival"}, key="initial")
     Journal(store.path("journal.jsonl")).write("llm_call", tag="scientist", usd=0.25)
-    if version == 6:
-        snapshot = commit_snapshot(science, rebuild_state(science))
-        moves = validate_moves(science, snapshot, [
-            MoveProposal(action=action, objective="Check the evidence gap", trigger_refs=[source],
-                cost_usd=0, stopping_condition="Rival remains unresolved")
-            for action in ("audit", "synthesize")
-        ])
-        proposals = science.commit("proposals", {"snapshot": snapshot.model_dump(mode="json"),
-            "moves": [move.model_dump(mode="json") for move in moves]}, key=snapshot.record_id)
-        selection = science.commit("selection", MoveSelection(proposal_id=moves[0].id,
-            snapshot=snapshot, proposals=proposals, author="scientist",
-            rationale="Check the missing evidence before further interpretation"), key=proposals.record_id)
-        admission = admit_stage(science, selection)
-        if finished:
-            audit = audit_evidence(science, snapshot)
-            complete_stage(science, admission, "completed", [audit], "Evidence gap recorded")
-            build_study(science, "Rival remains unresolved", key="finish:case")
-    else:
-        # A saved report alone is not an admission or a scientific decision.
-        report = store.write_json("report/report.json", {"tex": "report/paper.tex"})
-        store.commit_artifact("report", report)
+    snapshot = commit_snapshot(science, rebuild_state(science))
+    moves = validate_moves(science, snapshot, [
+        MoveProposal(action=action, objective="Check the evidence gap", trigger_refs=[source],
+            cost_usd=0, stopping_condition="Rival remains unresolved")
+        for action in ("audit", "synthesize")
+    ])
+    proposals = science.commit("proposals", {"snapshot": snapshot.model_dump(mode="json"),
+        "moves": [move.model_dump(mode="json") for move in moves]}, key=snapshot.record_id)
+    selection = science.commit("selection", MoveSelection(proposal_id=moves[0].id,
+        snapshot=snapshot, proposals=proposals, author="scientist",
+        rationale="Check the missing evidence before further interpretation"), key=proposals.record_id)
+    admission = admit_stage(science, selection)
+    if finished:
+        audit = audit_evidence(science, snapshot)
+        complete_stage(science, admission, "completed", [audit], "Evidence gap recorded")
+        build_study(science, "Rival remains unresolved", key="finish:case")
     if finished:
         store.checkpoint({"status": "completed", "message": ""})
     original = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
@@ -157,23 +152,26 @@ def test_metrics_deliver_committed_science_without_mutation(
     assert report["total"]["usd"] == 0.25
     assert source.model_dump(mode="json") in trace["sources"]
     assert trace["validation_standing"] == "unavailable"
-    if version == 6:
-        decision = trace["decisions"][0]
-        assert decision["selected"]["action"] == "audit"
-        assert decision["selected"]["trigger_refs"] == [source.model_dump(mode="json")]
-        assert decision["displaced"][0]["action"] == "synthesize"
-        assert decision["rationale"] == "Check the missing evidence before further interpretation"
-        if finished:
-            assert trace["pending_work"] == []
-            assert trace["stage_history"][0]["work"]["record"]["stage"] == "verify"
-            assert trace["stage_history"][0]["record"]["status"] == "completed"
-            assert trace["stop_reason"] == "Rival remains unresolved"
-        else:
-            assert trace["stage_history"] == []
-            assert trace["pending_work"][0]["ref"] == admission.model_dump(mode="json")
-            assert trace["operational_status"] == "running"
-            assert trace["stop_reason"] is None
+    decision = trace["decisions"][0]
+    assert decision["selected"]["action"] == "audit"
+    assert decision["selected"]["trigger_refs"] == [source.model_dump(mode="json")]
+    assert decision["displaced"][0]["action"] == "synthesize"
+    assert decision["rationale"] == "Check the missing evidence before further interpretation"
+    if finished:
+        assert trace["pending_work"] == []
+        assert trace["stage_history"][0]["work"]["record"]["stage"] == "verify"
+        assert trace["stage_history"][0]["record"]["status"] == "completed"
+        assert trace["stop_reason"] == "Rival remains unresolved"
     else:
-        assert trace["stage_history"] is None and trace["pending_work"] is None
-        assert trace["decisions"] == [] and trace["stop_reason"] is None
+        assert trace["stage_history"] == []
+        assert trace["pending_work"][0]["ref"] == admission.model_dump(mode="json")
+        assert trace["operational_status"] == "running"
+        assert trace["stop_reason"] is None
     assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == original
+
+
+def test_metrics_refuse_runs_of_another_format(tmp_path: Path) -> None:
+    store = RunStore(tmp_path)
+    store.write_json("run.json", {"format_version": 6})
+    with pytest.raises(ValueError, match="no longer supported; start a new run"):
+        main([str(tmp_path)])

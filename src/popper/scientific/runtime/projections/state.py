@@ -257,15 +257,7 @@ def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any
 
 
 def load_snapshot(science: ScienceStore, ref: ArtifactRef) -> ResearchState:
-    payload = science.read(ref)
-    version = payload.get("version", 1)
-    if version == 1:
-        payload.pop("budget", None)
-    if version in {1, 2, 3}:
-        payload["version"] = 4
-    elif version != 4:
-        raise ValueError(f"unsupported scientific snapshot version: {version!r}")
-    return ResearchState.model_validate(payload)
+    return ResearchState.model_validate(science.read(ref))
 
 
 def current_frontier(

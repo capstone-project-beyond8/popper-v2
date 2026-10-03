@@ -1,4 +1,4 @@
-"""Publish adaptive studies and dispatch the declared writing strategy."""
+"""Publish committed studies."""
 
 import json
 from pathlib import Path
@@ -18,8 +18,7 @@ from popper.scientific.runtime.projections.views import (
     reviewed_frame,
 )
 from popper.scientific.runtime.store import ScienceStore
-from popper.stages.communicate import historical
-from popper.stages.communicate.limitations import audit_limitations, limitations
+from popper.stages.communicate.limitations import audit_limitations
 from popper.stages.communicate.numbers import (
     entry_values,
     latex_escape,
@@ -208,14 +207,6 @@ def write_study(
         if saved is None:
             saved = h.run.write_json(f"{prefix}/writeup.json", writeup.model_dump(mode="json"))
         h.run.commit_artifact(writeup_name, saved)
-    manifest = {
-        "adaptive": True,
-        "study": output.model_dump(mode="json"),
-        "nodes": [],
-        "specifications": [],
-        "stability": "",
-        "reasons": [],
-    }
     placed = _copy_figures(h, writeup, list(nodes.values()), report_dir)
     prefix = report_dir.relative_to(h.run.root).as_posix()
     for node in nodes.values():
@@ -223,37 +214,17 @@ def write_study(
     steered = output.frame is not None and (
         resolve_artifact(h.run, output.frame).parent / "provenance.json"
     ).exists()
-    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, manifest, placed, values, audit_limitations(output.audits), [], steered)
+    tex, missing = _render_report(writeup, changes, list(nodes.values()), rows, output.model_dump(mode="json"), placed, values, audit_limitations(output.audits), [], steered)
     return _commit_report(h, report_dir, tex, missing, identity=identity)
 
 
 def publish_study(h: Harness, study: Path) -> tuple[Path, Path | None, list[str]]:
-    """Render the declared study strategy behind one publication capability."""
+    """Render the committed study behind one publication capability."""
     science = ScienceStore(h.run)
     output = StudyOutput.model_validate_json(study.read_text("utf-8"))
-    if output.adaptive:
-        notes = research = ""
-        if output.frame:
-            frame = reviewed_frame(science, output.frame)
-            notes = frame.research.notes.get("writing", "")
-            research = render_fields(frame.research, "domain", "objectives", "assumptions")
-        return write_study(h, study, notes=notes, research=research)
-    assert output.frame is not None and output.foundation is not None
-    frame = reviewed_frame(science, output.frame)
-    prepared = foundation_view(science, output.foundation)
-    committed = h.run.committed("hypothesis")
-    assert committed is not None and output.historical_evidence is not None
-    hypothesis = json.loads(committed.read_text("utf-8"))[0]
-    warnings = json.loads((committed.parent / "warnings.json").read_text("utf-8"))
-    names = {c.id: c.name.value for c in frame.research.concepts}
-    exploration = exploration_view(science)
-    node = next(n for n in load_nodes(h, "explore") if n.id == exploration.id)
-    return historical.write_paper(h, frame.framing,
-        json.loads((prepared.preparation / "changes.json").read_text("utf-8")), node,
-        hypothesis, resolve_artifact(h.run, output.historical_evidence), prepared.preparation,
-        limitations=limitations(prepared.facts, warnings),
-        operationalization=[{**o, "concept": names.get(o["concept_id"]) or o["concept_id"]}
-                            for o in prepared.facts["operationalization"]],
-        steered=(h.run.path(frame.source.path).parent / "provenance.json").exists(),
-        notes=frame.research.notes.get("writing", ""),
-        research=render_fields(frame.research, "domain", "objectives", "assumptions"))
+    notes = research = ""
+    if output.frame:
+        frame = reviewed_frame(science, output.frame)
+        notes = frame.research.notes.get("writing", "")
+        research = render_fields(frame.research, "domain", "objectives", "assumptions")
+    return write_study(h, study, notes=notes, research=research)

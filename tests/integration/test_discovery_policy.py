@@ -9,7 +9,6 @@ from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
 from popper.harness.storage.records import resolve_artifact
 from popper.harness.storage.store import RunStore
-from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.lifecycle.contracts import Candidate
 from popper.scientific.runtime.lifecycle.requests import CapabilityRequest
 from popper.scientific.runtime.lifecycle.transitions import schedule_attempt, selected_move
@@ -30,18 +29,16 @@ def test_changed_upstream_rejects_discovery_before_model_or_mutation(
 ) -> None:
     from popper.harness.storage.records import IntegrityError
     from popper.scientific.runtime.lifecycle.contracts import MoveSelection, ResearchMove
-    from popper.scientific.runtime.lifecycle.requests import CapabilityRequest
     from popper.scientific.scientist.episode import discovery_step
     from popper.workflow.discovery import dispatch_discovery
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: pytest.fail("stale inputs must not reach model")), RunStore(tmp_path))
-    h.run.write_json("run.json", {"format_version": 5, "config": h.config.model_dump(mode="json")})
+    h.run.write_json("run.json", {"format_version": 7, "config": h.config.model_dump(mode="json")})
     _committed_discovery_inputs(h)
     science = ScienceStore(h.run)
-    policy = decode_policy(json.loads(h.run.path("run.json").read_text()))
     options = load_options(h.run)
-    request = discovery_step(h, science, resource_view(h, options, rebuild_state(science)), policy, options)
-    assert request is not None and request.kind == "candidates"
+    request = discovery_step(h, science, resource_view(h, options, rebuild_state(science)))
+    assert request.kind == "candidates"
     if phase == "selection":
         payload = spec_payload()
         origin = h.run.artifact_ref("exploration")
@@ -68,54 +65,9 @@ def test_changed_upstream_rejects_discovery_before_model_or_mutation(
     h.run.commit_artifact(changed, h.run.write_json(replacement.as_posix(), science.read(previous)))
     assert rebuild_state(science).frontier == frontier
     before = science.commits()
-    resources = resource_view(h, options, rebuild_state(science))
-    with pytest.raises(IntegrityError, match="intent.*current"):
-        discovery_step(h, science, resources, policy, options)
     with pytest.raises(IntegrityError, match="intent.*current"):
         dispatch_discovery(h, request)
     assert science.commits() == before
-
-
-def test_historical_candidate_dispatch_preserves_reentry(tmp_path: Path) -> None:
-    from popper.harness.storage.store import file_hash
-    from popper.scientific.scientist.episode import discovery_step
-    from popper.workflow.discovery import dispatch_discovery
-
-    payload = spec_payload()
-    hypothesis = {
-        "statement": "x predicts y", "rationale": "association", "primary_estimand": payload["primary_estimand"],
-        "expected_direction": "positive", "refuting_result": "negative contrast", "planned_test": "linear regression",
-        "methods": ["linear_regression"],
-    }
-    fake = FakeLLM(lambda _: json.dumps(hypothesis))
-    h = Harness(load_config(env={}), fake, RunStore(tmp_path))
-    h.run.write_json("run.json", {"format_version": 4, "config": h.config.model_dump(mode="json")})
-    _committed_discovery_inputs(h)
-    science = ScienceStore(h.run)
-    policy = decode_policy(json.loads(h.run.path("run.json").read_text()))
-    options = load_options(h.run)
-
-    def step() -> CapabilityRequest | None:
-        return discovery_step(h, science, resource_view(h, options, rebuild_state(science)), policy, options)
-
-    request = step()
-    assert request is not None and request.kind == "candidates" and request.strategy == "historical"
-    assert request.subject == h.run.artifact_ref("exploration")
-    assert dispatch_discovery(h, request) is None
-    request = step()
-    assert request is not None and request.kind == "experiment" and request.implementation_only
-    assert request.subject == h.run.artifact_ref("hypothesis") and request.strategy == "historical"
-    assert step() == request
-    main = h.run.write_json("tree/main/accepted/meta.json", {"id": "accepted"})
-    h.journal.write("node_commit", path=main.relative_to(tmp_path).as_posix(), sha256=file_hash(main), record_id="historical-main", stage_instance="main", node="accepted")
-    h.journal.write("stage_end", stage_instance="main", best="accepted")
-    h.run.commit_artifact("robustness_plan", h.run.write_json("schedule.json", {"format_version": 2, "main_node": "accepted", "schedule": {}}))
-    request = step()
-    assert request is not None and not request.implementation_only
-    assert request.schedule == h.run.artifact_ref("robustness_plan") and request.strategy == "historical"
-    assert [r.tag for r in fake.calls] == ["hypothesis"]
-    assert not any(name.startswith(("science:intent", "science:candidates", "science:challenge")) for name, _ in science.commits())
-
 
 
 def _committed_discovery_inputs(h: Harness) -> None:
@@ -248,305 +200,20 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
     assert len(json.loads(resolve_artifact(h.run, proposals).read_text())["moves"]) == 1
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize(
-    "boundary",
-    [
-        "science:candidates:",
-        "challenge_snapshot",
-        "challenge_deferral",
-        "science:challenge:",
-        "science:selection:",
-        "science:attempt:",
-        "node_commit",
-        "science:result:",
-        "science:interpretation:",
-        "science:disposition:",
-        "deferred_disposition",
-        "science:study",
-        "science:proposals:",
-        "correction_disposition",
-        "admission_refusal",
-        "request_subject",
-        "decision_refusal",
-    ],
-)
-def test_scheduler_resumes_committed_boundary_without_duplicate_work(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
-) -> None:
-    from popper.scientific.scientist.episode import discovery_step
-    from popper.workflow.discovery import dispatch_discovery
-
-    def advance_discovery() -> Path:
-        science = ScienceStore(h.run)
-        while True:
-            options = load_options(h.run)
-            policy = decode_policy(json.loads(h.run.path("run.json").read_text("utf-8")))
-            request = discovery_step(
-                h, science, resource_view(h, options, rebuild_state(science)), policy, options
-            )
-            if request is None:
-                continue
-            if request.kind == "publish":
-                assert request.subject is not None
-                return resolve_artifact(h.run, request.subject)
-            if boundary == "request_subject" and request.selection:
-                from dataclasses import replace
-
-                from popper.harness.storage.records import IntegrityError
-
-                assert request.subject is not None
-                invalid = request.subject.model_copy(update={"path": "uncommitted.json"})
-                before = len(rebuild_state(science).attempts)
-                with pytest.raises(IntegrityError):
-                    dispatch_discovery(h, replace(request, subject=invalid))
-                assert len(rebuild_state(science).attempts) == before
-            feedback = dispatch_discovery(h, request)
-            if feedback:
-                assert feedback.subject is not None
-                return resolve_artifact(h.run, feedback.subject)
-
-    from popper.harness.storage.recovery import Journal, read_events
-    from popper.scientific.runtime.lifecycle.contracts import AttemptResult
-    from tests.integration.test_run import _respond
-
-    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    if boundary in {"admission_refusal", "decision_refusal"}:
-        h.config.budget.max_usd = 100
-    saved_config = h.config.model_dump(mode="json")
-    if boundary == "admission_refusal":
-        saved_config["discovery"]["max_revisits"] = 0
-    h.run.write_json("run.json", {"format_version": 5, "config": saved_config})
-    _committed_discovery_inputs(h)
-    payload = spec_payload()
-    payload["preparation"] = h.run.artifact_ref("preparation").model_dump(mode="json")
-    origin = h.run.artifact_ref("exploration")
-    candidates = [
-        Candidate(
-            id=f"hypothesis-{i:03d}",
-            statement="x predicts y",
-            rationale="sourced question",
-            primary_estimand=payload["primary_estimand"],
-            expected_direction="positive",
-            refuting_result="negative",
-            planned_test="contrast",
-            methods=payload["methods"],
-            origins=[origin],
-            exposure=[origin],
-        )
-        for i in (1, 2, 3)
-    ]
-    if boundary != "science:candidates:":
-        ScienceStore(h.run).commit(
-            "candidates", {"candidates": [c.model_dump(mode="json") for c in candidates]}, key="initial",
-        )
-
-    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        state = rebuild_state(ScienceStore(h.run))
-        if req.tag == "candidates":
-            return json.dumps({"candidates": [
-                {k: v for k, v in c.model_dump(mode="json").items()
-                 if k not in {"id", "origins", "exposure", "warnings"}}
-                for c in candidates
-            ]})
-        if req.tag == "candidate_challenge" and boundary == "challenge_deferral":
-            return (ToolCall("bad", "submit_challenge", {"assessments": []}),)
-        if req.tag in {"candidate_challenge", "interpret_result"}:
-            return _respond(req)
-        if req.tag == "research_moves":
-            if boundary == "correction_disposition":
-                return (ToolCall("invalid", "submit_moves", {"moves": [{"action": "test"}]}),)
-            move: dict[str, Any]
-            if state.results:
-                move = {
-                    "action": "pivot" if boundary == "deferred_disposition" else "stop",
-                    "objective": "stop after informative observation",
-                    "trigger_refs": [state.results[-1].ref.model_dump(mode="json")],
-                    "cost_usd": 0,
-                    "stopping_condition": "question answered for this test",
-                }
-            else:
-                move = {
-                    "action": "test",
-                    "objective": "compare",
-                    "hypothesis_id": "hypothesis-001",
-                    "trigger_refs": [origin.model_dump(mode="json")],
-                    "cost_usd": 0,
-                    "stopping_condition": "one test",
-                    "discriminating_outcomes": ["positive", "negative"],
-                    "test_proposal": {
-                        k: v for k, v in payload.items() if k not in {"id", "hypothesis_id"}
-                    },
-                }
-            if state.results and boundary == "admission_refusal":
-                move = {
-                    "action": "test",
-                    "objective": "revisit",
-                    "hypothesis_id": "hypothesis-001",
-                    "test": state.attempts[-1].record.test.model_dump(mode="json"),
-                    "trigger_refs": [state.results[-1].ref.model_dump(mode="json")],
-                    "cost_usd": 0,
-                    "stopping_condition": "another observation",
-                    "discriminating_outcomes": ["positive", "negative"],
-                }
-            return (
-                ToolCall(
-                    "submit",
-                    "submit_moves",
-                    {
-                        "moves": [move],
-                        "omitted": {
-                            "hypothesis-002": "reserve alternative",
-                            "hypothesis-003": "reserve alternative",
-                            **({"hypothesis-001": "answered"} if state.results else {}),
-                        },
-                    },
-                ),
-            )
-        if req.tag == "select_move":
-            if boundary == "decision_refusal" and state.results:
-                return json.dumps({"proposal_id": "unknown", "rationale": "unavailable"})
-            proposal_path = h.run.committed(
-                f"science:proposals:{h.run.artifact_ref('science:snapshot').record_id}"
-            )
-            assert proposal_path is not None
-            proposals = json.loads(proposal_path.read_text())
-            return json.dumps(
-                {"proposal_id": proposals["moves"][0]["id"], "rationale": "sourced information"}
-            )
-        if req.tag.startswith("judge:"):
-            return json.dumps(
-                {
-                    "node_buggy": False,
-                    "goal_met": True,
-                    "node_score": 7,
-                    "analysis": "valid",
-                    "fidelity_status": "consistent",
-                    "fidelity_reason": "requirements match code",
-                    "fidelity_requirements": ["contrast"],
-                    "fidelity_evidence": ["code and output"],
-                }
-            )
-        return (
-            ToolCall(
-                "submit",
-                "submit",
-                {
-                    "code": "import json\njson.dump({'primary_estimate':{'value':1.,'ci':[.5,1.5],'n':2}},open('results.json','w'))\n"
-                    + f"json.dump({payload['primary_estimand']!r},open('estimand.json','w'))\n"
-                    + "json.dump({'seeds':[7],'interval_level':.95,'effect_scale':'points'},open('coverage.json','w'))"
-                },
-            ),
-        )
-
-    h.llm = FakeLLM(respond)
-    interrupted = False
-    original_commit = RunStore.commit_artifact
-    original_write = Journal.write
-
-    def commit(store: RunStore, name: str, path: Path) -> None:
-        nonlocal interrupted
-        original_commit(store, name, path)
-        commit_boundary = (
-            "science:disposition:"
-            if boundary
-            in {
-                "deferred_disposition",
-                "correction_disposition",
-                "admission_refusal",
-                "decision_refusal",
-            }
-            else boundary
-        )
-        if boundary == "challenge_snapshot":
-            commit_boundary = "science:snapshot"
-        if boundary == "challenge_deferral":
-            commit_boundary = "science:disposition:candidate_challenge:"
-        if boundary == "request_subject":
-            commit_boundary = "science:selection:"
-        if boundary == "decision_refusal":
-            commit_boundary = "science:disposition"
-        if name.startswith(commit_boundary) and not interrupted:
-            interrupted = True
-            raise KeyboardInterrupt()
-
-    def write(journal: Journal, event: str, **fields: object) -> None:
-        nonlocal interrupted
-        original_write(journal, event, **fields)
-        if boundary == event and not interrupted:
-            interrupted = True
-            raise KeyboardInterrupt()
-
-    monkeypatch.setattr(RunStore, "commit_artifact", commit)
-    monkeypatch.setattr(Journal, "write", write)
-    with pytest.raises(KeyboardInterrupt):
-        advance_discovery()
-    selections_before_resume = len([r for r in h.llm.calls if r.tag == "select_move"])
-    snapshots_before = sum(name == "science:snapshot" for name, _ in ScienceStore(h.run).commits())
-    output = advance_discovery()
-    assert output.is_file()
-    assert sum(name == "science:candidates:initial" for name, _ in ScienceStore(h.run).commits()) == 1
-    assert sum(r.tag == "candidates" for r in h.llm.calls) == (1 if boundary == "science:candidates:" else 0)
-    if boundary == "challenge_deferral":
-        assert sum(name == "science:snapshot" for name, _ in ScienceStore(h.run).commits()) == snapshots_before
-        assert sum(r.tag == "candidate_challenge" for r in h.llm.calls) == 2
-        assert not rebuild_state(ScienceStore(h.run)).attempts
-        return
-    assert sum(r.tag == "candidate_challenge" for r in h.llm.calls) == 1
-    if boundary == "decision_refusal":
-        assert len([r for r in h.llm.calls if r.tag == "select_move"]) == selections_before_resume
-    if boundary == "correction_disposition":
-        assert len([r for r in h.llm.calls if r.tag == "research_moves"]) == 2
-        assert not rebuild_state(ScienceStore(h.run)).attempts
-        assert not any(r.tag == "select_move" for r in h.llm.calls)
-        return
-    state = rebuild_state(ScienceStore(h.run))
-    assert len(state.attempts) == 1 and len(state.results) == 1
-    assert state.counters["moves"] == 1 and len(state.observations) == 2
-    assert len(state.challenges) == 1 and len(state.interpretations) == 1
-    assert state.challenges[0].record.author == "judge"
-    assert state.challenges[0].record.candidates == h.run.artifact_ref("science:candidates:initial")
-    assert state.interpretations[0].record.author == "theorist"
-    events = read_events(h.run.root)
-    assert (
-        len([e for e in events if e["event"] == "exec_start" and e["purpose"] == "submitted"]) == 2
-    )
-    assert len(
-        [
-            e
-            for e in events
-            if e["event"] == "artifact_commit"
-            and str(e.get("name", "")).startswith("science:selection:")
-        ]
-    ) == (1 if boundary == "decision_refusal" else 2)
-    assert (
-        AttemptResult.model_validate_json(
-            resolve_artifact(h.run, state.results[0].ref).read_text()
-        ).status
-        == "complete"
-    )
-    if boundary == "science:study":
-        output.chmod(0o666)
-        output.write_text(output.read_text("utf-8") + " ", encoding="utf-8")
-        with pytest.raises(ValueError, match="committed science:study artifact was changed"):
-            advance_discovery()
-
-
-def _candidate_set(h: Harness, version: int, reply: dict[str, Any], capacity: int = 3) -> Any:
+def _candidate_set(h: Harness, reply: dict[str, Any], capacity: int = 3) -> Any:
     from popper.scientific.scientist.episode import discovery_step
     from popper.stages.discover.candidates import generate_candidates
 
     saved = h.config.model_dump(mode="json")
     saved["discovery"] = {"hypotheses": capacity}
-    h.run.write_json("run.json", {"format_version": version, "config": saved})
+    h.run.write_json("run.json", {"format_version": 7, "config": saved})
     _committed_discovery_inputs(h)
     science = ScienceStore(h.run)
-    policy = decode_policy(json.loads(h.run.path("run.json").read_text()))
     options = load_options(h.run)
-    request = discovery_step(h, science, resource_view(h, options, rebuild_state(science)), policy, options)
-    assert request is not None and request.kind == "candidates"
+    request = discovery_step(h, science, resource_view(h, options, rebuild_state(science)))
+    assert request.kind == "candidates" and request.subject is not None
     h.llm = FakeLLM(lambda _: json.dumps(reply))
-    return science, generate_candidates(h, science, request.subject, policy)  # type: ignore[arg-type]
+    return science, generate_candidates(h, science, request.subject)
 
 
 def _reply(count: int, **extra: str) -> dict[str, Any]:
@@ -558,32 +225,31 @@ def _reply(count: int, **extra: str) -> dict[str, Any]:
     } for i in range(count)], **extra}
 
 
-def test_idea_evolution_allows_fewer_candidates_with_a_reason(tmp_path: Path) -> None:
+def test_fewer_candidates_are_allowed_with_a_reason(tmp_path: Path) -> None:
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    science, ref = _candidate_set(h, 7, _reply(1, omission="Only one explanation is distinguishable"))
+    science, ref = _candidate_set(h, _reply(1, omission="Only one explanation is distinguishable"))
     record = science.read(ref)
     assert len(record["candidates"]) == 1
     assert record["omission"] == "Only one explanation is distinguishable"
 
 
-@pytest.mark.parametrize(("version", "reply"), [
-    (7, _reply(1)),
-    (7, _reply(1, omission="  ")),
-    (7, _reply(4, omission="Too many")),
-    (6, _reply(2, omission="Fewer is not allowed here")),
+@pytest.mark.parametrize("reply", [
+    _reply(1),
+    _reply(1, omission="  "),
+    _reply(4, omission="Too many"),
 ])
-def test_candidate_count_rules_refuse_unjustified_sets(tmp_path: Path, version: int, reply: dict[str, Any]) -> None:
+def test_candidate_count_rules_refuse_unjustified_sets(tmp_path: Path, reply: dict[str, Any]) -> None:
     from pydantic import ValidationError
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
     with pytest.raises(ValidationError):
-        _candidate_set(h, version, reply)
+        _candidate_set(h, reply)
     assert h.run.committed("science:candidates:initial") is None
 
 
 @pytest.mark.parametrize("capacity", [1, 5])
 def test_configured_capacity_bounds_the_candidate_set(tmp_path: Path, capacity: int) -> None:
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    science, ref = _candidate_set(h, 6, _reply(capacity), capacity)
+    science, ref = _candidate_set(h, _reply(capacity), capacity)
     record = science.read(ref)
     assert len(record["candidates"]) == capacity and "omission" not in record

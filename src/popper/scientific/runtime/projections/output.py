@@ -1,6 +1,5 @@
 """Scientific publication transport derived from committed records."""
 
-import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -9,7 +8,6 @@ from pydantic import Field
 from popper.harness.storage.records import ArtifactRef, IntegrityError, Record, resolve_artifact
 from popper.harness.storage.recovery import load_state
 from popper.harness.storage.store import file_hash
-from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.evidence.outcomes import EvidenceAudit
 from popper.scientific.runtime.evidence.references import MeasurementRef
 from popper.scientific.runtime.lifecycle.contracts import MoveSelection, ResearchMove
@@ -45,7 +43,6 @@ class MeasurementView(Record):
 
 class StudyOutput(Record):
     version: Literal[1] = 1
-    adaptive: bool
     frontier: list[ArtifactRef]
     frame: ArtifactRef | None = None
     foundation: ArtifactRef | None = None
@@ -67,14 +64,13 @@ class StudyOutput(Record):
     selections: list[ArtifactRef] = Field(default_factory=list)
     syntheses: list[dict[str, Any]] = Field(default_factory=list)
     selection_history: list[dict[str, Any]] = Field(default_factory=list)
-    stage_history: list[dict[str, Any]] | None = None
-    pending_work: list[dict[str, Any]] | None = None
+    stage_history: list[dict[str, Any]] = Field(default_factory=list)
+    pending_work: list[dict[str, Any]] = Field(default_factory=list)
     sources: list[ArtifactRef] = Field(default_factory=list)
     audits: list[dict[str, Any]] = Field(default_factory=list)
     validation_standing: Literal["unavailable"] = "unavailable"
     stop_reason: str
     operational_status: Literal["completed", "failed", "budget_exceeded"]
-    historical_evidence: ArtifactRef | None = None
 
 
 def upstream(science: ScienceStore, name: str) -> ArtifactRef | None:
@@ -82,12 +78,8 @@ def upstream(science: ScienceStore, name: str) -> ArtifactRef | None:
 
 
 def episode_summary(science: ScienceStore, state: ResearchState | None = None) -> dict[str, Any]:
-    """Read committed decisions and work without inventing historical stage records."""
+    """Read committed decisions, stage work, ideas and directions."""
     state = state if state is not None else rebuild_state(science)
-    metadata = science.run.path("run.json")
-    policy = decode_policy(json.loads(metadata.read_text("utf-8"))) if metadata.exists() else None
-    stage_aware = policy is not None and policy.stage_aware
-    idea_evolution = policy is not None and policy.idea_evolution
     decisions = []
     sources = list(state.frontier)
     audits = []
@@ -108,11 +100,10 @@ def episode_summary(science: ScienceStore, state: ResearchState | None = None) -
     admissions = {item.ref: item for item in state.stage_admissions}
     for item in state.stage_admissions:
         sources.extend([item.ref, item.record.move, item.record.snapshot, *item.record.inputs])
-    if idea_evolution:
-        for revision in state.ideas:
-            sources.extend([revision.ref, *revision.record.parents, *([revision.record.candidate] if revision.record.candidate else [])])
-        sources.extend(item.ref for item in state.idea_challenges)
-        sources.extend(item.ref for item in state.directions)
+    for revision in state.ideas:
+        sources.extend([revision.ref, *revision.record.parents, *([revision.record.candidate] if revision.record.candidate else [])])
+    sources.extend(item.ref for item in state.idea_challenges)
+    sources.extend(item.ref for item in state.directions)
     checkpoint = load_state(science.run)
     stop_reason = None
     if study_ref := upstream(science, "study"):
@@ -123,11 +114,11 @@ def episode_summary(science: ScienceStore, state: ResearchState | None = None) -
     return {
         "stage_history": [{**item.model_dump(mode="json"),
             "work": admissions[item.record.admission].model_dump(mode="json")}
-            for item in state.stage_history] if stage_aware else None,
-        "pending_work": [item.model_dump(mode="json") for item in state.pending_admissions] if stage_aware else None,
-        "ideas": [item.model_dump(mode="json") for item in state.ideas] if idea_evolution else None,
-        "idea_challenges": [item.model_dump(mode="json") for item in state.idea_challenges] if idea_evolution else None,
-        "directions": [item.model_dump(mode="json") for item in state.directions] if idea_evolution else None,
+            for item in state.stage_history],
+        "pending_work": [item.model_dump(mode="json") for item in state.pending_admissions],
+        "ideas": [item.model_dump(mode="json") for item in state.ideas],
+        "idea_challenges": [item.model_dump(mode="json") for item in state.idea_challenges],
+        "directions": [item.model_dump(mode="json") for item in state.directions],
         "decisions": decisions,
         "sources": [ref.model_dump(mode="json") for ref in dict.fromkeys(sources)],
         "stop_reason": stop_reason,
@@ -144,8 +135,6 @@ def build_study(
     reason: str,
     status: Literal["completed", "failed", "budget_exceeded"] = "completed",
     *,
-    adaptive: bool = True,
-    evidence: ArtifactRef | None = None,
     key: str | None = None,
 ) -> Path:
     state = rebuild_state(science)
@@ -167,7 +156,6 @@ def build_study(
         for m in state.history
     ]
     study = StudyOutput(
-        adaptive=adaptive,
         frontier=state.frontier,
         syntheses=summary["syntheses"],
         audits=summary["audits"],
@@ -217,7 +205,6 @@ def build_study(
         stale_interpretations=state.stale_interpretations,
         stop_reason=reason,
         operational_status=status,
-        historical_evidence=evidence,
     )
     ref = science.commit("study", study, key=key)
     # Public transport name is a pointer to the exact same immutable record.
@@ -251,15 +238,6 @@ def preparation_manifest(science: ScienceStore, preparation: Path) -> ArtifactRe
     )
     science.run.commit_artifact("preparation", path)
     return science.run.artifact_ref("preparation")
-
-
-def partial_study(
-    science: ScienceStore, reason: str, status: Literal["failed", "budget_exceeded"]
-) -> Path | None:
-    metadata = json.loads(science.run.path("run.json").read_text("utf-8"))
-    if not decode_policy(metadata).adaptive:
-        return None
-    return build_study(science, reason, status)
 
 
 def publication_inputs(science: ScienceStore, source: ArtifactRef, kind: str) -> list[ArtifactRef]:

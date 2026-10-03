@@ -144,7 +144,7 @@ def implementation_records(science: ScienceStore, instance: str) -> list[dict[st
     for event in read_events(science.run.root):
         if (
             event["event"] == "node_commit"
-            and event.get("stage_instance", event.get("stage")) == instance
+            and event["stage_instance"] == instance
         ):
             ref = ArtifactRef(
                 path=event["path"],

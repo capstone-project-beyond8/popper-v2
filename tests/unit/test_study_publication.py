@@ -12,8 +12,7 @@ from popper.scientific.runtime.store import ScienceStore
 from popper.stages.communicate.paper import write_study
 
 
-@pytest.mark.parametrize("historical_manifest", [False, True])
-def test_report_numbers_exclude_scratch_results(tmp_path: Path, historical_manifest: bool) -> None:
+def test_report_numbers_exclude_scratch_results(tmp_path: Path) -> None:
     from popper.harness.storage.recovery import Journal
     from popper.harness.storage.store import file_hash
     from popper.scientific.runtime.projections.views import node_ref, record_exploration
@@ -23,15 +22,11 @@ def test_report_numbers_exclude_scratch_results(tmp_path: Path, historical_manif
     config.budget.max_usd = 0
     h = Harness(config, FakeLLM(lambda _: pytest.fail("saved writeup requires no model")), RunStore(tmp_path))
     accepted = h.run.write_json("tree/explore/explore-000/execution/results.json", {"accepted": {"value": 1}})
-    scratch = h.run.write_json("tree/explore/explore-000/scratch/00/results.json", {"scratch_only": {"value": 999}})
+    h.run.write_json("tree/explore/explore-000/scratch/00/results.json", {"scratch_only": {"value": 999}})
     meta = h.run.write_json("tree/explore/explore-000/meta.json", {"id": "explore-000", "status": "ok", "outputs": {accepted.relative_to(tmp_path).as_posix(): file_hash(accepted)}})
     Journal(h.run.path("journal.jsonl")).write("node_commit", stage="explore", node="explore-000", path=meta.relative_to(tmp_path).as_posix(), sha256=file_hash(meta), record_id="node-explore-000")
     science = ScienceStore(h.run)
-    if historical_manifest:
-        manifest = h.run.write_json("old-exploration.json", {"node": "explore-000", "files": {p.relative_to(tmp_path).as_posix(): file_hash(p) for p in (accepted, scratch, meta)}})
-        h.run.commit_artifact("exploration", manifest)
-    else:
-        record_exploration(science, node_ref(science, meta))
+    record_exploration(science, node_ref(science, meta))
     study = build_study(science, "Only accepted exploration is evidence")
     output = StudyOutput.model_validate_json(study.read_bytes())
     prose = diagnostic_writeup(output).model_copy(update={"results": r"Accepted \R{explore.accepted}; scratch \R{explore.scratch_only}."})
@@ -105,7 +100,6 @@ def test_diagnostic_history_text_is_escaped(tmp_path: Path) -> None:
         attempted=False,
     )
     output = StudyOutput(
-        adaptive=True,
         frontier=[],
         candidates=[candidate],
         challenges=[{

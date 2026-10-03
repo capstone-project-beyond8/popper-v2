@@ -60,20 +60,13 @@ def test_alternatives_require_procedure_patch_objects(alternatives: Any) -> None
         ScientificTest.model_validate(payload)
 
 
-def test_components_default_and_legacy_records() -> None:
-    every = ["baseline", "main", "robustness"]
-    assert ScientificTest.model_validate(spec_payload()).components == every
-    legacy = ScientificTest.model_validate({**spec_payload(), "version": 1})
-    assert legacy.components == every
-    assert ScientificTest.model_validate({**spec_payload(), "components": ["main"]}).version == 2
-
-
-@pytest.mark.parametrize(("version", "components"), [
-    (1, ["main"]),
-    (2, ["baseline", "robustness"]),
-    (2, []),
-    (2, ["main", "main"]),
-])
-def test_components_must_include_main_once_and_match_legacy_version(version: int, components: list[str]) -> None:
+def test_components_default_to_every_component() -> None:
+    assert ScientificTest.model_validate(spec_payload()).components == ["baseline", "main", "robustness"]
     with pytest.raises(ValidationError):
-        ScientificTest.model_validate({**spec_payload(), "version": version, "components": components})
+        ScientificTest.model_validate({**spec_payload(), "version": 1})
+
+
+@pytest.mark.parametrize("components", [["baseline", "robustness"], [], ["main", "main"]])
+def test_components_must_include_main_once(components: list[str]) -> None:
+    with pytest.raises(ValidationError):
+        ScientificTest.model_validate({**spec_payload(), "components": components})

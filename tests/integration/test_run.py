@@ -83,21 +83,6 @@ WRITEUP = {
     ],
 }
 FEEDBACK = {"node_buggy": False, "goal_met": True, "node_score": 7, "analysis": "ok"}
-ROBUSTNESS = {
-    "attempts": [
-        {
-            "id": f"choice-{i}",
-            "kind": "adversarial" if dim == "adversarial" else "variant",
-            "dimension": dim,
-            "choice": "permutation" if dim == "adversarial" else f"alternative {i}",
-            "result_key": "placebo_estimate" if dim == "adversarial" else "primary_estimate",
-            "seed": 7,
-            **({"population": "students with high attendance"} if dim == "subgroup" else {}),
-        }
-        for i, dim in enumerate(("cleaning", "model", "subgroup", "resampling", "adversarial"))
-    ],
-    "inapplicable": {},
-}
 
 DATA = """
 import json, os
@@ -268,20 +253,6 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     if tag.startswith("analyst:"):
         if "hypothesis-" in tag:
             return _submit(EXPERIMENT + "\njson.dump({'seeds':[0], 'interval_level':.95, 'effect_scale':'exam score points'},open('coverage.json','w'))")
-        if tag == "analyst:robustness":
-            choice = next(
-                item for item in ROBUSTNESS["attempts"] if f": {item['choice']}. " in req.prompt
-            )
-            estimand: dict[str, Any] = dict(cast(dict[str, Any], HYPOTHESIS["primary_estimand"]))
-            estimand.update({k: choice[k] for k in ("population",) if k in choice})
-            code = EXPERIMENT.replace(repr(HYPOTHESIS["primary_estimand"]), repr(estimand))
-            if choice["kind"] == "adversarial":
-                code = code.replace('"primary_estimate"', '"placebo_estimate"')
-                code = code.replace(
-                    "x, y =",
-                    "hours = np.random.default_rng(7).permutation(hours)\nx, y =",
-                )
-            return _submit(code)
         return _submit(EXPLORE if tag == "analyst:explore" else EXPERIMENT)
     if tag.startswith("judge:"):
         return json.dumps({**FEEDBACK, **({"fidelity_status": "consistent", "fidelity_reason": "Declared log contrast implemented with resampling", "fidelity_requirements": ["contrast", "interval"], "fidelity_evidence": ["code: bootstrap", "output: contrast"]} if "hypothesis-" in tag else {})})
@@ -290,9 +261,7 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         names, _ = json.JSONDecoder().raw_decode(number_section.split("<untrusted>\n", 1)[1])
         key = next(k for k in names if ".main.primary_estimate" in k and not k.endswith((".ci", ".n")))
         return json.dumps({**WRITEUP, "results": rf"Contrast \R{{{key}}} and unknown \R{{main.nope}}.", "figures": []})
-    return json.dumps(
-        {"hypothesis": HYPOTHESIS, "writeup": WRITEUP, "robustness_plan": ROBUSTNESS}[tag]
-    )
+    return json.dumps(WRITEUP)
 
 
 def _config() -> Config:

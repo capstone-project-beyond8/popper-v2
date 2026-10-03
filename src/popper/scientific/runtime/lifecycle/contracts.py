@@ -239,16 +239,10 @@ class TestProposal(Record):
 
 
 class ExperimentSpec(TestProposal):
-    version: Literal[1, 2] = 2
+    version: Literal[2] = 2
     id: Text
     hypothesis_id: Text
     parent_test: ArtifactRef | None = None
-
-    @model_validator(mode="after")
-    def legacy_components(self) -> Self:
-        if self.version == 1 and set(self.components) != {"baseline", "main", "robustness"}:
-            raise ValueError("version 1 tests always declare every component")
-        return self
 
 
 def classify_change(
@@ -432,7 +426,6 @@ class RunResources(Record):
     max_reframes: int
     available_routes: frozenset[str]
     eligible_hypotheses: frozenset[str]
-    idea_evolution: bool = False
     idea_rounds: int = 0
     max_idea_rounds: int = 3
 
@@ -446,7 +439,7 @@ class Program(Record):
 class Run(Record):
     id: Text
     program_id: Text
-    format_version: Literal[4, 5, 6, 7]
+    format_version: Literal[7]
     inputs: ArtifactRef
     initial_intent: ArtifactRef
     auto: bool

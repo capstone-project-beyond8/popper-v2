@@ -1,9 +1,6 @@
 """Current operational resource admission, independent of saved scientific snapshots."""
 
-import json
-
 from popper.harness.session import BudgetExceeded, Harness
-from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.lifecycle.contracts import (
     NON_EMPIRICAL_ACTIONS,
     PREREQUISITE_ACTIONS,
@@ -33,9 +30,6 @@ def _candidate_limit_reason(state: ResearchState, hypothesis_id: str, max_moves:
 
 
 def resource_view(h: Harness, options: ScientificOptions, state: ResearchState) -> RunResources:
-    policy = decode_policy(json.loads(h.run.path("run.json").read_text("utf-8"))) if h.run.path("run.json").exists() else None
-    stage_aware = policy is None or policy.stage_aware
-    idea_evolution = policy is not None and policy.idea_evolution
     science = ScienceStore(h.run)
     return RunResources(
         spent_usd=h.spent_usd,
@@ -44,13 +38,13 @@ def resource_view(h: Harness, options: ScientificOptions, state: ResearchState) 
         max_revisits=options.discovery.max_revisits,
         max_reframes=options.understand.max_reframes,
         available_routes=frozenset(
-            {"test", "refine", "technical_repair", "measurement_repair", "stop"}
-            | ({"audit", "synthesize", "communicate"} if stage_aware else set())
-            | ({"evolve", "direct"} if idea_evolution else set())
+            {
+                "test", "refine", "technical_repair", "measurement_repair", "stop",
+                "audit", "synthesize", "communicate", "evolve", "direct",
+            }
         ),
         eligible_hypotheses=frozenset(eligible_candidates(state, options.discovery)),
-        idea_evolution=idea_evolution,
-        idea_rounds=sum(science.read(a.record.move)["action"] == "evolve" for a in state.stage_admissions) if idea_evolution else 0,
+        idea_rounds=sum(science.read(a.record.move)["action"] == "evolve" for a in state.stage_admissions),
         max_idea_rounds=options.discovery.max_idea_rounds,
     )
 

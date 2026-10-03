@@ -25,9 +25,6 @@ data:
   holdout_fraction: 0.2
   split_seed: 7
   group_column: null
-robustness:
-  stability_share: 0.8
-  min_variants: 3
 understand:
   max_turns: 30          # model turns for the theorist framing session
   max_submits: 3         # rejected framing submits before the session fails

@@ -1,4 +1,4 @@
-"""Scientific candidate and historical hypothesis generation."""
+"""Scientific candidate generation."""
 
 import json
 from dataclasses import dataclass
@@ -11,8 +11,7 @@ from pydantic import Field, ValidationInfo, model_validator
 from popper.harness.context.prompts import load_prompt
 from popper.harness.context.rendering import ARTIFACT_CHARS, part
 from popper.harness.session import Harness
-from popper.harness.storage.records import ArtifactRef, Record, resolve_artifact
-from popper.scientific.runtime.compatibility import Hypothesis, HypothesisProposal, StudyPolicy
+from popper.harness.storage.records import ArtifactRef, Record
 from popper.scientific.runtime.context import frame_context, research_notes
 from popper.scientific.runtime.data.descriptive import read_table
 from popper.scientific.runtime.data.research import ResearchContext
@@ -24,6 +23,7 @@ from popper.scientific.runtime.projections.views import (
     reviewed_frame,
     validate_intent_inputs,
 )
+from popper.scientific.runtime.settings import load_options
 from popper.scientific.runtime.store import ScienceStore
 from popper.scientific.runtime.warnings import hypothesis_warnings
 
@@ -37,59 +37,6 @@ class CandidateContext:
     raw_columns: list[str]
 
 
-def propose_hypothesis(
-    h: Harness, science: ScienceStore, exploration: ArtifactRef
-) -> dict[str, Any]:
-    resolve_artifact(h.run, exploration)
-    reviewed, prepared = reviewed_frame(science), foundation_view(science)
-    context = CandidateContext(
-        reviewed.research, reviewed.framing, prepared.facts,
-        exploration_view(science, exploration), list(read_table(h.run.path("data/raw.csv")).columns),
-    )
-    research, framing, foundation = context.research, context.framing, context.foundation
-    best, raw_columns = context.exploration, context.raw_columns
-    committed = h.run.committed("hypothesis")
-    if committed:
-        result: dict[str, Any] = json.loads(committed.read_text("utf-8"))[0]
-        return result
-    processed = pd.read_parquet(h.run.path("data", "processed.parquet"))
-    context_part = partial(part, journal=h.journal, tag="hypothesis")
-    hypothesis = h.ask_model(
-        "theorist",
-        schema=HypothesisProposal,
-        tag="hypothesis",
-        system="You are a careful research scientist.",
-        prompt=load_prompt(
-            "popper.stages.discover",
-            "hypothesis.md",
-            framing=frame_context("hypothesis", h.journal, research, framing, foundation),
-            notes=research_notes(h.journal, research, "hypothesis"),
-            results=context_part(
-                "Exploration results",
-                json.dumps(best.results, indent=2),
-                ARTIFACT_CHARS,
-                untrusted=True,
-            ),
-            analysis=context_part(
-                "Analysis of the exploration", best.analysis, ARTIFACT_CHARS, untrusted=True
-            ),
-            figures="\n".join(f"- {f}" for f in best.figures),
-        ),
-        validation_context={"columns": processed.columns.tolist()},
-    )
-    result = Hypothesis(
-        **hypothesis.model_dump(), id="hypothesis-001", source_nodes=[best.id], supplied_by="agent"
-    ).model_dump(mode="json")
-    attempt = h.run.new_attempt("hypotheses").relative_to(h.run.root).as_posix()
-    warnings = hypothesis_warnings(
-        result, research, foundation["operationalization"], processed, raw_columns
-    )
-    h.run.write_json(f"{attempt}/warnings.json", warnings)
-    path = h.run.write_json(f"{attempt}/hypotheses.json", [result])
-    h.run.commit_artifact("hypothesis", path)
-    return result
-
-
 class CandidateSetProposal(Record):
     candidates: list[CandidateProposal] = Field(min_length=1)
     omission: str | None = None
@@ -98,10 +45,7 @@ class CandidateSetProposal(Record):
     def configured_count(self, info: ValidationInfo) -> "CandidateSetProposal":
         context = info.context or {}
         count = context.get("count", 3)
-        if not context.get("idea_evolution"):
-            if len(self.candidates) != count:
-                raise ValueError("candidate set must contain exactly the configured count")
-        elif len(self.candidates) > count:
+        if len(self.candidates) > count:
             raise ValueError("candidate set exceeds the configured count")
         elif len(self.candidates) < count and not (self.omission and self.omission.strip()):
             raise ValueError("fewer candidates than the configured count need a non-empty omission reason")
@@ -137,8 +81,9 @@ def candidate_warnings(item: CandidateProposal, context: CandidateContext, proce
 
 
 def generate_candidates(
-    h: Harness, science: ScienceStore, source: ArtifactRef, policy: StudyPolicy, *, admission: ArtifactRef | None = None
+    h: Harness, science: ScienceStore, source: ArtifactRef, *, admission: ArtifactRef | None = None
 ) -> ArtifactRef:
+    count = load_options(h.run).discovery.hypotheses
     context, refs = intent_context(h, science, source)
     research, framing, foundation, best = context.research, context.framing, context.foundation, context.exploration
     if h.run.committed("science:candidates:initial"):
@@ -154,11 +99,7 @@ def generate_candidates(
         system="You are a careful research scientist.",
         prompt=load_prompt(
             "popper.stages.discover", "candidates.md",
-            count=str(policy.hypothesis_count),
-            allowance=(
-                " Fewer are allowed (at least one) only with an omission string stating why fewer are justified."
-                if policy.idea_evolution else ""
-            ),
+            count=str(count),
             framing=frame_context("candidates", h.journal, research, dict(framing), dict(foundation)),
             notes=research_notes(h.journal, research, "hypothesis"),
             results=context_part("Exploration results", json.dumps(best.results), ARTIFACT_CHARS, untrusted=True),
@@ -166,8 +107,7 @@ def generate_candidates(
         ),
         validation_context={
             "columns": processed.columns.tolist(),
-            "count": policy.hypothesis_count,
-            "idea_evolution": policy.idea_evolution,
+            "count": count,
         },
     )
     candidates = []
@@ -182,5 +122,5 @@ def generate_candidates(
                 warnings=warnings,
             ).model_dump(mode="json")
         )
-    omission = {"omission": proposal.omission} if len(candidates) < policy.hypothesis_count else {}
+    omission = {"omission": proposal.omission} if len(candidates) < count else {}
     return science.commit("candidates", {"version": 1, "candidates": candidates, **omission, **({"admission": admission.model_dump(mode="json")} if admission else {})}, key="initial")

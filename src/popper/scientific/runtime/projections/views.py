@@ -1,4 +1,4 @@
-"""Scientific views and explicit capture of historical receipts."""
+"""Scientific views over committed records."""
 
 import json
 from dataclasses import dataclass
@@ -63,40 +63,8 @@ def node_ref(science: ScienceStore, path: Path) -> ArtifactRef:
     event = next(
         e
         for e in reversed(read_events(science.run.root))
-        if e["event"] == "node_commit"
-        and (
-            e.get("path") == relative
-            or "path" not in e
-            and e.get("node") == path.parent.name
-            and e.get("stage_instance", e.get("stage")) == path.parent.parent.name
-        )
+        if e["event"] == "node_commit" and e["path"] == relative
     )
-    if "path" not in event:
-        name = f"historical:node:{path.parent.parent.name}:{path.parent.name}"
-        if science.run.committed(name) is None:
-            folder = science.run.new_attempt("inputs/historical")
-            manifest = science.run.write_json(
-                f"{folder.relative_to(science.run.root).as_posix()}/manifest.json",
-                {
-                    "files": {
-                        p.relative_to(science.run.root).as_posix(): file_hash(p)
-                        for p in path.parent.rglob("*")
-                        if p.is_file()
-                    }
-                },
-            )
-            science.run.commit_artifact(name, manifest)
-        backing = science.run.artifact_ref(name)
-        digest = science.read(backing)["files"][relative]
-        ref = ArtifactRef(
-            path=relative,
-            sha256=digest,
-            producer=backing.producer,
-            record_id=backing.record_id,
-            backing=backing,
-        )
-        resolve_artifact(science.run, ref)
-        return ref
     ref = ArtifactRef(
         path=relative, sha256=event["sha256"], producer="node", record_id=event["record_id"]
     )
@@ -110,7 +78,7 @@ def stage_outcome(science: ScienceStore, stage: str) -> ArtifactRef | None:
         (
             e
             for e in reversed(events)
-            if e["event"] == "stage_end" and e.get("stage_instance", e.get("stage")) == stage
+            if e["event"] == "stage_end" and e["stage_instance"] == stage
         ),
         None,
     )
@@ -123,8 +91,6 @@ def node_results(science: ScienceStore, ref: ArtifactRef) -> dict[str, Any]:
     metadata = science.read(ref)
     path = (Path(ref.path).parent / "execution" / "results.json").as_posix()
     expected = metadata.get("outputs", {}).get(path)
-    if expected is None and ref.producer.startswith("historical:node:") and ref.backing:
-        expected = science.read(ref.backing)["files"].get(path)
     if expected is None:
         raise IntegrityError("node has no committed results")
     result = ArtifactRef(
@@ -132,7 +98,7 @@ def node_results(science: ScienceStore, ref: ArtifactRef) -> dict[str, Any]:
         sha256=expected,
         producer=ref.producer,
         record_id=ref.record_id,
-        backing=ref.backing if ref.producer.startswith("historical:node:") else ref,
+        backing=ref,
     )
     return science.read(result)
 

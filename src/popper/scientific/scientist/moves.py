@@ -76,7 +76,7 @@ def propose_moves(
             raise ValueError(
                 f"omitted eligible candidates need attributed reasons: {sorted(missing)}"
             )
-        if resources.idea_evolution and state.directions:
+        if state.directions:
             latest = state.directions[-1].ref
             for move in proposal.moves:
                 if move.action != "stop" and (move.direction != latest or not move.contribution):

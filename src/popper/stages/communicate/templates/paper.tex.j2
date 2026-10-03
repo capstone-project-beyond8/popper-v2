@@ -53,7 +53,6 @@ Concept & Columns & Proxy strength \\
 \VAR{sections.exploratory}
 \subsection{Main}
 \VAR{sections.main}
-\BLOCK{if adaptive}
 \paragraph{Candidates and retained history}
 \BLOCK{for c in study.candidates}
 \noindent \VAR{c.id}: \VAR{c.statement}.
@@ -124,7 +123,6 @@ interval overlap \VAR{comparison.intervals_overlap}.
 \BLOCK{for d in study.dispositions}
 \noindent \VAR{d.record.kind}: \VAR{d.record.reason}.
 \BLOCK{endfor}
-\BLOCK{endif}
 {\small
 \begin{longtable}{p{.18\textwidth}p{.18\textwidth}lrrr}
 \hline
@@ -137,32 +135,13 @@ Attempt & Specification & Kind & Estimate & Interval & $n$ \\
 \end{longtable}
 }
 \subsection{Robustness}
-\BLOCK{if not adaptive}
-\noindent Computed stability: \textbf{\VAR{stability}}. Standing remains exploratory.
-\R{summary.supporting_count} of \R{summary.variant_count} planned ordinary variants support the main sign
-with intervals excluding zero (share \R{summary.supporting_share}); \R{summary.adversarial_count} adversarial checks.
-\BLOCK{for reason in reasons}
-\noindent \VAR{reason}
-\BLOCK{endfor}
-\BLOCK{endif}
 \VAR{sections.robustness}
-\BLOCK{if failures}
-\paragraph{Incomplete attempts}
-\BLOCK{for failure in failures}
-\noindent \VAR{failure}.
-\BLOCK{endfor}
-\BLOCK{endif}
 \section{Discussion}
 \VAR{w.discussion}
 \noindent This analysis followed adaptive exploration on discovery data. Rows reserved at ingest were
 never passed to analysis code as inputs, and they are not evidence of verification. Subgroup analyses concern their declared
-\BLOCK{if not adaptive}
-restricted populations. Failed and missing specification attempts remain non-supporting; a single
-exposure permutation is a diagnostic, not a calibrated permutation significance test.
-\BLOCK{else}
 operational selections; the substantive target is retained with explicit assumptions. Incomplete
 coverage and unresolved fidelity are unavailable evidence, rather than scientific non-support.
-\BLOCK{endif}
 \subsection{Limitations}
 \begin{itemize}
 \BLOCK{for item in limitations}
@@ -171,9 +150,6 @@ coverage and unresolved fidelity are unavailable evidence, rather than scientifi
 \end{itemize}
 \section{Conclusion}
 \VAR{w.conclusion}
-\BLOCK{if not adaptive}
-\noindent Computed stability is \VAR{stability}; this study remains exploratory.
-\BLOCK{endif}
 \appendix
 \section{Experiment code}
 \BLOCK{for node in experiment_nodes}

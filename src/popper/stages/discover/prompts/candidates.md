@@ -1,4 +1,4 @@
-Generate exactly {count} distinct, testable candidate hypotheses within the reviewed research frame.{allowance}
+Generate exactly {count} distinct, testable candidate hypotheses within the reviewed research frame. Fewer are allowed (at least one) only with an omission string stating why fewer are justified.
 These are discovery-informed conjectures for further testing, not established findings or independently validated claims.
 
 {framing}

@@ -65,17 +65,3 @@ def test_measurement_requires_exact_accepted_node(tmp_path: Path) -> None:
     meta.write_text(json.dumps(metadata))
     with pytest.raises(ValueError):
         resolve_measurement(store, ref)
-
-
-def test_independently_encoded_historical_artifact_reference(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
-    source = store.write_json("old.json", {"statement": "historical"})
-    store.write_text("journal.jsonl", json.dumps({"event": "artifact_commit", "name": "hypothesis", "path": "old.json", "sha256": file_hash(source)}) + "\n")
-    before = source.read_bytes()
-    assert resolve_artifact(store, store.artifact_ref("hypothesis")) == source
-    from popper.scientific.runtime.projections.views import latest
-    from popper.scientific.runtime.store import ScienceStore
-    science = ScienceStore(store)
-    assert science.commits() == [("hypothesis", store.artifact_ref("hypothesis"))]
-    assert latest(science, "hypothesis") == "hypothesis"
-    assert source.read_bytes() == before

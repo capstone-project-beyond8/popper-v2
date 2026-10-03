@@ -50,12 +50,12 @@ def resolve_artifact(store: "RunStore", ref: ArtifactRef) -> Path:
     else:
         matches = [
             e
-            for index, e in enumerate(read_events(store.root))
+            for e in read_events(store.root)
             if e["event"] in {"artifact_commit", "node_commit"}
             and e.get("path") == ref.path
             and e.get("sha256") == ref.sha256
-            and e.get("record_id", f"historical-{index:06d}") == ref.record_id
-            and e.get("producer", e.get("name", "node")) == ref.producer
+            and e.get("record_id") == ref.record_id
+            and e.get("producer", "node") == ref.producer
         ]
         if not matches:
             raise IntegrityError("artifact has no exact committed producer backing")

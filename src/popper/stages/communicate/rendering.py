@@ -9,9 +9,6 @@ from jinja2 import Environment, PackageLoader
 
 from popper.harness.session import Harness
 from popper.stages.communicate import compiler
-from popper.stages.communicate.evidence import (
-    artifact_path,
-)
 from popper.stages.communicate.numbers import (
     explain_missing,
     fill_numbers,
@@ -54,6 +51,17 @@ _PRIMITIVES = re.compile(
     r"\\(?:input|include|InputIfFileExists|openin|openout|read|write|immediate|verbatiminput"
     r"|lstinputlisting|catcode|csname|def|let|newcommand|renewcommand)(?![A-Za-z])"
 )
+
+
+def artifact_path(root: Path, reference: str) -> Path:
+    path = (root / reference).resolve()
+    if (
+        Path(reference).is_absolute()
+        or not path.is_relative_to(root.resolve())
+        or not path.is_file()
+    ):
+        raise ValueError(f"invalid evidence reference: {reference}")
+    return path
 
 
 def _known_figure(ref: FigureRef, nodes: list[Node]) -> Node | None:
@@ -172,7 +180,7 @@ def _render_report(
     changes: list[dict[str, Any]],
     nodes: list[Node],
     rows: list[dict[str, Any]],
-    manifest: dict[str, Any],
+    study: dict[str, Any],
     figures: list[dict[str, str]],
     values: dict[str, Any],
     limitations: list[str],
@@ -189,105 +197,90 @@ def _render_report(
         name: _section_content(text, [f for f in figures if f["section"] == name])
         for name, text in sections.items()
     }
-    failures = [
-        f"{n['id']}: no successful committed evaluation"
-        for n in manifest["nodes"]
-        if n["status"] != "ok"
-    ]
-    failures += [
-        f"{a['id']}: no successful specification result"
-        for a in manifest["specifications"]
-        if a["node"] is None
-    ]
-    study = manifest.get("study")
-    if study:
-        study = {
-            **study,
-            "stop_reason": latex_escape(study["stop_reason"]),
-            "candidates": [
-                {**c, "id": latex_escape(c["id"]), "statement": latex_escape(c["statement"])}
-                for c in study["candidates"]
-            ],
-            "attempt_history": [
-                {
-                    **a,
-                    "id": latex_escape(a["id"]),
-                    "hypothesis_id": latex_escape(a["hypothesis_id"]),
-                }
-                for a in study["attempt_history"]
-            ],
-            "diagnoses": [
-                {**d, "record": {**d["record"], "reason": latex_escape(d["record"]["reason"])}}
-                for d in study["diagnoses"]
-            ],
-            "dispositions": [
-                {**d, "record": {**d["record"], "reason": latex_escape(d["record"]["reason"])}}
-                for d in study["dispositions"]
-            ],
-            "selection_history": [
-                {
-                    **s,
-                    "rationale": latex_escape(s["rationale"]),
-                    "proposal_id": latex_escape(s["proposal_id"]),
-                }
-                for s in study["selection_history"]
-            ],
-            "measurement_history": [
-                {
-                    **m,
-                    "support": latex_escape(m["support"]),
-                    "fidelity_reason": latex_escape(m["fidelity_reason"]),
-                    "ref": {**m["ref"], "test_id": latex_escape(m["ref"]["test_id"])},
-                }
-                for m in study["measurement_history"]
-            ],
-            "challenges": [
-                {
-                    **c,
-                    "record": {
-                        **c["record"],
-                        "author": latex_escape(c["record"]["author"]),
-                        "assessments": [
-                            {
-                                **a,
-                                "hypothesis_id": latex_escape(a["hypothesis_id"]),
-                                "assessment": latex_escape(a["assessment"]),
-                                **{
-                                    key: [latex_escape(text) for text in a[key]]
-                                    for key in ("concerns", "rivals", "discriminating_checks")
-                                },
-                            }
-                            for a in c["record"]["assessments"]
-                        ],
+    study = {
+        **study,
+        "stop_reason": latex_escape(study["stop_reason"]),
+        "candidates": [
+            {**c, "id": latex_escape(c["id"]), "statement": latex_escape(c["statement"])}
+            for c in study["candidates"]
+        ],
+        "attempt_history": [
+            {
+                **a,
+                "id": latex_escape(a["id"]),
+                "hypothesis_id": latex_escape(a["hypothesis_id"]),
+            }
+            for a in study["attempt_history"]
+        ],
+        "diagnoses": [
+            {**d, "record": {**d["record"], "reason": latex_escape(d["record"]["reason"])}}
+            for d in study["diagnoses"]
+        ],
+        "dispositions": [
+            {**d, "record": {**d["record"], "reason": latex_escape(d["record"]["reason"])}}
+            for d in study["dispositions"]
+        ],
+        "selection_history": [
+            {
+                **s,
+                "rationale": latex_escape(s["rationale"]),
+                "proposal_id": latex_escape(s["proposal_id"]),
+            }
+            for s in study["selection_history"]
+        ],
+        "measurement_history": [
+            {
+                **m,
+                "support": latex_escape(m["support"]),
+                "fidelity_reason": latex_escape(m["fidelity_reason"]),
+                "ref": {**m["ref"], "test_id": latex_escape(m["ref"]["test_id"])},
+            }
+            for m in study["measurement_history"]
+        ],
+        "challenges": [
+            {
+                **c,
+                "record": {
+                    **c["record"],
+                    "author": latex_escape(c["record"]["author"]),
+                    "assessments": [
+                        {
+                            **a,
+                            "hypothesis_id": latex_escape(a["hypothesis_id"]),
+                            "assessment": latex_escape(a["assessment"]),
+                            **{
+                                key: [latex_escape(text) for text in a[key]]
+                                for key in ("concerns", "rivals", "discriminating_checks")
+                            },
+                        }
+                        for a in c["record"]["assessments"]
+                    ],
+                },
+            }
+            for c in study.get("challenges", [])
+        ],
+        "interpretations": [
+            {
+                **i,
+                "stale": i["ref"] in study.get("stale_interpretations", []),
+                "record": {
+                    **i["record"],
+                    **{
+                        key: latex_escape(i["record"][key])
+                        for key in ("author", "hypothesis_id", "summary")
                     },
-                }
-                for c in study.get("challenges", [])
-            ],
-            "interpretations": [
-                {
-                    **i,
-                    "stale": i["ref"] in study.get("stale_interpretations", []),
-                    "record": {
-                        **i["record"],
-                        **{
-                            key: latex_escape(i["record"][key])
-                            for key in ("author", "hypothesis_id", "summary")
-                        },
-                        **{
-                            key: [latex_escape(text) for text in i["record"][key]]
-                            for key in ("rivals", "limitations", "questions")
-                        },
+                    **{
+                        key: [latex_escape(text) for text in i["record"][key]]
+                        for key in ("rivals", "limitations", "questions")
                     },
-                }
-                for i in study.get("interpretations", [])
-            ],
-        }
+                },
+            }
+            for i in study.get("interpretations", [])
+        ],
+    }
     tex = _ENV.get_template("paper.tex.j2").render(
         w=w,
         sections=sections,
-        stability=manifest["stability"],
-        reasons=[latex_escape(r) for r in manifest["reasons"]],
-        failures=[latex_escape(f) for f in failures],
         rows=[
             {
                 **row,
@@ -316,7 +309,6 @@ def _render_report(
         limitations=[latex_escape(item) for item in limitations],
         steered=steered,
         experiment_nodes=[n for n in nodes if n.stage in _CODE_STAGES and n.status == "ok"],
-        adaptive=manifest.get("adaptive", False),
         study=study,
     )
     return fill_numbers(tex, values)

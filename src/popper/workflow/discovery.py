@@ -1,10 +1,7 @@
 """Dispatch admitted experiment requests to the execution capability."""
 
-import json
-
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.storage.records import IntegrityError, resolve_artifact
-from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.data.research import render_fields
 from popper.scientific.runtime.lifecycle.contracts import Attempt
 from popper.scientific.runtime.lifecycle.requests import CapabilityRequest, ExperimentRequest
@@ -23,7 +20,7 @@ from popper.scientific.runtime.projections.views import (
 from popper.scientific.runtime.settings import load_options
 from popper.scientific.runtime.store import ScienceStore
 from popper.scientific.scientist.episode import unavailable
-from popper.stages.discover.candidates import generate_candidates, propose_hypothesis
+from popper.stages.discover.candidates import generate_candidates
 from popper.stages.discover.challenge import challenge_candidates
 from popper.stages.discover.experiment import experiment
 from popper.workflow.resources import admit_move, resource_view
@@ -35,43 +32,22 @@ def dispatch_discovery(h: Harness, request: CapabilityRequest) -> CapabilityRequ
     science = ScienceStore(h.run)
     assert request.subject is not None
     resolve_artifact(h.run, request.subject)
-    if request.schedule:
-        resolve_artifact(h.run, request.schedule)
-    if request.strategy == "adaptive":
-        if h.run.committed("science:intent:initial") is None:
-            raise IntegrityError("adaptive dispatch requires a committed intent")
-        intent = h.run.artifact_ref("science:intent:initial")
-        validate_intent_inputs(science, intent)
-        if request.kind == "candidates" and request.subject != intent:
-            raise IntegrityError("candidate request subject differs from committed intent")
+    if h.run.committed("science:intent:initial") is None:
+        raise IntegrityError("discovery dispatch requires a committed intent")
+    intent = h.run.artifact_ref("science:intent:initial")
+    validate_intent_inputs(science, intent)
+    if request.kind == "candidates" and request.subject != intent:
+        raise IntegrityError("candidate request subject differs from committed intent")
     if request.kind == "candidates":
-        if request.strategy == "historical":
-            propose_hypothesis(h, science, request.subject)
-        else:
-            policy = decode_policy(json.loads(h.run.path("run.json").read_text("utf-8")))
-            output = generate_candidates(h, science, request.subject, policy, admission=request.admission)
-            if request.admission:
-                bind_stage_output(science, request.admission, [output])
+        output = generate_candidates(h, science, request.subject, admission=request.admission)
+        if request.admission:
+            bind_stage_output(science, request.admission, [output])
         return None
     if request.kind == "challenge":
         assert request.snapshot is not None
         challenge_output = challenge_candidates(h, science, request.subject, request.snapshot, admission=request.admission)
         if challenge_output and request.admission:
             bind_stage_output(science, request.admission, [challenge_output])
-        return None
-    if request.strategy == "historical":
-        frame, prepared = reviewed_frame(science), foundation_view(science)
-        hypothesis = json.loads(h.run.path(request.subject.path).read_text("utf-8"))[0]
-        experiment(
-            h,
-            frame.framing,
-            hypothesis,
-            prepared.preparation,
-            frame.research.notes.get("experiment", ""),
-            render_fields(frame.research, "design"),
-            plan=h.run.path(request.schedule.path) if request.schedule else None,
-            implementation_only=request.implementation_only,
-        )
         return None
     state = rebuild_state(science)
     subject = request.subject

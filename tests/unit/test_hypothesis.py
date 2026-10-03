@@ -6,7 +6,6 @@ import pytest
 
 from popper.config import load_config
 from popper.harness.config import Search
-from popper.scientific.runtime.compatibility import HypothesisProposal
 from popper.scientific.runtime.lifecycle.execution import check_estimate
 
 ESTIMAND = {
@@ -26,22 +25,6 @@ PROPOSAL = {
     "planned_test": "linear regression with bootstrap CI",
     "methods": ["linear_regression", "bootstrap"],
 }
-
-
-@pytest.mark.parametrize("field", ["statement", "refuting_result", "planned_test"])
-def test_empty_hypothesis_field_is_rejected(field: str) -> None:
-    with pytest.raises(ValueError):
-        HypothesisProposal.model_validate({**PROPOSAL, field: " "})
-
-
-def test_hypothesis_has_one_primary_and_code_owned_attribution() -> None:
-    for change in (
-        {"primary_estimand": [ESTIMAND, ESTIMAND]},
-        {"expected_direction": "unknown"},
-        {"supplied_by": "researcher"},
-    ):
-        with pytest.raises(ValueError):
-            HypothesisProposal.model_validate({**PROPOSAL, **change})
 
 
 @pytest.mark.parametrize(
@@ -87,18 +70,6 @@ def test_stage_budget_validation_and_fallback() -> None:
     for value in ({"unknown": 2}, {"main": 0}):
         with pytest.raises(ValueError):
             Search.model_validate({**cfg.search.model_dump(), "stage_steps": value})
-
-
-def test_roles_must_be_distinct_processed_columns() -> None:
-    context = {"columns": ["hours", "score"]}
-    assert HypothesisProposal.model_validate(PROPOSAL, context=context)
-    unknown = {**PROPOSAL, "primary_estimand": {**ESTIMAND, "exposure": "study_time"}}
-    with pytest.raises(ValueError, match=r"study_time.*Available columns: hours, score"):
-        HypothesisProposal.model_validate(unknown, context=context)
-    same = {**PROPOSAL, "primary_estimand": {**ESTIMAND, "exposure": "score"}}
-    for ctx in (context, None):
-        with pytest.raises(ValueError, match="different columns"):
-            HypothesisProposal.model_validate(same, context=ctx)
 
 
 def test_discovery_request_subject_and_snapshot_invariants() -> None:

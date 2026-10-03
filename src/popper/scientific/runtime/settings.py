@@ -17,11 +17,6 @@ class DataConfig(_Strict):
     group_column: str | None = None
 
 
-class Robustness(_Strict):
-    stability_share: float = Field(default=0.8, gt=0, le=1)
-    min_variants: int = Field(default=3, ge=3)
-
-
 class Understand(_Strict):
     max_turns: int = Field(default=30, ge=1)
     max_submits: int = Field(default=3, ge=1)
@@ -43,7 +38,6 @@ class Discovery(_Strict):
 
 class ScientificOptions(_Strict):
     data: DataConfig = Field(default_factory=DataConfig)
-    robustness: Robustness = Field(default_factory=Robustness)
     understand: Understand = Field(default_factory=Understand)
     ground: Ground = Field(default_factory=Ground)
     discovery: Discovery = Field(default_factory=Discovery)

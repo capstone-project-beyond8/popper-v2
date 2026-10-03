@@ -15,13 +15,13 @@ from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.storage.records import ArtifactRef, resolve_artifact
 from popper.harness.storage.recovery import load_state, read_events, recorded_spend
 from popper.harness.storage.store import RunStore
-from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.data.descriptive import read_table
 from popper.scientific.runtime.data.inputs import (
     ingest,
     load_episode,
     prepare_description,
     promote_foundation,
+    require_current_format,
 )
 from popper.scientific.runtime.lifecycle.contracts import Disposition, StageAdmission
 from popper.scientific.runtime.lifecycle.requests import CapabilityRequest
@@ -34,7 +34,7 @@ from popper.scientific.runtime.lifecycle.transitions import (
     selected_move,
     stage_outputs,
 )
-from popper.scientific.runtime.projections.output import StudyOutput, build_study, partial_study
+from popper.scientific.runtime.projections.output import StudyOutput, build_study
 from popper.scientific.runtime.projections.state import rebuild_state
 from popper.scientific.runtime.projections.views import (
     foundation_view,
@@ -171,9 +171,7 @@ def _resume_locked(
     max_usd: float | None,
 ) -> RunOutcome:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
-    if metadata.get("format_version") == 3:
-        raise ValueError("run format 3 is no longer supported; start a new run")
-    decode_policy(metadata)
+    require_current_format(metadata)
     state = load_state(store)
     config = Config.model_validate(metadata["config"])
     # The journal is authoritative; checkpoints project the latest explicit raise.
@@ -324,16 +322,13 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     tex = pdf = None
     missing: list[str] = []
     try:
-        policy = decode_policy(json.loads(store.path("run.json").read_text("utf-8")))
-        if not policy.stage_aware and h.spent_usd >= h.config.budget.max_usd:
-            raise BudgetExceeded(f"spent ${h.spent_usd:.4f} of ${h.config.budget.max_usd:.2f}")
         science = ScienceStore(store)
         program, episode = load_episode(store)
         options = load_options(store)
         pending: CapabilityRequest | None = None
         while True:
             context = EpisodeContext(
-                program, episode, resource_view(h, options, rebuild_state(science)), policy, options
+                program, episode, resource_view(h, options, rebuild_state(science))
             )
             request = pending if pending is not None else next_step(h, science, context)
             pending = None
@@ -341,7 +336,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                 resolve_artifact(store, request.subject)
             if request is None:
                 continue
-            if policy.stage_aware and request.selection is not None:
+            if request.selection is not None:
                 pending = dispatch_selected(h, request)
                 continue
             match request.kind:
@@ -385,7 +380,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                     pending = dispatch_discovery(h, request)
                 case "candidates" | "challenge":
                     pending = dispatch_discovery(h, request)
-                case "finish" if policy.stage_aware:
+                case "finish":
                     assert request.subject is not None and request.outcome is not None
                     output = StudyOutput.model_validate(science.read(request.subject))
                     status, message = request.outcome, output.stop_reason
@@ -393,7 +388,7 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
                         record = json.loads(report_path.read_text("utf-8"))
                         missing = record["missing"]
                     break
-                case "publish" | "finish":
+                case "publish":
                     assert request.subject is not None
                     study = store.path(request.subject.path)
                     output = StudyOutput.model_validate_json(study.read_text("utf-8"))
@@ -413,16 +408,10 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
     except StageFailed as exc:
         failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
-        if policy.stage_aware:
-            build_study(ScienceStore(h.run), message, "failed")
-        elif partial := partial_study(ScienceStore(h.run), message, "failed"):
-            tex, pdf, missing = publish_study(h, partial)
+        build_study(ScienceStore(h.run), message, "failed")
     except BudgetExceeded as exc:
         status, message = "budget_exceeded", str(exc)
-        if policy.stage_aware:
-            build_study(ScienceStore(h.run), message, status)
-        elif partial := partial_study(ScienceStore(h.run), message, status):
-            tex, pdf, missing = publish_study(h, partial)
+        build_study(ScienceStore(h.run), message, status)
     except Exception as exc:
         message = repr(exc)
         raise

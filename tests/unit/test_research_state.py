@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from popper.harness.storage.store import RunStore
 from popper.scientific.runtime.lifecycle.contracts import Question
@@ -12,8 +13,7 @@ from popper.scientific.runtime.projections.state import (
 from popper.scientific.runtime.store import ScienceStore
 
 
-@pytest.mark.parametrize("version", [1, 2, 3])
-def test_projection_frontier_and_corruption(tmp_path: Path, version: int) -> None:
+def test_projection_frontier_and_corruption(tmp_path: Path) -> None:
     store = RunStore(tmp_path)
     science = ScienceStore(store)
     source = store.write_json("intent.json", {"objective": "compare"})
@@ -24,19 +24,10 @@ def test_projection_frontier_and_corruption(tmp_path: Path, version: int) -> Non
     state = rebuild_state(science)
     assert "budget" not in state.model_dump()
     snap = commit_snapshot(science, state)
-    assert science.read(snap)["version"] == 4
-    payload = state.model_dump(mode="json", exclude={"stage_history", "stage_admissions", "pending_admissions"})
-    payload["version"] = version
-    for added in ("ideas", "idea_challenges", "directions"):
-        payload.pop(added)
-    if version == 1:
-        payload["budget"] = {"spent_usd": 100, "max_usd": 1}
-    old = science.commit("snapshot", payload)
-    before = store.path(old.path).read_bytes()
-    loaded = load_snapshot(science, old)
-    assert loaded == state and loaded.version == 4
-    assert (loaded.ideas, loaded.idea_challenges, loaded.directions) == ([], [], [])
-    assert store.path(old.path).read_bytes() == before
+    assert load_snapshot(science, snap) == state
+    old = science.commit("snapshot", {**science.read(snap), "version": 3})
+    with pytest.raises(ValidationError):
+        load_snapshot(science, old)
     science.commit("proposals", {"snapshot": snap.model_dump(), "moves": []})
     science.commit("selection", {"snapshot": snap.model_dump()})
     refreshed = rebuild_state(science)

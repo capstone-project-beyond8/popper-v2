@@ -38,10 +38,15 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
         [node],
         rows,
         {
-            "stability": "fragile",
-            "reasons": ["failed variant"],
-            "nodes": [{"id": "robustness-001", "status": "buggy"}],
-            "specifications": [{"id": "not-run", "node": None}],
+            "stop_reason": "Bounded inquiry",
+            "candidates": [],
+            "attempt_history": [],
+            "diagnoses": [],
+            "dispositions": [],
+            "selection_history": [],
+            "measurement_history": [],
+            "coverage": [],
+            "sensitivity": [],
         },
         [
             {
@@ -85,7 +90,7 @@ def test_fixed_structure_computed_labels_and_all_experiment_code() -> None:
         r"\appendix",
     ]
     assert [tex.index(h) for h in headings] == sorted(tex.index(h) for h in headings)
-    assert "fragile" in tex and "failed variant" in tex and "robustness-001" in tex
+    assert "Bounded inquiry" in tex
     assert r"\lstinputlisting{code/main-000.py}" in tex
     assert "EXPERIMENT_CODE" not in tex and r"\begin{lstlisting}" not in tex
     label = r"\label{fig:specification-curve}"

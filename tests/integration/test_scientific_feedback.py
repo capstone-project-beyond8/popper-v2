@@ -247,37 +247,6 @@ def test_selected_non_experimental_work_retains_sources_and_questions(tmp_path: 
         assert output.validation_standing == "unavailable"
 
 
-@pytest.mark.parametrize("action", ["audit", "synthesize", "communicate", "evolve", "direct"])
-def test_saved_policy_corrects_unavailable_actions(tmp_path: Path, action: str) -> None:
-    from popper.scientific.runtime.settings import load_options
-    from popper.scientific.scientist.moves import propose_moves
-    from popper.workflow.resources import resource_view
-
-    h = candidate_state(tmp_path)
-    h.run.write_json("run.json", {"format_version": 5, "config": h.config.model_dump(mode="json")})
-    science = ScienceStore(h.run)
-    source = h.run.artifact_ref("science:candidates:initial")
-    snapshot = commit_snapshot(science, rebuild_state(science))
-    submissions = 0
-
-    def respond(_: LLMRequest) -> tuple[ToolCall, ...]:
-        nonlocal submissions
-        submissions += 1
-        return (ToolCall("move", "submit_moves", {"moves": [{
-            "action": action if submissions == 1 else "stop", "objective": "Retain the rival",
-            "trigger_refs": [source.model_dump(mode="json")], "cost_usd": 0,
-            "stopping_condition": "No justified empirical work",
-        }], "omitted": {"h1": "Need data", "h2": "Need data"}}),)
-
-    h.llm = FakeLLM(respond)
-    resources = resource_view(h, load_options(h.run), rebuild_state(science))
-    proposals = propose_moves(h, science, snapshot, resources)
-    assert [move["action"] for move in science.read(proposals)["moves"]] == ["stop"]
-    assert submissions == 2
-    assert propose_moves(h, science, snapshot, resources) == proposals
-    assert submissions == 2 and not rebuild_state(science).stage_admissions
-
-
 @pytest.mark.parametrize("interrupted", [False, True])
 @pytest.mark.parametrize("action", ["synthesize", "direct"])
 def test_synthesis_exhaustion_terminalizes_sourced_work(
@@ -292,7 +261,7 @@ def test_synthesis_exhaustion_terminalizes_sourced_work(
     from popper.workflow.run import dispatch_selected
 
     h = candidate_state(tmp_path)
-    h.run.write_json("run.json", {"format_version": 6 if action == "synthesize" else 7, "config": h.config.model_dump(mode="json")})
+    h.run.write_json("run.json", {"format_version": 7, "config": h.config.model_dump(mode="json")})
     science = ScienceStore(h.run)
     source = h.run.artifact_ref("science:candidates:initial")
     science.commit("question", Question(text="Can the rival be distinguished?", author="theorist", sources=[source]))
@@ -336,11 +305,11 @@ def test_synthesis_exhaustion_terminalizes_sourced_work(
     assert len(h.llm.calls) == before_calls and len(rebuild_state(science).stage_history) == 1
 
 
-def _idea_world(tmp_path: Path, version: int = 7, **discovery: int) -> tuple[Harness, ScienceStore, ArtifactRef]:
+def _idea_world(tmp_path: Path, **discovery: int) -> tuple[Harness, ScienceStore, ArtifactRef]:
     h = candidate_state(tmp_path)
     config = h.config.model_dump(mode="json")
     config["discovery"].update(discovery)
-    h.run.write_json("run.json", {"format_version": version, "config": config})
+    h.run.write_json("run.json", {"format_version": 7, "config": config})
     return h, ScienceStore(h.run), h.run.artifact_ref("science:candidates:initial")
 
 
@@ -454,16 +423,6 @@ def test_evolve_beyond_idea_round_cap_is_deferred_at_admission(tmp_path: Path) -
     assert after.dispositions[-1].record.sources == [second]
     assert after.dispositions[-1].record.reason == "idea round cap reached"
     assert after.counters == before.counters and h.spent_usd == spent
-
-
-@pytest.mark.parametrize("version", [5, 6])
-def test_idea_routes_are_unavailable_before_idea_evolution(tmp_path: Path, version: int) -> None:
-    from popper.scientific.runtime.settings import load_options
-    from popper.workflow.resources import resource_view
-
-    h, science, _ = _idea_world(tmp_path, version)
-    resources = resource_view(h, load_options(h.run), rebuild_state(science))
-    assert not {"evolve", "direct"} & resources.available_routes and not resources.idea_evolution
 
 
 def _ref(ref: ArtifactRef) -> dict[str, Any]:

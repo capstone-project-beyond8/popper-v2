@@ -10,6 +10,7 @@ from pydantic import JsonValue, TypeAdapter
 
 from popper.harness.storage.recovery import load_state, read_events
 from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.data.inputs import require_current_format
 from popper.scientific.runtime.projections.output import episode_summary
 from popper.scientific.runtime.store import ScienceStore
 
@@ -99,6 +100,7 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def scientific_trace(run: RunStore) -> dict[str, JsonValue]:
+    require_current_format(json.loads(run.path("run.json").read_text("utf-8")))
     return TypeAdapter(dict[str, JsonValue]).validate_python(episode_summary(ScienceStore(run)))
 
 

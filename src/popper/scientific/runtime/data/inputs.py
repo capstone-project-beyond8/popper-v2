@@ -6,15 +6,15 @@ import json
 import math
 import shutil
 import stat
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 import pandas as pd
 
 from popper.harness.storage.records import ArtifactRef, resolve_artifact
 from popper.harness.storage.store import RunStore, file_hash, seal_bytes, unseal_bytes
-from popper.scientific.runtime.compatibility import decode_policy
 from popper.scientific.runtime.data.descriptive import DescriptiveReport, describe_table, read_table
 from popper.scientific.runtime.data.research import (
     ResearchContext,
@@ -26,6 +26,15 @@ from popper.scientific.runtime.lifecycle.contracts import Program, Run
 from popper.scientific.runtime.projections.views import foundation_view
 from popper.scientific.runtime.settings import DataConfig, ScientificOptions
 from popper.scientific.runtime.store import ScienceStore
+
+RUN_FORMAT: Final = 7
+
+
+def require_current_format(metadata: Mapping[str, Any]) -> None:
+    """Refuse a saved run written by another version; it is never decoded."""
+    version = metadata.get("format_version")
+    if version != RUN_FORMAT:
+        raise ValueError(f"run format {version!r} is no longer supported; start a new run")
 
 
 def split_rows(data: pd.DataFrame, config: DataConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -94,7 +103,7 @@ def ingest(
     store.write_json(
         "run.json",
         {
-            "format_version": 7,
+            "format_version": RUN_FORMAT,
             "status": "running",
             "auto": auto,
             "config": config_data,
@@ -126,7 +135,7 @@ def read_holdout(store: RunStore) -> pd.DataFrame:
 
 def load_episode(store: RunStore) -> tuple[Program, Run]:
     metadata = json.loads(store.path("run.json").read_text("utf-8"))
-    policy = decode_policy(metadata)
+    require_current_format(metadata)
     source = store.artifact_ref("inputs")
     manifest = json.loads(resolve_artifact(store, source).read_text("utf-8"))
     intent = ArtifactRef(
@@ -141,7 +150,7 @@ def load_episode(store: RunStore) -> tuple[Program, Run]:
     return program, Run(
         id=store.root.name,
         program_id=program.id,
-        format_version=policy.format_version,
+        format_version=RUN_FORMAT,
         inputs=source,
         initial_intent=intent,
         auto=bool(metadata.get("auto")),

@@ -19,9 +19,6 @@ class CapabilityRequest:
     subject: ArtifactRef | None = None
     selection: ArtifactRef | None = None
     guidance: str = ""
-    strategy: Literal["adaptive", "historical"] = "adaptive"
-    schedule: ArtifactRef | None = None
-    implementation_only: bool = False
     snapshot: ArtifactRef | None = None
     admission: ArtifactRef | None = None
     outcome: Literal["completed", "failed", "budget_exceeded"] | None = None

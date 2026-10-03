@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from popper.harness.config import HarnessConfig
 from popper.scientific.runtime.settings import (
     DataConfig,
     Discovery,
     Ground,
-    Robustness,
     ScientificOptions,
     Understand,
 )
@@ -22,18 +21,9 @@ from popper.scientific.runtime.settings import (
 
 class Config(HarnessConfig):
     data: DataConfig = Field(default_factory=DataConfig)
-    robustness: Robustness = Field(default_factory=Robustness)
     understand: Understand = Field(default_factory=Understand)
     ground: Ground = Field(default_factory=Ground)
     discovery: Discovery = Field(default_factory=Discovery)
-
-    @model_validator(mode="after")
-    def enough_robustness_steps(self) -> "Config":
-        if self.search.steps_for("robustness") < self.robustness.min_variants + 1:
-            raise ValueError(
-                "robustness budget needs room for ordinary variants and an adversarial check"
-            )
-        return self
 
 
 def _merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
@@ -72,7 +62,6 @@ def load_config(
 def scientific_options(config: Config) -> ScientificOptions:
     return ScientificOptions(
         data=config.data,
-        robustness=config.robustness,
         understand=config.understand,
         ground=config.ground,
         discovery=config.discovery,
