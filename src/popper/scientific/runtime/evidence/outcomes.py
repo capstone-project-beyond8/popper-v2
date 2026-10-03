@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from popper.harness.storage.records import ArtifactRef, resolve_artifact
+from pydantic import Field
+
+from popper.harness.storage.records import ArtifactRef, Record, reachable_refs, resolve_artifact
 from popper.harness.storage.recovery import read_events
 from popper.scientific.runtime.evidence.references import node_measurement, resolve_measurement
 from popper.scientific.runtime.evidence.results import ResultEntry
@@ -20,6 +24,47 @@ from popper.scientific.runtime.store import ScienceStore
 
 if TYPE_CHECKING:
     from popper.scientific.runtime.lifecycle.execution import ExecutionPlan
+
+
+AuditCheck = Literal["references", "coverage", "invalidation", "fidelity"]
+
+
+class AuditScope(Record):
+    version: Literal[1] = 1
+    rule_version: Literal[1] = 1
+    id: str
+    snapshot: ArtifactRef
+    sources: list[ArtifactRef]
+    checks: list[AuditCheck]
+
+
+class AuditIssue(Record):
+    source: ArtifactRef
+    reason: str = Field(min_length=1)
+
+
+class EvidenceAudit(Record):
+    version: Literal[1] = 1
+    scope: ArtifactRef
+    sources: list[ArtifactRef]
+    checks: dict[AuditCheck, bool]
+    issues: list[AuditIssue]
+    validation_standing: Literal["unavailable"] = "unavailable"
+
+
+def commit_audit_scope(science: ScienceStore, snapshot: ArtifactRef) -> ArtifactRef:
+    from popper.scientific.runtime.projections.state import load_snapshot, validate_sources
+
+    state = load_snapshot(science, snapshot)
+    validate_sources(science, state.model_dump(mode="json"))
+    reachable_refs(science.run, snapshot)
+    content = {
+        "version": 1, "rule_version": 1, "snapshot": snapshot.model_dump(mode="json"),
+        "sources": [r.model_dump(mode="json") for r in state.frontier],
+        "checks": ["references", "coverage", "invalidation", "fidelity"],
+    }
+    identity = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return science.commit("audit_scope", AuditScope.model_validate({**content, "id": identity}), key=identity)
 
 
 def compute_support(

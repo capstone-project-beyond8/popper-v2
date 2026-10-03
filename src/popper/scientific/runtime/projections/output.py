@@ -9,6 +9,7 @@ from pydantic import Field
 from popper.harness.storage.records import ArtifactRef, IntegrityError, Record, resolve_artifact
 from popper.harness.storage.store import file_hash
 from popper.scientific.runtime.compatibility import decode_policy
+from popper.scientific.runtime.evidence.outcomes import EvidenceAudit
 from popper.scientific.runtime.evidence.references import MeasurementRef
 from popper.scientific.runtime.lifecycle.contracts import MoveSelection
 from popper.scientific.runtime.lifecycle.transitions import selected_move
@@ -60,6 +61,8 @@ class StudyOutput(Record):
     stale_interpretations: list[ArtifactRef] = Field(default_factory=list)
     selections: list[ArtifactRef] = Field(default_factory=list)
     selection_history: list[dict[str, Any]] = Field(default_factory=list)
+    audits: list[dict[str, Any]] = Field(default_factory=list)
+    validation_standing: Literal["unavailable"] = "unavailable"
     stop_reason: str
     operational_status: Literal["completed", "failed", "budget_exceeded"]
     historical_evidence: ArtifactRef | None = None
@@ -97,6 +100,7 @@ def build_study(
     study = StudyOutput(
         adaptive=adaptive,
         frontier=state.frontier,
+        audits=[{"ref": ref.model_dump(mode="json"), "record": EvidenceAudit.model_validate(science.read(ref)).model_dump(mode="json")} for name, ref in science.commits() if name.startswith("science:audit:")],
         frame=upstream(science, "frame_reviewed"),
         foundation=upstream(science, "foundation"),
         exploration=upstream(science, "exploration"),
