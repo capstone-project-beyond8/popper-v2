@@ -99,8 +99,11 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def scientific_trace(run: RunStore) -> dict[str, JsonValue]:
-    require_current_format(json.loads(run.path("run.json").read_text("utf-8")))
+def scientific_trace(run: RunStore) -> dict[str, JsonValue] | str:
+    try:
+        require_current_format(json.loads(run.path("run.json").read_text("utf-8")))
+    except ValueError:
+        return "unsupported run format"
     return TypeAdapter(dict[str, JsonValue]).validate_python(episode_summary(ScienceStore(run)))
 
 

@@ -19,6 +19,7 @@ from popper.scientific.runtime.lifecycle.ideas import (
     active_ideas,
     commit_idea,
     commit_idea_challenge,
+    complete_promotion,
 )
 from popper.scientific.runtime.lifecycle.ideas import promote_idea as commit_promotion
 from popper.scientific.runtime.lifecycle.transitions import (
@@ -56,11 +57,14 @@ class FinishRequest(Record):
     summary: Text
 
 
-def _committed(h: Harness, work: StageAdmission) -> list[ArtifactRef]:
-    """Records already committed for this admission, in commit order."""
+def _committed(h: Harness, science: ScienceStore, work: StageAdmission) -> list[ArtifactRef]:
+    """Records already committed for this admission, in commit order; completes an interrupted promotion."""
     refs: list[ArtifactRef] = []
     index = 0
     while True:
+        promotion = f"science:candidates:promotion:{work.id}:{index:03d}"
+        if h.run.committed(promotion):
+            complete_promotion(science, h.run.artifact_ref(promotion))
         found = [
             h.run.artifact_ref(name) for name in (
                 f"science:idea:{work.id}:{index:03d}",
@@ -89,7 +93,7 @@ def evolve_ideas(h: Harness, science: ScienceStore, admission: ArtifactRef) -> l
         bind_stage_output(science, admission, outputs)
         return outputs
 
-    outputs = _committed(h, work)
+    outputs = _committed(h, science, work)
     allowed = [*reachable_refs(h.run, snapshot), *outputs]
     capacity = load_options(h.run).discovery.hypotheses
 

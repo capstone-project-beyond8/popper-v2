@@ -330,13 +330,20 @@ def promote_idea(
     checked = CandidateProposal.model_validate(
         proposal.candidate.model_dump(), context={"columns": columns}
     )
-    candidate_id = f"hypothesis-{parent.record.idea_id}"
-    promotion = f"promotion:{revision.record_id}"
-    if not science.run.committed(f"science:candidates:{promotion}"):
-        if any(c.record.id == candidate_id for c in state.candidates):
-            raise ValueError("an idea is promoted once")
-        if not state.exposure:
-            raise EligibilityError("promotion needs committed exploration exposure")
+    name = f"science:candidates:promotion:{key}"
+    if science.run.committed(name):
+        candidates = science.run.artifact_ref(name)
+        recorded = science.read(candidates)["promotion"]
+        if (recorded["revision"], recorded["predictions"]) != (revision.model_dump(mode="json"), proposal.predictions):
+            raise IntegrityError(CONFLICT)
+        return complete_promotion(science, candidates)
+    if not state.exposure:
+        raise EligibilityError("promotion needs committed exploration exposure")
+    known = {c.record.id for c in state.candidates}
+    number = len(known) + 1
+    while f"hypothesis-{number:03d}" in known:
+        number += 1
+    candidate_id = f"hypothesis-{number:03d}"
     candidates = science.commit("candidates", {
         "version": 1,
         "candidates": [Candidate(
@@ -344,20 +351,42 @@ def promote_idea(
             exposure=state.exposure, warnings=warnings or [],
         ).model_dump(mode="json")],
         "admission": admission.model_dump(mode="json"),
-    }, key=promotion)
+        "promotion": {
+            "revision": revision.model_dump(mode="json"), "challenge": challenge.model_dump(mode="json"),
+            "index": index, "predictions": proposal.predictions, "rationale": proposal.rationale,
+            "author": author,
+        },
+    }, key=f"promotion:{key}")
+    return complete_promotion(science, candidates)
+
+
+def complete_promotion(science: ScienceStore, candidates: ArtifactRef) -> ArtifactRef:
+    """Commit the testable revision of a committed promotion; recovers an interrupted promotion."""
+    from popper.scientific.runtime.projections.state import rebuild_state
+
+    payload = science.read(candidates)
+    promotion = payload["promotion"]
+    admission = ArtifactRef.model_validate(payload["admission"])
+    revision = ArtifactRef.model_validate(promotion["revision"])
+    challenge = ArtifactRef.model_validate(promotion["challenge"])
+    work = _work(science, admission)
+    key = f"{work.id}:{promotion['index']:03d}"
+    if science.run.committed(f"science:idea:{key}"):
+        return science.run.artifact_ref(f"science:idea:{key}")
+    parent = next(item for item in rebuild_state(science).ideas if item.ref == revision)
     return science.commit("idea", IdeaRevision.model_validate({
         **parent.record.model_dump(),
         "change": "continue",
         "maturity": "testable",
         "parents": [revision],
-        "rationale": proposal.rationale,
+        "rationale": promotion["rationale"],
         "meaning_changed": False,
         "sources": [revision, challenge],
-        "id": f"rev-{work.id}-{index:03d}",
-        "author": author,
+        "id": f"rev-{work.id}-{promotion['index']:03d}",
+        "author": promotion["author"],
         "admission": admission,
         "status": "active",
         "candidate": candidates,
-        "candidate_id": candidate_id,
-        "predictions": proposal.predictions,
+        "candidate_id": payload["candidates"][0]["id"],
+        "predictions": promotion["predictions"],
     }), key=key)

@@ -548,7 +548,8 @@ def test_evolve_round_challenges_promotes_and_feeds_the_next_move(tmp_path: Path
     assert work.outputs == [question.ref, first.ref, conjecture_rev.ref, second.ref, testable.ref]
     assert conjecture_rev.record.idea_id == testable.record.idea_id == question.record.idea_id
     assert [i.record.maturity for i in state.ideas] == ["question", "conjecture", "testable"]
-    promoted = next(c.record for c in state.candidates if c.record.id == f"hypothesis-{question.record.idea_id}")
+    promoted = next(c.record for c in state.candidates if c.ref == testable.record.candidate)
+    assert promoted.id == f"hypothesis-{len(state.candidates):03d}"
     assert promoted.origins == [conjecture_rev.ref, second.ref]
     assert testable.record.candidate_id == promoted.id
 
@@ -667,6 +668,25 @@ def test_empty_round_records_that_no_idea_changed(tmp_path: Path) -> None:
     calls = len(round_.llm.calls)
     assert dispatch_selected(h, request) is None
     assert len(round_.llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
+
+
+def test_round_without_work_or_finish_is_a_sourced_deferral(tmp_path: Path) -> None:
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    request = _evolve(h, science, source)
+    llm = h.llm = FakeLLM(lambda _: "No tool call")
+    outcome = dispatch_selected(h, request)
+    assert outcome is not None and outcome.kind == "finish"
+    state = rebuild_state(science)
+    work, admission = state.stage_history[0].record, state.stage_admissions[0]
+    assert work.status == "deferred" and work.outputs == []
+    deferral = h.run.artifact_ref(f"science:disposition:evolve_ideas:{admission.record.id}")
+    assert state.dispositions[-1].ref == deferral
+    assert state.dispositions[-1].record.sources == [admission.record.snapshot]
+    calls = len(llm.calls)
+    assert dispatch_selected(h, request) == outcome
+    assert len(llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
 
 
 def test_stale_parent_is_corrected_not_fatal(tmp_path: Path) -> None:

@@ -170,8 +170,9 @@ def test_metrics_deliver_committed_science_without_mutation(
     assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == original
 
 
-def test_metrics_refuse_runs_of_another_format(tmp_path: Path) -> None:
+def test_metrics_report_cost_but_no_trace_for_another_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     store = RunStore(tmp_path)
     store.write_json("run.json", {"format_version": 6})
-    with pytest.raises(ValueError, match="no longer supported; start a new run"):
-        main([str(tmp_path)])
+    assert main([str(tmp_path)]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["scientific"] == "unsupported run format" and "total" in report

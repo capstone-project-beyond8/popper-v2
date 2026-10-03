@@ -21,6 +21,7 @@ from popper.scientific.runtime.lifecycle.ideas import (
     commit_direction,
     commit_idea,
     commit_idea_challenge,
+    complete_promotion,
     inactive_candidates,
     promote_idea,
 )
@@ -216,7 +217,7 @@ def test_promotion_projects_a_candidate_with_lineage(world: World) -> None:
     assert idea.ref == testable and idea.record.maturity == "testable"
     assert idea.record.parents == [revision] and len(idea.record.predictions) == 2
     candidate = state.candidates[-1]
-    assert candidate.record.id == f"hypothesis-{idea.record.idea_id}"
+    assert candidate.record.id == "hypothesis-002"
     assert candidate.record.origins == [revision, challenge]
     assert idea.record.candidate == candidate.ref and idea.record.candidate_id == candidate.record.id
     assert candidate.record.exposure == state.exposure == [world.intent]
@@ -370,6 +371,29 @@ def test_testable_idea_changes_only_by_retirement_or_replacement(world: World) -
         world.commit(world.idea("continue", "conjecture", idea_id=idea_id, parents=[testable]))
     world.commit(world.idea("replace", "conjecture", parents=[testable]))
     state = rebuild_state(world.science)
-    assert inactive_candidates(state) == {f"hypothesis-{idea_id}"}
+    assert inactive_candidates(state) == {"hypothesis-002"}
     assert eligible_candidates(state, Discovery()) == ["seed"]
     assert active_ideas(state) == 1
+
+
+def test_interrupted_promotion_completes_without_the_model(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    world.exploration()
+    revision = world.conjecture()
+    challenge = world.challenge(revision)
+    original = ScienceStore.commit
+
+    def interrupt(store: ScienceStore, kind: str, record: Any, *, key: str | None = None) -> ArtifactRef:
+        if kind == "idea":
+            raise KeyboardInterrupt
+        return original(store, kind, record, key=key)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ScienceStore, "commit", interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            world.promote(revision, challenge)
+    [candidates] = [ref for name, ref in world.science.commits() if name.startswith("science:candidates:promotion:")]
+    done = complete_promotion(world.science, candidates)
+    assert complete_promotion(world.science, candidates) == done
+    idea = rebuild_state(world.science).ideas[-1]
+    assert idea.ref == done and idea.record.maturity == "testable" and idea.record.candidate == candidates
+    assert idea.record.parents == [revision] and idea.record.predictions == ["Slope above zero", "Slope near zero"]
