@@ -44,7 +44,7 @@ class MethodSpec(Record):
 
 class SupportRule(Record):
     kind: Literal["directional_ci", "equivalence_ci", "descriptive"]
-    result_key: Text
+    result_key: Text = Field(description="Exact measurement key declared in the test's outputs list.")
     interval_level: float = Field(gt=0, lt=1, allow_inf_nan=False)
     null: Finite | None = None
     direction: Literal["positive", "negative"] | None = None
@@ -140,7 +140,13 @@ class Interpretation(InterpretationProposal):
 
 
 class TestProposal(Record):
-    primary_estimand: PrimaryEstimand
+    primary_estimand: PrimaryEstimand = Field(
+        description=(
+            "Copy the owning candidate's primary_estimand exactly, including every string in "
+            "outcome, exposure, contrast, comparison, population and unit. Rephrasing any field "
+            "changes the scientific target and cannot execute as this candidate's test."
+        )
+    )
     selection: dict[str, JsonValue]
     preparation: ArtifactRef
     methods: list[MethodSpec] = Field(min_length=1)
