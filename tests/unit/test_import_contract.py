@@ -13,9 +13,11 @@ PHASES = {"understand", "ground", "discover", "communicate", "verify"}
 def violations(source: str, module: str, *, package: bool = False) -> list[str]:
     owner = module.split(".")[1]
     allowed = (
-        {owner, "harness", "treesearch"}
-        if owner in PHASES or owner == "treesearch"
-        else {"harness"}
+        {owner, "harness", "treesearch", "science"}
+        if owner in PHASES
+        else {"scientist", "science", "harness"}
+        if owner == "scientist"
+        else {owner, "harness"}
     )
     context = module if package else module.rsplit(".", 1)[0]
     failures = []
@@ -35,8 +37,12 @@ def violations(source: str, module: str, *, package: bool = False) -> list[str]:
             if parts[0] == "evals" or (
                 len(parts) > 1
                 and parts[0] == "popper"
-                and owner in PHASES | {"harness", "treesearch"}
-                and parts[1] not in allowed
+                and owner in PHASES | {"harness", "treesearch", "science", "scientist"}
+                and (
+                    parts[1] not in allowed
+                    or owner == "science" and len(parts) > 2 and parts[1] == "harness"
+                    and parts[2] in {"session", "agent", "llm", "prompts", "artifacts"}
+                )
             ):
                 failures.append(target)
     return failures
@@ -54,6 +60,14 @@ def violations(source: str, module: str, *, package: bool = False) -> list[str]:
         ("from ..discover import experiment", "popper.treesearch.engine", True),
         ("import evals.suite", "popper.coordinator.run", True),
         ("from popper.treesearch import engine", "popper.harness.session", True),
+        ("from popper.science import contracts", "popper.harness.records", True),
+        ("from ..science import contracts", "popper.treesearch.engine", True),
+        ("from popper.harness.session import Harness", "popper.science.state", True),
+        ("from popper.harness.llm import LLM", "popper.science.store", True),
+        ("from popper.harness.records import ArtifactRef", "popper.science.contracts", False),
+        ("from ..science import contracts", "popper.discover.experiment", False),
+        ("from ..discover import experiment", "popper.scientist.episode", True),
+        ("from popper.science import contracts", "popper.scientist.moves", False),
     ],
 )
 def test_checker_handles_absolute_and_relative_imports(source: str, module: str, bad: bool) -> None:

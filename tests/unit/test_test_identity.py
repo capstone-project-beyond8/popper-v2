@@ -3,8 +3,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from popper.discover.contracts import MethodSpec, SupportRule, classify_change
-from popper.discover.contracts import TestSpec as ScientificTest
+from popper.science.contracts import ExperimentSpec as ScientificTest
+from popper.science.contracts import MethodSpec, SupportRule, classify_change
 
 
 def spec_payload() -> dict[str, Any]:

@@ -4,7 +4,6 @@ from typing import Any
 
 import pytest
 
-from popper.discover.contracts import Candidate, commit_record
 from popper.discover.policy import make_attempt, propose_moves, select_move, selected_move
 from popper.discover.state import commit_snapshot, rebuild_state
 from popper.harness.config import load_config
@@ -12,6 +11,8 @@ from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.contracts import Candidate
+from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = pytest.mark.integration
@@ -39,7 +40,7 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
     candidates = [candidate]
     if corrected:
         candidates.append(candidate.model_copy(update={"id": "hypothesis-002"}))
-    commit_record(h, "candidates", {"candidates": [c.model_dump(mode="json") for c in candidates]})
+    ScienceStore(h.run).commit("candidates", {"candidates": [c.model_dump(mode="json") for c in candidates]})
     snapshot = commit_snapshot(h, rebuild_state(h))
     prep = h.run.write_json("prep.json", {})
     h.run.commit_artifact("prep", prep)
@@ -112,10 +113,10 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     import pandas as pd
 
     from popper.coordinator.discovery import advance_discovery
-    from popper.discover.contracts import AttemptResult
     from popper.ground.steward import Foundation
     from popper.harness.recovery import Journal, read_events
     from popper.harness.research import parse_research
+    from popper.science.contracts import AttemptResult
     from popper.understand.frame import Frame, Framing
     from tests.integration.test_run import EXAMPLE, FRAMING, _respond
 
@@ -151,9 +152,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         )
         for i in (1, 2, 3)
     ]
-    commit_record(
-        h,
-        "candidates",
+    ScienceStore(h.run).commit("candidates",
         {"candidates": [c.model_dump(mode="json") for c in candidates]},
         key="initial",
     )

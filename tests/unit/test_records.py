@@ -3,14 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from popper.harness.records import (
-    ArtifactRef,
-    MeasurementRef,
-    resolve_artifact,
-    resolve_measurement,
-)
+from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.recovery import Journal
 from popper.harness.store import RunStore, file_hash
+from popper.science.evidence import MeasurementRef, resolve_measurement
 
 
 def test_exact_commit_history_and_uncommitted_rejection(tmp_path: Path) -> None:

@@ -4,17 +4,19 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from popper.discover.contracts import Attempt, Diagnosis, Invalidation, ResearchMove, commit_record
-from popper.discover.contracts import TestSpec as ScientificTest
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.feedback import interpret_result
 from popper.discover.policy import make_attempt
 from popper.discover.state import commit_snapshot, rebuild_state
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.records import resolve_artifact, resolve_measurement
+from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.contracts import Attempt, Diagnosis, Invalidation, ResearchMove
+from popper.science.contracts import ExperimentSpec as ScientificTest
+from popper.science.evidence import resolve_measurement
+from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -29,11 +31,9 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     h.run.commit_artifact("prep", prep)
     payload = spec_payload()
     payload["preparation"] = h.run.artifact_ref("prep").model_dump()
-    intended = commit_record(h, "test", ScientificTest.model_validate(payload), key="t1")
-    move = commit_record(h, "move", {"id": "m1"})
-    parent_ref = commit_record(
-        h,
-        "attempt",
+    intended = ScienceStore(h.run).commit("test", ScientificTest.model_validate(payload), key="t1")
+    move = ScienceStore(h.run).commit("move", {"id": "m1"})
+    parent_ref = ScienceStore(h.run).commit("attempt",
         Attempt(
             id="attempt-000",
             move=move,
@@ -162,12 +162,11 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     assert "Computed stability" not in contents
     if affected_role == "main":
         reused = next(m.record.ref for m in final.history if m.record.role == "baseline")
-        late_defect = commit_record(
-            h, "diagnosis", Diagnosis(
+        late_defect = ScienceStore(h.run).commit("diagnosis", Diagnosis(
                 category="measurement", observation_refs=[child_ref], author="reviewer",
                 reason="The reused baseline also had a measurement defect",
                 affected_refs=[intended], affected_roles=["baseline"],
             ),
         )
-        commit_record(h, "invalidation", Invalidation(measurements=[reused], diagnosis=late_defect))
+        ScienceStore(h.run).commit("invalidation", Invalidation(measurements=[reused], diagnosis=late_defect))
         assert rebuild_state(h).stale_interpretations == [interpretation, current_interpretation]

@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.contracts import TestSpec as ScientificTest
 from popper.discover.experiment import declared_procedure_reference, method_reference
 from popper.harness.interpreter import ExecResult
+from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.treesearch.engine import Node, StageSpec
 from popper.treesearch.judge import judge_input
 from tests.unit.test_hypothesis import ESTIMAND, PROPOSAL

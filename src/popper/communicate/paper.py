@@ -22,10 +22,12 @@ from popper.communicate.numbers import (
 )
 from popper.harness.context import ARTIFACT_CHARS, part
 from popper.harness.prompts import load_prompt
-from popper.harness.records import ArtifactRef, StudyOutput, resolve_artifact, resolve_measurement
+from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.results import validate_results
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import next_sequence
+from popper.science.evidence import resolve_measurement
+from popper.science.output import StudyOutput
 from popper.treesearch.engine import Node, load_nodes
 from popper.treesearch.judge import validate_image
 

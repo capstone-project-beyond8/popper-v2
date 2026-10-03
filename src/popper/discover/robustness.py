@@ -7,11 +7,11 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from popper.discover.compatibility import HistoricalMethod
-from popper.discover.hypothesis import Text
 from popper.harness.config import Config
 from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
+from popper.science.compatibility import HistoricalMethod
+from popper.science.hypothesis import Text
 from popper.treesearch.engine import Node, load_nodes, select_best
 
 Dimension = Literal["cleaning", "model", "subgroup", "resampling", "adversarial"]

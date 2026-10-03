@@ -6,7 +6,11 @@ from typing import Any
 
 from pydantic import Field
 
-from popper.discover.contracts import (
+from popper.harness.records import ArtifactRef, Record, resolve_artifact
+from popper.harness.recovery import read_events
+from popper.harness.results import ResultEntry
+from popper.harness.session import Harness
+from popper.science.contracts import (
     AcceptedMeasurement,
     Attempt,
     AttemptResult,
@@ -19,12 +23,9 @@ from popper.discover.contracts import (
     Question,
     Standing,
     SupportRule,
-    commit_record,
 )
-from popper.harness.records import ArtifactRef, Record, resolve_artifact, resolve_measurement
-from popper.harness.recovery import read_events
-from popper.harness.results import ResultEntry
-from popper.harness.session import Harness
+from popper.science.evidence import resolve_measurement
+from popper.science.store import ScienceStore
 
 
 class Sourced[T](Record):
@@ -237,7 +238,7 @@ def rebuild_state(h: Harness) -> ResearchState:
 
 
 def commit_snapshot(h: Harness, state: ResearchState) -> ArtifactRef:
-    return commit_record(h, "snapshot", state)
+    return ScienceStore(h.run).commit("snapshot", state)
 
 
 def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any]:

@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from popper.discover.experiment import check_estimate
-from popper.discover.hypothesis import HypothesisProposal
 from popper.harness.config import Search, load_config
+from popper.science.hypothesis import HypothesisProposal
 
 ESTIMAND = {
     "outcome": "score",

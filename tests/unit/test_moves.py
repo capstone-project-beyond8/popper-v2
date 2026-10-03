@@ -3,13 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from popper.discover.contracts import MoveProposal
 from popper.discover.policy import eligible_candidates, propose_moves, validate_moves
 from popper.discover.state import ResearchState, commit_snapshot
 from popper.harness.config import Discovery, load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.contracts import MoveProposal
 
 
 def test_invalid_move_cannot_be_executable() -> None:
@@ -48,11 +48,11 @@ def test_permanently_incomplete_proposal_stops_after_bounded_correction(tmp_path
 
 
 def test_scientific_commit_rejects_conflicting_key(tmp_path: Path) -> None:
-    from popper.discover.contracts import commit_record
     from popper.harness.records import IntegrityError
+    from popper.science.store import ScienceStore
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    original = commit_record(h, "test", {"inference": 1000}, key="test-1")
-    assert commit_record(h, "test", {"inference": 1000}, key="test-1") == original
+    original = ScienceStore(h.run).commit("test", {"inference": 1000}, key="test-1")
+    assert ScienceStore(h.run).commit("test", {"inference": 1000}, key="test-1") == original
     with pytest.raises(IntegrityError, match="conflicting"):
-        commit_record(h, "test", {"inference": 100}, key="test-1")
+        ScienceStore(h.run).commit("test", {"inference": 100}, key="test-1")

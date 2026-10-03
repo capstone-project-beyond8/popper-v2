@@ -3,8 +3,8 @@ from typing import Any
 import pandas as pd
 
 from popper.coordinator.limitations import PREPARATION_ACCESS, limitations
-from popper.discover.warnings import hypothesis_warnings
 from popper.harness.research import ResearchContext, parse_research
+from popper.science.warnings import hypothesis_warnings
 
 GOOD = """---
 variables:

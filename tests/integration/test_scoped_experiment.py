@@ -5,16 +5,17 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from popper.discover.contracts import Attempt, AttemptResult, commit_record
-from popper.discover.contracts import TestSpec as ScientificTest
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.feedback import interpret_result
 from popper.discover.state import rebuild_state
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.records import resolve_measurement
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.contracts import Attempt, AttemptResult
+from popper.science.contracts import ExperimentSpec as ScientificTest
+from popper.science.evidence import resolve_measurement
+from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -40,9 +41,9 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
             payload["requested_coverage"] = {"seeds": [7], "alternatives": [{"selection": {"slice": "x > 1", "assumptions": ["same target population"]}}]}
         if overflow:
             payload["requested_coverage"]["alternatives"] = [{"inference": {"bootstrap": count, "interval_level": .95}} for count in (100, 200, 300)]
-        test = commit_record(h, "test", ScientificTest.model_validate(payload), key=f"t{index}")
-        move = commit_record(h, "move", {"id": f"m{index}"})
-        attempt = commit_record(h, "attempt", Attempt(id=f"a{index}", move=move, move_id=f"m{index}", hypothesis_id=f"h{index}", test=test, parent=None, diagnosis=None, changed_fields=[], stage_instances={role: f"h{index}-a{index}-{role}" for role in ("baseline", "main", "robustness")}, move_count=index, revisit_count=0, exposure=[]), key=f"m{index}")
+        test = ScienceStore(h.run).commit("test", ScientificTest.model_validate(payload), key=f"t{index}")
+        move = ScienceStore(h.run).commit("move", {"id": f"m{index}"})
+        attempt = ScienceStore(h.run).commit("attempt", Attempt(id=f"a{index}", move=move, move_id=f"m{index}", hypothesis_id=f"h{index}", test=test, parent=None, diagnosis=None, changed_fields=[], stage_instances={role: f"h{index}-a{index}-{role}" for role in ("baseline", "main", "robustness")}, move_count=index, revisit_count=0, exposure=[]), key=f"m{index}")
 
         def respond(req: LLMRequest, payload: dict[str, Any] = payload) -> str | tuple[ToolCall, ...]:
             if req.tag == "interpret_result":
@@ -73,8 +74,8 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         assert len(result.variant_tests) == (3 if overflow else int(failed_variant))
         if overflow:
             assert result.coverage["requested"] == 3 and result.coverage["completed"] == 1
-            from popper.discover.contracts import Diagnosis
             from popper.harness.records import resolve_artifact
+            from popper.science.contracts import Diagnosis
             assert any(Diagnosis.model_validate_json(resolve_artifact(h.run, ref).read_text()).category == "resource" for ref in result.diagnoses)
         main = next(m for m in result.measurements if m.role == "main")
         assert main.support == "not_supported"
@@ -111,9 +112,9 @@ def test_failed_main_retains_declared_missing_coverage(tmp_path: Path, monkeypat
         {"inference": {"bootstrap": 100, "interval_level": .95}},
         {"inference": {"bootstrap": 200, "interval_level": .95}},
     ]
-    test = commit_record(h, "test", ScientificTest.model_validate(payload), key="t1")
-    move = commit_record(h, "move", {"id": "m1"})
-    attempt = commit_record(h, "attempt", Attempt(id="a1", move=move, move_id="m1", hypothesis_id="h1", test=test, parent=None, diagnosis=None, changed_fields=[], stage_instances={role: f"h1-a1-{role}" for role in ("baseline", "main", "robustness")}, move_count=1, revisit_count=0, exposure=[]))
+    test = ScienceStore(h.run).commit("test", ScientificTest.model_validate(payload), key="t1")
+    move = ScienceStore(h.run).commit("move", {"id": "m1"})
+    attempt = ScienceStore(h.run).commit("attempt", Attempt(id="a1", move=move, move_id="m1", hypothesis_id="h1", test=test, parent=None, diagnosis=None, changed_fields=[], stage_instances={role: f"h1-a1-{role}" for role in ("baseline", "main", "robustness")}, move_count=1, revisit_count=0, exposure=[]))
 
     def fail(*args: object, **kwargs: object) -> None:
         raise StageFailed("main")

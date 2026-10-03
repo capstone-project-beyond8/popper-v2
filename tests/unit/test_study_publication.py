@@ -2,12 +2,12 @@ from pathlib import Path
 
 from popper.communicate.paper import write_study
 from popper.coordinator.discovery import commit_study
-from popper.discover.contracts import Challenge, Interpretation
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM
-from popper.harness.records import CandidateView, StudyOutput
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.contracts import Challenge, Interpretation
+from popper.science.output import CandidateView, StudyOutput
 
 
 def test_no_budget_diagnostic_uses_common_template_and_exact_cache(tmp_path: Path) -> None:

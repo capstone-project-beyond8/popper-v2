@@ -410,8 +410,8 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert {a.hypothesis_id for a in state.challenges[0].record.assessments} == {"hypothesis-001", "hypothesis-002", "hypothesis-003"}
     assert state.questions and state.interpretations[0].record.rivals == ["Prior-attainment selection"]
     assert state.attempts[1].record.hypothesis_id == "hypothesis-002"
-    from popper.discover.contracts import ResearchMove
     from popper.harness.records import resolve_artifact
+    from popper.science.contracts import ResearchMove
     move = ResearchMove.model_validate_json(resolve_artifact(store, state.attempts[1].record.move).read_text("utf-8"))
     assert state.interpretations[0].ref in move.trigger_refs
     study_path = store.committed("study")

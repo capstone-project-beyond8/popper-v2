@@ -11,7 +11,7 @@ from pydantic import (
     model_validator,
 )
 
-from popper.discover.compatibility import HistoricalMethod
+from popper.science.compatibility import HistoricalMethod
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Comparison = Literal["difference", "ratio"]

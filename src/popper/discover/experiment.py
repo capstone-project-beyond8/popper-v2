@@ -11,18 +11,6 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from popper.discover.contracts import (
-    AcceptedMeasurement,
-    Attempt,
-    AttemptResult,
-    CheckObservation,
-    Diagnosis,
-    FidelityAssessment,
-    MethodSpec,
-    TestSpec,
-    classify_change,
-    commit_record,
-)
 from popper.discover.policy import ensure_invalidation
 from popper.discover.robustness import (
     Specification,
@@ -34,16 +22,23 @@ from popper.discover.robustness import (
 from popper.discover.state import compute_support
 from popper.harness.context import RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
-from popper.harness.records import (
-    ArtifactRef,
-    IntegrityError,
-    node_measurement,
-    resolve_artifact,
-    resolve_measurement,
-)
+from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
 from popper.harness.recovery import read_events
 from popper.harness.results import ResultEntry
 from popper.harness.session import Harness
+from popper.science.contracts import (
+    AcceptedMeasurement,
+    Attempt,
+    AttemptResult,
+    CheckObservation,
+    Diagnosis,
+    ExperimentSpec,
+    FidelityAssessment,
+    MethodSpec,
+    classify_change,
+)
+from popper.science.evidence import node_measurement, resolve_measurement
+from popper.science.store import ScienceStore
 from popper.treesearch.engine import (
     AttemptSpec,
     Node,
@@ -156,7 +151,7 @@ def method_reference(
 
 
 def declared_procedure_reference(
-    test: TestSpec, columns: Sequence[str], *, purpose: str
+    test: ExperimentSpec, columns: Sequence[str], *, purpose: str
 ) -> JudgeReference:
     """Carry the effective operational declaration across the estimate blinding boundary."""
     primary = test.primary_estimand
@@ -258,7 +253,7 @@ def run_experiment_stage(
         f"{_TRANSFORM_NOTE}"
     )
     intended = (
-        TestSpec.model_validate_json(resolve_artifact(h.run, test).read_text("utf-8"))
+        ExperimentSpec.model_validate_json(resolve_artifact(h.run, test).read_text("utf-8"))
         if test
         else None
     )
@@ -399,7 +394,7 @@ class ExperimentRequest:
     attempt: ArtifactRef
 
 
-def adaptive_goal(test: TestSpec, role: str) -> str:
+def adaptive_goal(test: ExperimentSpec, role: str) -> str:
     return (
         f"Execute the committed {role} scientific test. "
         "Baseline uses a transparent estimator; all other stages follow the declared procedure. "
@@ -412,7 +407,7 @@ def adaptive_goal(test: TestSpec, role: str) -> str:
     )
 
 
-def check_declared_output(path: Path, test: TestSpec) -> str | None:
+def check_declared_output(path: Path, test: ExperimentSpec) -> str | None:
     for key in test.outputs:
         if key.endswith(".json"):
             continue
@@ -434,7 +429,7 @@ def check_declared_output(path: Path, test: TestSpec) -> str | None:
 
 
 def observe_declared_output(
-    path: Path, test: TestSpec, sources: list[ArtifactRef]
+    path: Path, test: ExperimentSpec, sources: list[ArtifactRef]
 ) -> dict[str, Any]:
     failure = check_declared_output(path, test)
     return CheckObservation(
@@ -505,7 +500,7 @@ def _scoped_experiment(
     committed = h.run.committed(name)
     if committed:
         return committed
-    intended = TestSpec.model_validate_json(
+    intended = ExperimentSpec.model_validate_json(
         resolve_artifact(h.run, request.test).read_text("utf-8")
     )
     if attempt.test != request.test or attempt.hypothesis_id != intended.hypothesis_id:
@@ -518,7 +513,7 @@ def _scoped_experiment(
     for role in ("baseline", "main"):
         effective_test = request.test
         if role == "baseline":
-            baseline_spec = TestSpec.model_validate(
+            baseline_spec = ExperimentSpec.model_validate(
                 {
                     **intended.model_dump(mode="json"),
                     "id": f"{intended.id}-baseline",
@@ -538,7 +533,7 @@ def _scoped_experiment(
                     ],
                 }
             )
-            effective_test = commit_record(h, "test", baseline_spec, key=f"{attempt.id}-baseline")
+            effective_test = ScienceStore(h.run).commit("test", baseline_spec, key=f"{attempt.id}-baseline")
         if role in attempt.reuse:
             ref = attempt.reuse[role]
             meta = json.loads(resolve_artifact(h.run, ref).read_text("utf-8"))
@@ -567,7 +562,7 @@ def _scoped_experiment(
                     affected_roles=[role],
                 )
                 diagnoses.append(
-                    commit_record(h, "diagnosis", diagnosis, key=f"{attempt.id}-{role}")
+                    ScienceStore(h.run).commit("diagnosis", diagnosis, key=f"{attempt.id}-{role}")
                 )
                 break
         stages[role] = _node_ref(h, selected[role])
@@ -579,7 +574,7 @@ def _scoped_experiment(
     for index, payload in enumerate(alternative_payloads):
         if not isinstance(payload, dict):
             raise IntegrityError("variant declaration must be an object")
-        variant = TestSpec.model_validate(
+        variant = ExperimentSpec.model_validate(
             {
                 **intended.model_dump(mode="json"),
                 **payload,
@@ -590,7 +585,7 @@ def _scoped_experiment(
         )
         if classify_change(intended, variant) == "pivot":
             raise IntegrityError("robustness cannot change the substantive target")
-        ref = commit_record(h, "test", variant, key=f"{attempt.id}-v{index:03d}")
+        ref = ScienceStore(h.run).commit("test", variant, key=f"{attempt.id}-v{index:03d}")
         variants.append(ref)
         key = next(k for k in variant.outputs if not k.endswith(".json"))
         attempts.append(
@@ -611,8 +606,7 @@ def _scoped_experiment(
     if "main" in selected and attempts:
         capacity = h.config.search.steps_for("robustness")
         if len(attempts) > capacity:
-            diagnoses.append(commit_record(
-                h, "diagnosis", Diagnosis(
+            diagnoses.append(ScienceStore(h.run).commit("diagnosis", Diagnosis(
                     category="resource", observation_refs=[request.attempt], author="executor",
                     reason="Declared alternatives exceed the stage execution allowance; excess alternatives remain unavailable",
                     affected_refs=[request.test], affected_roles=["robustness"],
@@ -652,9 +646,7 @@ def _scoped_experiment(
             ):
                 node_ref = _node_ref(h, node)
                 diagnoses.append(
-                    commit_record(
-                        h,
-                        "diagnosis",
+                    ScienceStore(h.run).commit("diagnosis",
                         Diagnosis(
                             category="measurement",
                             observation_refs=[node_ref],
@@ -668,7 +660,7 @@ def _scoped_experiment(
                 )
     for role, node in measured_nodes:
         assert node.test_ref is not None
-        test = TestSpec.model_validate_json(
+        test = ExperimentSpec.model_validate_json(
             resolve_artifact(h.run, node.test_ref).read_text("utf-8")
         )
         ref = _node_ref(h, node)
@@ -682,9 +674,7 @@ def _scoped_experiment(
         if fidelity.status == "defect":
             diagnosis_name = f"science:diagnosis:{node.id}"
             diagnoses.append(
-                h.run.artifact_ref(diagnosis_name) if h.run.committed(diagnosis_name) else commit_record(
-                    h,
-                    "diagnosis",
+                h.run.artifact_ref(diagnosis_name) if h.run.committed(diagnosis_name) else ScienceStore(h.run).commit("diagnosis",
                     Diagnosis(
                         category="measurement",
                         observation_refs=[request.attempt, ref],
@@ -761,5 +751,5 @@ def _scoped_experiment(
         if coverage["status"] == "partial"
         else "complete",
     )
-    ref = commit_record(h, "result", result, key=attempt.id)
+    ref = ScienceStore(h.run).commit("result", result, key=attempt.id)
     return resolve_artifact(h.run, ref)

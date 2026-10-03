@@ -3,8 +3,6 @@
 import json
 from pathlib import Path
 
-from popper.discover.compatibility import decode_policy
-from popper.discover.contracts import Disposition, MoveSelection, commit_record
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.explore import generate_candidates, propose_hypothesis
 from popper.discover.feedback import challenge_candidates, interpret_result
@@ -19,16 +17,14 @@ from popper.discover.policy import (
 from popper.discover.state import ResearchState, commit_snapshot, rebuild_state, scientific_commits
 from popper.ground.steward import load_foundation
 from popper.harness.descriptive import read_table
-from popper.harness.records import (
-    ArtifactRef,
-    CandidateView,
-    MeasurementView,
-    StudyOutput,
-    resolve_artifact,
-)
+from popper.harness.records import ArtifactRef, resolve_artifact
 from popper.harness.research import render_fields
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import file_hash
+from popper.science.compatibility import decode_policy
+from popper.science.contracts import Disposition, MoveSelection
+from popper.science.output import CandidateView, MeasurementView, StudyOutput
+from popper.science.store import ScienceStore
 from popper.treesearch.engine import Node
 from popper.understand.frame import load_frame
 
@@ -120,7 +116,7 @@ def commit_study(
         operational_status=status,
         historical_evidence=evidence,
     )
-    ref = commit_record(h, "study", study)
+    ref = ScienceStore(h.run).commit("study", study)
     # Public transport name is a pointer to the exact same immutable record.
     h.run.commit_artifact("study", resolve_artifact(h.run, ref))
     return resolve_artifact(h.run, ref)
@@ -209,9 +205,7 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
         h.run.commit_artifact("exploration", path)
     preparation = _preparation_manifest(h, prepared.preparation)
     if h.run.committed("science:intent:initial") is None:
-        commit_record(
-            h,
-            "intent",
+        ScienceStore(h.run).commit("intent",
             {
                 "frame": h.run.artifact_ref("frame_reviewed").model_dump(mode="json"),
                 "foundation": h.run.artifact_ref("foundation").model_dump(mode="json"),
@@ -335,9 +329,7 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                 selection = select_move(h, snapshot, proposals)
             move = selected_move(h, selection)
             if move.action == "stop":
-                commit_record(
-                    h,
-                    "disposition",
+                ScienceStore(h.run).commit("disposition",
                     Disposition(
                         kind="stopped", reason=move.stopping_condition, sources=[selection]
                     ),
@@ -345,9 +337,7 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
                 )
                 return commit_study(h, move.stopping_condition)
             if move.action in {"pivot", "reframe", "acquisition"}:
-                commit_record(
-                    h,
-                    "disposition",
+                ScienceStore(h.run).commit("disposition",
                     Disposition(
                         kind="deferred",
                         reason=f"{move.action} is unavailable in this execution policy",
@@ -371,9 +361,7 @@ def advance_discovery(h: Harness, *, frame: Path, foundation: Path, exploration:
     except BudgetExceeded as exc:
         return commit_study(h, str(exc), "budget_exceeded")
     except EligibilityError as exc:
-        commit_record(
-            h,
-            "disposition",
+        ScienceStore(h.run).commit("disposition",
             Disposition(kind="deferred", reason=str(exc), sources=[], resource="cap" in str(exc)),
         )
         return commit_study(h, str(exc))

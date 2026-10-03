@@ -3,8 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.contracts import AttemptResult, Candidate, ResearchMove, commit_record
-from popper.discover.contracts import TestSpec as ScientificTest
 from popper.discover.feedback import challenge_candidates, interpret_result
 from popper.discover.policy import make_attempt
 from popper.discover.state import commit_snapshot, rebuild_state
@@ -14,6 +12,9 @@ from popper.harness.records import resolve_artifact
 from popper.harness.recovery import read_events
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
+from popper.science.contracts import AttemptResult, Candidate, ResearchMove
+from popper.science.contracts import ExperimentSpec as ScientificTest
+from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = pytest.mark.integration
@@ -31,7 +32,7 @@ def candidate_state(tmp_path: Path) -> Harness:
         refuting_result="An opposing interval", planned_test="Contrast",
         methods=spec["methods"], origins=[ref], exposure=[ref],
     ).model_dump(mode="json") for i in (1, 2)]
-    commit_record(h, "candidates", {"candidates": candidates}, key="initial")
+    ScienceStore(h.run).commit("candidates", {"candidates": candidates}, key="initial")
     return h
 
 
@@ -101,13 +102,13 @@ def test_interpretation_requires_result_and_preserves_execution_outcome(tmp_path
     candidate_ref = h.run.artifact_ref("science:candidates:initial")
     spec = spec_payload()
     spec.update({"hypothesis_id": "h1", "preparation": candidate_ref.model_dump(mode="json")})
-    test_ref = commit_record(h, "test", ScientificTest.model_validate(spec), key="t1")
+    test_ref = ScienceStore(h.run).commit("test", ScientificTest.model_validate(spec), key="t1")
     attempt_ref = make_attempt(h, ResearchMove(
         id="m1", snapshot=commit_snapshot(h, rebuild_state(h)), action="test", objective="Test explanation",
         trigger_refs=[candidate_ref], hypothesis_id="h1", test=test_ref,
         discriminating_outcomes=["Positive", "Negative", "Inconclusive"], cost_usd=0, stopping_condition="One test",
     ), None)
-    result_ref = commit_record(h, "result", AttemptResult(
+    result_ref = ScienceStore(h.run).commit("result", AttemptResult(
         attempt=attempt_ref, hypothesis_id="h1", test=test_ref,
         measurements=[], stages={}, coverage={"status": "partial"}, sensitivity={}, status="failed",
     ), key="attempt-000")

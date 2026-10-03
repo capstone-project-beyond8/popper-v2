@@ -7,6 +7,7 @@
 
 | Path | Owns |
 |---|---|
+| `src/popper/science/` | Scientific contracts, evidence, identity and derived state |
 | `src/popper/harness/` | Model access, agent loop and tools, context assembly, script execution, run store, journal, budget, decision layer, config (defaults in `default_config.yaml`). No research logic |
 | `src/popper/treesearch/` | Generic stage engine: nodes, draft/debug/improve steps, scoring, best-node selection |
 | `src/popper/understand/` | Ideation & framing: data profile, framing |
@@ -18,7 +19,7 @@
 | `examples/` | Briefs and datasets for demos and evaluation |
 | `evals/` | Evaluation suites and comparisons (production code never imports it) |
 
-Function packages import only `harness` and `treesearch`, and never each other. Prompts live in `<package>/prompts/`.
+Function packages import only `science`, `harness` and `treesearch`, and never each other. `science` uses generic Harness storage/records and never imports model sessions or capabilities. Prompts live in `<package>/prompts/`.
 
 ## Rules
 

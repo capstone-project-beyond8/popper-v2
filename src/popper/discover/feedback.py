@@ -3,14 +3,6 @@
 import json
 from collections.abc import Callable
 
-from popper.discover.contracts import (
-    Challenge,
-    ChallengeProposal,
-    Disposition,
-    Interpretation,
-    InterpretationProposal,
-    commit_record,
-)
 from popper.discover.state import ResearchState, compact_state, rebuild_state, validate_sources
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.artifacts import reachable_refs, read_artifact_tool
@@ -19,6 +11,14 @@ from popper.harness.context import fence
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, Record, resolve_artifact
 from popper.harness.session import Harness
+from popper.science.contracts import (
+    Challenge,
+    ChallengeProposal,
+    Disposition,
+    Interpretation,
+    InterpretationProposal,
+)
+from popper.science.store import ScienceStore
 
 
 def _assess[T: Record](
@@ -72,9 +72,7 @@ def _assess[T: Record](
         max_submits=2,
     )
     if response is None:
-        commit_record(
-            h,
-            "disposition",
+        ScienceStore(h.run).commit("disposition",
             Disposition(
                 kind="deferred",
                 reason=f"{tag} correction allowance exhausted; scientific feedback is unavailable",
@@ -95,7 +93,7 @@ def challenge_candidates(h: Harness, candidates: ArtifactRef) -> ArtifactRef | N
     selected = {c.record.id: c.ref for c in state.candidates if c.ref == candidates}
     if not selected:
         raise ValueError("challenge requires a committed candidate set")
-    snapshot = commit_record(h, "snapshot", state)
+    snapshot = ScienceStore(h.run).commit("snapshot", state)
 
     def validate(proposal: ChallengeProposal, allowed: list[ArtifactRef]) -> None:
         ids = [a.hypothesis_id for a in proposal.assessments]
@@ -113,8 +111,7 @@ def challenge_candidates(h: Harness, candidates: ArtifactRef) -> ArtifactRef | N
     )
     if proposal is None:
         return None
-    return commit_record(
-        h, "challenge",
+    return ScienceStore(h.run).commit("challenge",
         Challenge(**proposal.model_dump(), snapshot=snapshot, candidates=candidates, author="judge"),
         key=key,
     )
@@ -129,7 +126,7 @@ def interpret_result(h: Harness, result: ArtifactRef) -> ArtifactRef | None:
     outcome = next((r.record for r in state.results if r.ref == result), None)
     if outcome is None:
         raise ValueError("interpretation requires a committed attempt result")
-    snapshot = commit_record(h, "snapshot", state)
+    snapshot = ScienceStore(h.run).commit("snapshot", state)
 
     def validate(proposal: InterpretationProposal, allowed: list[ArtifactRef]) -> None:
         if result not in proposal.sources:
@@ -143,8 +140,7 @@ def interpret_result(h: Harness, result: ArtifactRef) -> ArtifactRef | None:
     )
     if proposal is None:
         return None
-    return commit_record(
-        h, "interpretation",
+    return ScienceStore(h.run).commit("interpretation",
         Interpretation(
             **proposal.model_dump(), hypothesis_id=outcome.hypothesis_id,
             result=result, snapshot=snapshot, author="theorist",

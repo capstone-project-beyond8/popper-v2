@@ -1,18 +1,11 @@
 """Scientific declarations and immutable lifecycle records."""
 
-import json
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, JsonValue, StringConstraints, ValidationInfo, model_validator
 
-from popper.harness.records import (
-    ArtifactRef,
-    IntegrityError,
-    MeasurementRef,
-    Record,
-    resolve_artifact,
-)
-from popper.harness.session import Harness
+from popper.harness.records import ArtifactRef, Record
+from popper.science.evidence import MeasurementRef
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Finite = Annotated[float, Field(allow_inf_nan=False)]
@@ -169,14 +162,14 @@ class TestProposal(Record):
         return self
 
 
-class TestSpec(TestProposal):
+class ExperimentSpec(TestProposal):
     version: Literal[1] = 1
     id: Text
     hypothesis_id: Text
     parent_test: ArtifactRef | None = None
 
 
-def classify_change(before: TestSpec, after: TestSpec) -> Literal["same_test", "refine", "pivot"]:
+def classify_change(before: ExperimentSpec, after: ExperimentSpec) -> Literal["same_test", "refine", "pivot"]:
     if before.primary_estimand != after.primary_estimand:
         return "pivot"
     excluded = {"id", "version", "hypothesis_id", "parent_test", "sources"}
@@ -324,18 +317,3 @@ class Invalidation(Record):
     superseded_by: ArtifactRef | None = None
 
 
-def commit_record(
-    h: Harness, kind: str, record: Record | dict[str, Any], *, key: str | None = None
-) -> ArtifactRef:
-    name = f"science:{kind}" + (f":{key}" if key else "")
-    data = record.model_dump(mode="json") if isinstance(record, Record) else record
-    if key and h.run.committed(name):
-        ref = h.run.artifact_ref(name)
-        if json.loads(resolve_artifact(h.run, ref).read_text("utf-8")) != data:
-            raise IntegrityError(f"conflicting scientific record for {name}")
-        return ref
-    folder = h.run.new_attempt(f"discover/{kind}")
-    rel = folder.relative_to(h.run.root).as_posix()
-    path = h.run.write_json(f"{rel}/{kind}.json", data)
-    h.run.commit_artifact(name, path)
-    return h.run.artifact_ref(name)

@@ -111,7 +111,7 @@ Dependency rules:
 
 - `harness` imports nothing else in Popper. It supplies generic mechanisms and invokes domain-supplied checks without adopting scientific policy.
 - `treesearch` imports only `harness`; it knows no stage goals.
-- Function packages import only `harness` and `treesearch`, never each other. Their artifacts and contracts carry the scientific handoffs; calling a capability again does not require cross-imports.
+- Function packages import only `science`, `harness` and `treesearch`, never each other. `science` owns shared scientific contracts and uses generic Harness record/storage primitives; it never imports model sessions or capabilities. Their artifacts and contracts carry the scientific handoffs; calling a capability again does not require cross-imports.
 - Only `coordinator` knows routing among capabilities. Scientific selection and interpretation belong to Scientist behavior; runtime projection belongs to scientific state semantics. Coordinator transports references and checks authorization/resources rather than duplicating either responsibility.
 - Evaluation may depend on production components; production components never depend on evaluation.
 - These rules are an import contract checked in CI, not a convention [30].

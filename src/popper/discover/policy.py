@@ -5,18 +5,6 @@ from typing import Any
 
 from pydantic import Field
 
-from popper.discover.contracts import (
-    Attempt,
-    Diagnosis,
-    Disposition,
-    Invalidation,
-    MoveProposal,
-    MoveSelection,
-    ResearchMove,
-    TestSpec,
-    classify_change,
-    commit_record,
-)
 from popper.discover.state import (
     ResearchState,
     compact_state,
@@ -30,6 +18,18 @@ from popper.harness.context import fence
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, IntegrityError, Record, resolve_artifact
 from popper.harness.session import Harness
+from popper.science.contracts import (
+    Attempt,
+    Diagnosis,
+    Disposition,
+    ExperimentSpec,
+    Invalidation,
+    MoveProposal,
+    MoveSelection,
+    ResearchMove,
+    classify_change,
+)
+from popper.science.store import ScienceStore
 
 
 class EligibilityError(ValueError):
@@ -82,7 +82,7 @@ def validate_moves(
     allowed = {r.model_dump_json() for r in reachable_refs(h, snapshot)}
     candidates = {c.record.id for c in state.candidates}
     seen: set[str] = set()
-    validated: list[tuple[dict[str, Any], TestSpec | None]] = []
+    validated: list[tuple[dict[str, Any], ExperimentSpec | None]] = []
     for index, proposal in enumerate(proposals):
         for ref in proposal.trigger_refs:
             if ref.model_dump_json() not in allowed:
@@ -113,14 +113,14 @@ def validate_moves(
                 None,
             )
             test_id = f"test-{snapshot.record_id.removeprefix('artifact-')}-{index:03d}"
-            test = TestSpec(
+            test = ExperimentSpec(
                 **proposal.test_proposal.model_dump(),
                 id=test_id,
                 hypothesis_id=proposal.hypothesis_id,
                 parent_test=previous,
             )
         if payload.get("test"):
-            existing_test = TestSpec.model_validate_json(
+            existing_test = ExperimentSpec.model_validate_json(
                 resolve_artifact(h.run, ArtifactRef.model_validate(payload["test"])).read_text(
                     "utf-8"
                 )
@@ -131,7 +131,7 @@ def validate_moves(
     moves: list[ResearchMove] = []
     for index, (payload, test) in enumerate(validated):
         if test:
-            test_ref = commit_record(h, "test", test, key=test.id)
+            test_ref = ScienceStore(h.run).commit("test", test, key=test.id)
             payload["test"] = test_ref.model_dump(mode="json")
         moves.append(
             ResearchMove(
@@ -188,9 +188,7 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
         max_submits=2,
     )
     if response is None:
-        commit_record(
-            h,
-            "disposition",
+        ScienceStore(h.run).commit("disposition",
             Disposition(
                 kind="rejected",
                 reason="Bounded scientific proposal correction exhausted",
@@ -198,9 +196,7 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
             ),
             key=key,
         )
-        return commit_record(
-            h,
-            "proposals",
+        return ScienceStore(h.run).commit("proposals",
             {
                 "snapshot": snapshot.model_dump(mode="json"),
                 "moves": [],
@@ -208,9 +204,7 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
             },
             key=key,
         )
-    return commit_record(
-        h,
-        "proposals",
+    return ScienceStore(h.run).commit("proposals",
         {
             "snapshot": snapshot.model_dump(mode="json"),
             "moves": [m.model_dump(mode="json") for m in collected],
@@ -239,9 +233,7 @@ def select_move(h: Harness, snapshot: ArtifactRef, proposals: ArtifactRef) -> Ar
     )
     if choice.proposal_id not in {m.id for m in moves}:
         raise EligibilityError("selection names an unknown retained proposal")
-    return commit_record(
-        h,
-        "selection",
+    return ScienceStore(h.run).commit("selection",
         MoveSelection(
             proposal_id=choice.proposal_id,
             snapshot=snapshot,
@@ -276,7 +268,7 @@ def make_attempt(h: Harness, move: ResearchMove, parent: ArtifactRef | None) -> 
     check_move(state, move, h.config.discovery)
     if move.test is None or move.hypothesis_id is None:
         raise EligibilityError("move cannot schedule an execution")
-    test = TestSpec.model_validate_json(resolve_artifact(h.run, move.test).read_text("utf-8"))
+    test = ExperimentSpec.model_validate_json(resolve_artifact(h.run, move.test).read_text("utf-8"))
     if test.hypothesis_id != move.hypothesis_id:
         raise IntegrityError("move test belongs to another hypothesis")
     previous = next(
@@ -286,7 +278,7 @@ def make_attempt(h: Harness, move: ResearchMove, parent: ArtifactRef | None) -> 
     if previous:
         if parent != previous.ref:
             raise EligibilityError("revisit must cite its latest parent attempt")
-        old_test = TestSpec.model_validate_json(
+        old_test = ExperimentSpec.model_validate_json(
             resolve_artifact(h.run, previous.record.test).read_text("utf-8")
         )
         change = classify_change(old_test, test)
@@ -332,12 +324,10 @@ def make_attempt(h: Harness, move: ResearchMove, parent: ArtifactRef | None) -> 
                 raise EligibilityError("refinement requires an attributed question or diagnostic observation")
     elif move.action != "test":
         raise EligibilityError("first hypothesis execution must be a test")
-    move_ref = commit_record(h, "move", move, key=move.id)
+    move_ref = ScienceStore(h.run).commit("move", move, key=move.id)
     index = state.counters.get("moves", 0)
     attempt_id = f"attempt-{index:03d}"
-    ref = commit_record(
-        h,
-        "attempt",
+    ref = ScienceStore(h.run).commit("attempt",
         Attempt(
             id=attempt_id,
             move=move_ref,
@@ -373,4 +363,4 @@ def ensure_invalidation(h: Harness, attempt_ref: ArtifactRef) -> None:
     prior = next((r.record for r in state.results if r.record.attempt == attempt.parent), None)
     invalid = [m.ref for m in prior.measurements if m.role not in attempt.reuse] if prior else []
     if invalid:
-        commit_record(h, "invalidation", Invalidation(measurements=invalid, diagnosis=attempt.diagnosis, superseded_by=attempt_ref), key=attempt.move_id)
+        ScienceStore(h.run).commit("invalidation", Invalidation(measurements=invalid, diagnosis=attempt.diagnosis, superseded_by=attempt_ref), key=attempt.move_id)

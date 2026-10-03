@@ -543,7 +543,7 @@ def run_stage(h: Harness, spec: StageSpec, rng: random.Random | None = None) -> 
         nodes.append(node)
         score = f" score {node.score:g}" if node.status == "ok" else ""
         h.progress(
-            f"[{spec.execution_id}] {node.id} {node.kind} → {node.status}{score} · ${h.spent_usd:.2f}"
+            f"[{spec.execution_id}] {node.id} {node.kind} â†’ {node.status}{score} Â· ${h.spent_usd:.2f}"
         )
         if not spec.attempts and node.status == "ok" and node.goal_met:
             break

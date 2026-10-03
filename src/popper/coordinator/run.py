@@ -11,17 +11,17 @@ from typing import Literal
 from popper.communicate.paper import write_paper, write_study
 from popper.coordinator.discovery import advance_discovery, commit_study
 from popper.coordinator.limitations import limitations
-from popper.discover.compatibility import decode_policy
 from popper.discover.explore import explore
 from popper.ground.steward import Concern, Foundation, ground, load_foundation
 from popper.harness.config import Config
 from popper.harness.descriptive import DescriptiveReport, describe_table, read_table
 from popper.harness.llm import LLM
-from popper.harness.records import StudyOutput
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.research import ResearchContext, parse_research, render_fields
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
+from popper.science.compatibility import decode_policy
+from popper.science.output import StudyOutput
 from popper.treesearch.engine import StageFailed
 from popper.understand.frame import Frame, load_frame, understand
 from popper.understand.review import (
@@ -52,7 +52,7 @@ class _AwaitingReview(Exception):
 
 def _phase(h: Harness, name: str) -> None:
     h.journal.write("phase", name=name)
-    h.progress(f"[{name}] start · ${h.spent_usd:.2f}")
+    h.progress(f"[{name}] start Â· ${h.spent_usd:.2f}")
 
 
 def run(

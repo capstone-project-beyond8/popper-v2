@@ -8,15 +8,16 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import Field, ValidationInfo, model_validator
 
-from popper.discover.compatibility import StudyPolicy
-from popper.discover.contracts import Candidate, CandidateProposal, commit_record
-from popper.discover.hypothesis import Hypothesis, HypothesisProposal
-from popper.discover.warnings import hypothesis_warnings
 from popper.harness.context import ARTIFACT_CHARS, RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, Record
 from popper.harness.research import ResearchContext, render_research
 from popper.harness.session import Harness
+from popper.science.compatibility import StudyPolicy
+from popper.science.contracts import Candidate, CandidateProposal
+from popper.science.hypothesis import Hypothesis, HypothesisProposal
+from popper.science.store import ScienceStore
+from popper.science.warnings import hypothesis_warnings
 from popper.treesearch.engine import Node, StageSpec, run_stage
 
 GOAL = (
@@ -172,4 +173,4 @@ def generate_candidates(
             **item.model_dump(), id=f"hypothesis-{index+1:03d}",
             origins=origins, exposure=exposure, warnings=warnings,
         ).model_dump(mode="json"))
-    return commit_record(h, "candidates", {"version": 1, "candidates": candidates}, key="initial")
+    return ScienceStore(h.run).commit("candidates", {"version": 1, "candidates": candidates}, key="initial")
