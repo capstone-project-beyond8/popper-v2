@@ -132,7 +132,7 @@ def test_unfit_proposal_is_rejected(world: World, fields: dict[str, Any]) -> Non
 
 
 def test_question_must_be_a_projected_question(world: World) -> None:
-    with pytest.raises(IntegrityError, match="question"):
+    with pytest.raises(ValueError, match="question"):
         world.commit(world.idea(question=world.intent))
 
 
@@ -158,9 +158,9 @@ def test_retirement_keeps_measurements_visible(world: World) -> None:
     after = rebuild_state(world.science)
     assert after.ideas[-1].ref == retired and after.ideas[-1].record.status == "retired"
     assert after.history == before.history and after.observations == before.observations
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValueError, match="latest revision"):
         world.commit(world.idea("continue", idea_id=idea_id, parents=[retired]))
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValueError, match="latest revision"):
         world.commit(world.idea("continue", idea_id=idea_id, parents=[parent]))
 
 
@@ -177,7 +177,7 @@ def test_identity_changes_only_with_replacement(world: World) -> None:
     with pytest.raises(ValueError, match="replacement"):
         world.commit(world.idea("continue", "conjecture", idea_id=idea_id, parents=[parent], meaning_changed=True))
     world.commit(world.idea("continue", "conjecture", idea_id=idea_id, parents=[parent]))
-    with pytest.raises(IntegrityError):  # the first revision is no longer the latest
+    with pytest.raises(ValueError, match="latest revision"):  # the first revision is no longer the latest
         world.commit(world.idea("continue", "conjecture", idea_id=idea_id, parents=[parent]))
     latest = rebuild_state(world.science).ideas[-1].ref
     other = world.commit(world.idea("new", "conjecture"))
@@ -231,14 +231,14 @@ def test_promotion_rejections(world: World) -> None:
     challenge = world.challenge(conjecture)
     with pytest.raises(ValueError, match="conjecture"):
         world.promote(question, world.challenge(question))
-    with pytest.raises(IntegrityError, match="challenge"):
+    with pytest.raises(ValueError, match="challenge"):
         world.promote(other, challenge)
     with pytest.raises(ValidationError, match="processed columns"):
         world.promote(conjecture, challenge, world.candidate(outcome="missing"))
     tampered = conjecture.model_copy(update={"sha256": "a" * 64})
     with pytest.raises(IntegrityError):
         world.promote(tampered, challenge)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValueError, match="latest revision"):
         world.promote(world.question, challenge)
     with pytest.raises(IntegrityError):
         world.promote(conjecture, challenge, admission=world.intent)
@@ -301,9 +301,9 @@ def test_idea_challenge_needs_an_active_committed_revision(world: World) -> None
     assert rebuild_state(world.science).idea_challenges[0].ref == challenge
     idea_id = rebuild_state(world.science).ideas[0].record.idea_id
     world.commit(world.idea("retire", "conjecture", idea_id=idea_id, parents=[revision]))
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValueError, match="active idea"):
         world.challenge(revision)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValueError, match="active idea"):
         world.challenge(world.question)
 
 
@@ -343,7 +343,7 @@ def test_retiring_a_tested_idea_keeps_its_candidate(world: World) -> None:
         parent.candidate, parent.candidate_id, parent.predictions,
     )
     assert after.candidates == before.candidates and after.history == before.history
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValueError, match="latest revision"):
         world.commit(world.idea(
             "retire", "testable", idea_id=parent.idea_id, parents=[retired],
             explanation="Hours of study raise scores", limitations=["Self-reported hours"],

@@ -711,3 +711,36 @@ def test_empty_round_is_a_sourced_deferral(tmp_path: Path) -> None:
     calls = len(round_.llm.calls)
     assert dispatch_selected(h, request) == outcome
     assert len(round_.llm.calls) == calls and len(rebuild_state(science).stage_history) == 1
+
+
+def test_stale_parent_is_corrected_not_fatal(tmp_path: Path) -> None:
+    from popper.workflow.run import dispatch_selected
+
+    h, science, source = _idea_world(tmp_path)
+    _question(science, source)
+    request = _evolve(h, science, source)
+
+    def retire(state: Any) -> tuple[str, dict[str, Any]]:
+        first = state.ideas[0]
+        return "submit_idea", {
+            "change": "retire", "maturity": "question", "idea_id": first.record.idea_id, "parents": [_ref(first.ref)],
+            "statement": first.record.statement, "rationale": "Superseded", "sources": [_ref(first.ref)],
+            "question": _ref(state.questions[0].ref),
+        }
+
+    def stale_continue(state: Any) -> tuple[str, dict[str, Any]]:
+        first = state.ideas[0]
+        return "submit_idea", {
+            "change": "continue", "maturity": "question", "idea_id": first.record.idea_id, "parents": [_ref(first.ref)],
+            "statement": "Reworded", "rationale": "Clarified", "sources": [_ref(first.ref)],
+            "question": _ref(state.questions[0].ref),
+        }
+
+    round_ = _Round(h, science, [_question_idea, retire, stale_continue, lambda s: _question_idea(s, "A fresh line"), _finish])
+    assert dispatch_selected(h, request) is None
+    state = rebuild_state(science)
+    assert [(i.record.status, i.record.statement) for i in state.ideas] == [
+        ("active", "The association may be real"), ("retired", "The association may be real"), ("active", "A fresh line"),
+    ]
+    assert any("latest revision of an active idea" in text for text in round_.feedback)
+    assert state.stage_history[-1].record.status == "completed" and len(state.stage_history[-1].record.outputs) == 3

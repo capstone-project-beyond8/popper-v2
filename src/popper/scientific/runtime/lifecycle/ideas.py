@@ -152,7 +152,7 @@ def active_ideas(state: "ResearchState") -> int:
 def _head(heads: dict[str, "Sourced[IdeaRevision]"], ref: ArtifactRef) -> "Sourced[IdeaRevision]":
     found = next((item for item in heads.values() if item.ref == ref), None)
     if found is None:
-        raise IntegrityError("parent must be the latest revision of an active idea")
+        raise ValueError("parent must be the latest revision of an active idea")
     return found
 
 
@@ -191,7 +191,7 @@ def commit_idea(
     if proposal.change == "retire" and proposal.maturity != parents[0].record.maturity:
         raise ValueError("a retired idea keeps its maturity")
     if proposal.question is not None and proposal.question not in {q.ref for q in state.questions}:
-        raise IntegrityError("question is not a projected research question")
+        raise ValueError("question is not a projected research question")
     inherited = (
         {k: parents[0].record.model_dump()[k] for k in ("candidate", "candidate_id", "predictions")}
         if proposal.change == "retire"
@@ -232,7 +232,7 @@ def commit_idea_challenge(
     state = rebuild_state(science)
     target = next((item for item in state.ideas if item.ref == revision), None)
     if target is None or target.record.idea_id not in _heads(state):
-        raise IntegrityError("challenge needs a committed revision of an active idea")
+        raise ValueError("challenge needs a committed revision of an active idea")
     return science.commit("idea_challenge", IdeaChallenge(
         **proposal.model_dump(), revision=revision, author=author, admission=admission,
     ), key=key)
@@ -291,7 +291,7 @@ def promote_idea(
         raise ValueError("only a conjecture can be promoted")
     challenged = next((c for c in state.idea_challenges if c.ref == challenge), None)
     if challenged is None or challenged.record.revision != revision:
-        raise IntegrityError("promotion needs the challenge of this exact revision")
+        raise ValueError("promotion needs the challenge of this exact revision")
     checked = CandidateProposal.model_validate(
         proposal.candidate.model_dump(), context={"columns": columns}
     )
