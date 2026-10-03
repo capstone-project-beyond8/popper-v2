@@ -2,14 +2,12 @@
 
 import json
 import math
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
 from popper.harness.records import ArtifactRef, Record, resolve_artifact
-from popper.harness.recovery import read_events
 from popper.harness.results import ResultEntry
-from popper.harness.session import Harness
 from popper.science.contracts import (
     AcceptedMeasurement,
     Attempt,
@@ -34,7 +32,7 @@ class Sourced[T](Record):
 
 
 class ResearchState(Record):
-    version: int = 1
+    version: Literal[2] = 2
     frontier: list[ArtifactRef] = Field(default_factory=list)
     candidates: list[Sourced[Candidate]] = Field(default_factory=list)
     challenges: list[Sourced[Challenge]] = Field(default_factory=list)
@@ -48,7 +46,6 @@ class ResearchState(Record):
     questions: list[Sourced[Question]] = Field(default_factory=list)
     dispositions: list[Sourced[Disposition]] = Field(default_factory=list)
     exposure: list[ArtifactRef] = Field(default_factory=list)
-    budget: dict[str, float] = Field(default_factory=dict)
     counters: dict[str, int] = Field(default_factory=dict)
 
 
@@ -89,36 +86,20 @@ def compute_support(
     )
 
 
-def validate_sources(h: Harness, value: Any) -> None:
+def validate_sources(science: ScienceStore, value: Any) -> None:
     """Validate nested explicit references without interpreting scientific semantics."""
     if isinstance(value, dict):
         if {"path", "sha256", "producer", "record_id"} <= value.keys():
-            resolve_artifact(h.run, ArtifactRef.model_validate(value))
+            resolve_artifact(science.run, ArtifactRef.model_validate(value))
         else:
             for item in value.values():
-                validate_sources(h, item)
+                validate_sources(science, item)
     elif isinstance(value, list):
         for item in value:
-            validate_sources(h, item)
+            validate_sources(science, item)
 
 
-def scientific_commits(h: Harness) -> list[tuple[str, ArtifactRef]]:
-    items = []
-    for event in read_events(h.run.root):
-        if event["event"] != "artifact_commit" or "record_id" not in event:
-            continue
-        name = str(event["name"])
-        ref = ArtifactRef(
-            path=event["path"],
-            sha256=event["sha256"],
-            producer=event.get("producer", name),
-            record_id=event["record_id"],
-        )
-        items.append((name, ref))
-    return items
-
-
-def rebuild_state(h: Harness) -> ResearchState:
+def rebuild_state(science: ScienceStore) -> ResearchState:
     frontier: list[ArtifactRef] = []
     candidates: list[Sourced[Candidate]] = []
     challenges: list[Sourced[Challenge]] = []
@@ -144,13 +125,13 @@ def rebuild_state(h: Harness) -> ResearchState:
         "invalidation",
         "disposition",
     }
-    for name, ref in scientific_commits(h):
+    for name, ref in science.commits():
         kind = name.split(":")[1] if name.startswith("science:") else ""
         if kind not in kinds:
             continue
-        path = resolve_artifact(h.run, ref)
+        path = resolve_artifact(science.run, ref)
         payload = json.loads(path.read_text("utf-8"))
-        validate_sources(h, payload)
+        validate_sources(science, payload)
         frontier.append(ref)
         if kind == "candidates":
             candidates.extend(
@@ -167,7 +148,7 @@ def rebuild_state(h: Harness) -> ResearchState:
             result = AttemptResult.model_validate(payload)
             results.append(Sourced(ref=ref, record=result))
             for measurement in result.measurements:
-                resolve_measurement(h.run, measurement.ref)
+                resolve_measurement(science.run, measurement.ref)
                 identity = measurement.ref.model_dump_json()
                 if identity in seen_measurements:
                     continue
@@ -232,13 +213,12 @@ def rebuild_state(h: Harness) -> ResearchState:
         questions=questions,
         dispositions=dispositions,
         exposure=exposure,
-        budget={"spent_usd": h.spent_usd, "max_usd": h.config.budget.max_usd},
         counters=counters,
     )
 
 
-def commit_snapshot(h: Harness, state: ResearchState) -> ArtifactRef:
-    return ScienceStore(h.run).commit("snapshot", state)
+def commit_snapshot(science: ScienceStore, state: ResearchState) -> ArtifactRef:
+    return science.commit("snapshot", state)
 
 
 def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any]:
@@ -258,3 +238,18 @@ def compact_state(state: ResearchState, max_chars: int = 16000) -> dict[str, Any
         ]
     view["omitted_refs"] = omitted
     return view
+
+
+def load_snapshot(science: ScienceStore, ref: ArtifactRef) -> ResearchState:
+    payload = science.read(ref)
+    version = payload.get("version", 1)
+    if version == 1:
+        payload.pop("budget", None)
+        payload["version"] = 2
+    elif version != 2:
+        raise ValueError(f"unsupported scientific snapshot version: {version!r}")
+    return ResearchState.model_validate(payload)
+
+
+def current_frontier(science: ScienceStore, snapshot: ArtifactRef, frontier: list[ArtifactRef]) -> bool:
+    return load_snapshot(science, snapshot).frontier == frontier

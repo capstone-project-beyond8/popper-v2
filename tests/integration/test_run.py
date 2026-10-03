@@ -16,6 +16,7 @@ from popper.harness.llm import Completion, FakeLLM, LLMRequest, ToolCall
 from popper.harness.recovery import load_state, read_events, recorded_spend
 from popper.harness.research import parse_research
 from popper.harness.store import RunStore
+from popper.science.store import ScienceStore
 
 pytestmark = pytest.mark.integration
 
@@ -402,9 +403,8 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert hypotheses_path is not None
     hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))["candidates"]
     assert len(hypotheses) == 3 and all(x["origins"] for x in hypotheses)
-    from popper.discover.state import rebuild_state
-    from popper.harness.session import Harness
-    state = rebuild_state(Harness(config, no_calls, store))
+    from popper.science.state import rebuild_state
+    state = rebuild_state(ScienceStore(store))
     assert len(state.attempts) == 2 and state.observations
     assert len(state.challenges) == 1 and len(state.interpretations) == 2
     assert {a.hypothesis_id for a in state.challenges[0].record.assessments} == {"hypothesis-001", "hypothesis-002", "hypothesis-003"}

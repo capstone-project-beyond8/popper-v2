@@ -7,7 +7,6 @@ import pytest
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.feedback import interpret_result
 from popper.discover.policy import make_attempt
-from popper.discover.state import commit_snapshot, rebuild_state
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
@@ -16,6 +15,7 @@ from popper.harness.store import RunStore
 from popper.science.contracts import Attempt, Diagnosis, Invalidation, ResearchMove
 from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.science.evidence import resolve_measurement
+from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
@@ -56,7 +56,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
         if req.tag == "interpret_result":
-            current = rebuild_state(h).results[-1]
+            current = rebuild_state(ScienceStore(h.run)).results[-1]
             return (ToolCall("interpret", "submit_interpretation", {
                 "summary": "Corrected measurement restores the intended scale." if repairing else "Scaling defects leave the intended contrast unresolved.",
                 "rivals": ["Selection"], "limitations": ["Observational design"],
@@ -95,23 +95,23 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
         "planned_test": "contrast",
     }
     experiment(h, {}, hypothesis, tmp_path, request=ExperimentRequest(intended, parent_ref))
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     bad = next(m.record.ref for m in state.history if m.record.role == affected_role)
     assert resolve_measurement(h.run, bad).value == (200 if affected_role == "main" else 2)
     assert len(state.observations) == (0 if other_defect else 1)
     from popper.communicate.paper import write_study
-    from popper.coordinator.discovery import commit_study
+    from popper.science.output import build_study
 
     h.config.budget.max_usd = 0
-    old_source = write_study(h, commit_study(h, "measurement defect", "budget_exceeded"))[0]
+    old_source = write_study(h, build_study(ScienceStore(h.run), "measurement defect", "budget_exceeded"))[0]
     original_report = old_source.read_bytes()
     h.config.budget.max_usd = 5
     interpretation = interpret_result(h, state.results[-1].ref)
     assert interpretation is not None
     interpretation_bytes = resolve_artifact(h.run, interpretation).read_bytes()
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     diagnosis = state.diagnoses[-1].ref
-    snapshot = commit_snapshot(h, state)
+    snapshot = commit_snapshot(ScienceStore(h.run), state)
     child_move = ResearchMove(
         id="m2",
         snapshot=snapshot,
@@ -127,7 +127,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
         changed_fields=["implementation"],
     )
     child_ref = make_attempt(h, child_move, parent_ref)
-    assert interpretation in rebuild_state(h).stale_interpretations
+    assert interpretation in rebuild_state(ScienceStore(h.run)).stale_interpretations
     assert resolve_artifact(h.run, interpretation).read_bytes() == interpretation_bytes
     child = Attempt.model_validate_json(resolve_artifact(h.run, child_ref).read_text())
     parent_bytes = {
@@ -140,7 +140,7 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
         assert child.reuse == {}
     repairing = True
     experiment(h, {}, hypothesis, tmp_path, request=ExperimentRequest(intended, child_ref))
-    final = rebuild_state(h)
+    final = rebuild_state(ScienceStore(h.run))
     assert len(final.observations) == (1 if other_defect else 2)
     assert len(final.history) == (3 if affected_role == "main" else 4)
     assert resolve_measurement(h.run, bad).value == (200 if affected_role == "main" else 2)
@@ -150,12 +150,12 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     assert all(p.read_bytes() == content for p, content in parent_bytes.items())
     current_interpretation = interpret_result(h, final.results[-1].ref)
     assert current_interpretation is not None
-    updated = rebuild_state(h)
+    updated = rebuild_state(ScienceStore(h.run))
     assert updated.stale_interpretations == [interpretation]
     assert current_interpretation not in updated.stale_interpretations
     assert len(updated.interpretations) == 2
     h.config.budget.max_usd = 0
-    new_source = write_study(h, commit_study(h, "scale corrected"))[0]
+    new_source = write_study(h, build_study(ScienceStore(h.run), "scale corrected"))[0]
     assert new_source != old_source and old_source.read_bytes() == original_report
     contents = new_source.read_text("utf-8")
     assert "excluded from active claims" in contents
@@ -169,4 +169,4 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
             ),
         )
         ScienceStore(h.run).commit("invalidation", Invalidation(measurements=[reused], diagnosis=late_defect))
-        assert rebuild_state(h).stale_interpretations == [interpretation, current_interpretation]
+        assert rebuild_state(ScienceStore(h.run)).stale_interpretations == [interpretation, current_interpretation]

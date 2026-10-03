@@ -5,7 +5,6 @@ import pytest
 
 from popper.discover.feedback import challenge_candidates, interpret_result
 from popper.discover.policy import make_attempt
-from popper.discover.state import commit_snapshot, rebuild_state
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
@@ -14,6 +13,7 @@ from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import AttemptResult, Candidate, ResearchMove
 from popper.science.contracts import ExperimentSpec as ScientificTest
+from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
@@ -65,7 +65,7 @@ def test_challenge_corrects_coverage_and_source_before_commit(tmp_path: Path, in
     assert {a["hypothesis_id"] for a in committed["assessments"]} == {"h1", "h2"}
     assert all(a["sources"] == [candidate_ref.model_dump(mode="json")] for a in committed["assessments"])
     assert committed["author"] == "judge"
-    assert len(rebuild_state(h).challenges) == 1
+    assert len(rebuild_state(ScienceStore(h.run)).challenges) == 1
     error = next(e for e in read_events(tmp_path) if e["event"] == "tool_call" and e.get("status") == "error")
     assert ("each candidate" if invalid == "omitted_candidate" else "outside the input frontier") in error["result"]
     h.llm = FakeLLM(lambda _: pytest.fail("committed challenge must not replay"))
@@ -89,7 +89,7 @@ def test_feedback_correction_exhaustion_is_a_sourced_deferral(tmp_path: Path, mo
     with pytest.raises(KeyboardInterrupt):
         challenge_candidates(h, h.run.artifact_ref("science:candidates:initial"))
     assert challenge_candidates(h, h.run.artifact_ref("science:candidates:initial")) is None
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     assert not state.challenges and not state.attempts
     assert len(state.dispositions) == 1
     assert state.dispositions[-1].record.kind == "deferred"
@@ -104,7 +104,7 @@ def test_interpretation_requires_result_and_preserves_execution_outcome(tmp_path
     spec.update({"hypothesis_id": "h1", "preparation": candidate_ref.model_dump(mode="json")})
     test_ref = ScienceStore(h.run).commit("test", ScientificTest.model_validate(spec), key="t1")
     attempt_ref = make_attempt(h, ResearchMove(
-        id="m1", snapshot=commit_snapshot(h, rebuild_state(h)), action="test", objective="Test explanation",
+        id="m1", snapshot=commit_snapshot(ScienceStore(h.run), rebuild_state(ScienceStore(h.run))), action="test", objective="Test explanation",
         trigger_refs=[candidate_ref], hypothesis_id="h1", test=test_ref,
         discriminating_outcomes=["Positive", "Negative", "Inconclusive"], cost_usd=0, stopping_condition="One test",
     ), None)
@@ -127,7 +127,7 @@ def test_interpretation_requires_result_and_preserves_execution_outcome(tmp_path
     h.llm = FakeLLM(respond)
     interpretation = interpret_result(h, result_ref)
     assert interpretation is not None
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     assert state.results[0].record.status == "failed" and not state.observations
     assert state.interpretations[0].record.result == result_ref
     assert state.questions[0].ref == interpretation

@@ -5,12 +5,6 @@ from typing import Any
 
 from pydantic import Field
 
-from popper.discover.state import (
-    ResearchState,
-    compact_state,
-    rebuild_state,
-    validate_sources,
-)
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.artifacts import reachable_refs, read_artifact_tool
 from popper.harness.config import Discovery
@@ -28,6 +22,13 @@ from popper.science.contracts import (
     MoveSelection,
     ResearchMove,
     classify_change,
+)
+from popper.science.state import (
+    ResearchState,
+    compact_state,
+    load_snapshot,
+    rebuild_state,
+    validate_sources,
 )
 from popper.science.store import ScienceStore
 
@@ -69,8 +70,6 @@ def check_move(
         raise EligibilityError("hypothesis revisit cap reached")
     if any(d.record.category == "integrity" for d in state.diagnoses):
         raise IntegrityError("integrity diagnosis blocks scheduling")
-    if state.budget and state.budget["spent_usd"] >= state.budget["max_usd"]:
-        raise EligibilityError("resource cap reached")
     if move.action in {"technical_repair", "measurement_repair"} and not move.diagnosis:
         raise EligibilityError("repair requires sourced defect diagnosis")
 
@@ -78,7 +77,7 @@ def check_move(
 def validate_moves(
     h: Harness, snapshot: ArtifactRef, proposals: list[MoveProposal]
 ) -> list[ResearchMove]:
-    state = ResearchState.model_validate_json(resolve_artifact(h.run, snapshot).read_text("utf-8"))
+    state = load_snapshot(ScienceStore(h.run), snapshot)
     allowed = {r.model_dump_json() for r in reachable_refs(h, snapshot)}
     candidates = {c.record.id for c in state.candidates}
     seen: set[str] = set()
@@ -93,7 +92,7 @@ def validate_moves(
             if proposal.hypothesis_id not in candidates:
                 raise ValueError("proposal names unknown hypothesis")
             seen.add(proposal.hypothesis_id)
-        validate_sources(h, proposal.model_dump(mode="json"))
+        validate_sources(ScienceStore(h.run), proposal.model_dump(mode="json"))
         payload = proposal.model_dump(mode="json")
         test = None
         if proposal.test_proposal:
@@ -148,7 +147,7 @@ def propose_moves(h: Harness, snapshot: ArtifactRef) -> ArtifactRef:
     existing = h.run.committed(f"science:proposals:{key}")
     if existing:
         return h.run.artifact_ref(f"science:proposals:{key}")
-    state = ResearchState.model_validate_json(resolve_artifact(h.run, snapshot).read_text("utf-8"))
+    state = load_snapshot(ScienceStore(h.run), snapshot)
     collected: list[ResearchMove] = []
 
     def submit(proposal: Proposals) -> str:
@@ -245,24 +244,12 @@ def select_move(h: Harness, snapshot: ArtifactRef, proposals: ArtifactRef) -> Ar
     )
 
 
-def selected_move(h: Harness, selection: ArtifactRef) -> ResearchMove:
-    choice = MoveSelection.model_validate_json(
-        resolve_artifact(h.run, selection).read_text("utf-8")
-    )
-    data = json.loads(resolve_artifact(h.run, choice.proposals).read_text("utf-8"))
-    return next(
-        ResearchMove.model_validate(m) for m in data["moves"] if m["id"] == choice.proposal_id
-    )
-
-
 def make_attempt(h: Harness, move: ResearchMove, parent: ArtifactRef | None) -> ArtifactRef:
     name = f"science:attempt:{move.id}"
     if h.run.committed(name):
         return h.run.artifact_ref(name)
-    state = rebuild_state(h)
-    snapshot = ResearchState.model_validate_json(
-        resolve_artifact(h.run, move.snapshot).read_text("utf-8")
-    )
+    state = rebuild_state(ScienceStore(h.run))
+    snapshot = load_snapshot(ScienceStore(h.run), move.snapshot)
     if snapshot.frontier != state.frontier:
         raise EligibilityError("stale scientific frontier")
     check_move(state, move, h.config.discovery)
@@ -359,7 +346,7 @@ def ensure_invalidation(h: Harness, attempt_ref: ArtifactRef) -> None:
     diagnosis = Diagnosis.model_validate_json(resolve_artifact(h.run, attempt.diagnosis).read_text("utf-8"))
     if diagnosis.category != "measurement":
         return
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     prior = next((r.record for r in state.results if r.record.attempt == attempt.parent), None)
     invalid = [m.ref for m in prior.measurements if m.role not in attempt.reuse] if prior else []
     if invalid:

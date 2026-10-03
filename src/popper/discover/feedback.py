@@ -3,13 +3,12 @@
 import json
 from collections.abc import Callable
 
-from popper.discover.state import ResearchState, compact_state, rebuild_state, validate_sources
 from popper.harness.agent import Tool, agent_loop
 from popper.harness.artifacts import reachable_refs, read_artifact_tool
 from popper.harness.config import Role
 from popper.harness.context import fence
 from popper.harness.prompts import load_prompt
-from popper.harness.records import ArtifactRef, Record, resolve_artifact
+from popper.harness.records import ArtifactRef, Record
 from popper.harness.session import Harness
 from popper.science.contracts import (
     Challenge,
@@ -18,6 +17,7 @@ from popper.science.contracts import (
     Interpretation,
     InterpretationProposal,
 )
+from popper.science.state import compact_state, load_snapshot, rebuild_state, validate_sources
 from popper.science.store import ScienceStore
 
 
@@ -38,12 +38,12 @@ def _assess[T: Record](
     collected: list[T] = []
 
     def submit(proposal: T) -> str:
-        validate_sources(h, proposal.model_dump(mode="json"))
+        validate_sources(ScienceStore(h.run), proposal.model_dump(mode="json"))
         validate(proposal, allowed)
         collected[:] = [proposal]
         return "Sourced scientific assessment accepted; evidence standing is unchanged."
 
-    state = ResearchState.model_validate_json(resolve_artifact(h.run, snapshot).read_text("utf-8"))
+    state = load_snapshot(ScienceStore(h.run), snapshot)
     response = agent_loop(
         h,
         role,
@@ -89,7 +89,7 @@ def challenge_candidates(h: Harness, candidates: ArtifactRef) -> ArtifactRef | N
     name = f"science:challenge:{key}"
     if h.run.committed(name):
         return h.run.artifact_ref(name)
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     selected = {c.record.id: c.ref for c in state.candidates if c.ref == candidates}
     if not selected:
         raise ValueError("challenge requires a committed candidate set")
@@ -122,7 +122,7 @@ def interpret_result(h: Harness, result: ArtifactRef) -> ArtifactRef | None:
     name = f"science:interpretation:{key}"
     if h.run.committed(name):
         return h.run.artifact_ref(name)
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     outcome = next((r.record for r in state.results if r.ref == result), None)
     if outcome is None:
         raise ValueError("interpretation requires a committed attempt result")

@@ -317,3 +317,12 @@ class Invalidation(Record):
     superseded_by: ArtifactRef | None = None
 
 
+
+
+class RunResources(Record):
+    spent_usd: float
+    max_usd: float
+    max_moves: int
+    max_revisits: int
+    max_reframes: int
+    available_routes: frozenset[str]

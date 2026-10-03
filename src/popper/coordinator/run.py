@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from popper.communicate.paper import write_paper, write_study
-from popper.coordinator.discovery import advance_discovery, commit_study
+from popper.coordinator.discovery import advance_discovery
 from popper.coordinator.limitations import limitations
 from popper.discover.explore import explore
 from popper.ground.steward import Concern, Foundation, ground, load_foundation
@@ -21,7 +21,8 @@ from popper.harness.research import ResearchContext, parse_research, render_fiel
 from popper.harness.session import BudgetExceeded, Harness
 from popper.harness.store import RunStore
 from popper.science.compatibility import decode_policy
-from popper.science.output import StudyOutput
+from popper.science.output import StudyOutput, build_study
+from popper.science.store import ScienceStore
 from popper.treesearch.engine import StageFailed
 from popper.understand.frame import Frame, load_frame, understand
 from popper.understand.review import (
@@ -324,12 +325,12 @@ def _continue(h: Harness, answered: ReviewOutcome | None = None) -> RunOutcome:
         failed_stage = exc.stage
         message = f"stage {exc.stage} produced no working node"
         if decode_policy(json.loads(store.path("run.json").read_text("utf-8"))).adaptive:
-            study = commit_study(h, message, status)
+            study = build_study(ScienceStore(h.run), message, "failed")
             tex, pdf, missing = write_study(h, study)
     except BudgetExceeded as exc:
         status, message = "budget_exceeded", str(exc)
         if decode_policy(json.loads(store.path("run.json").read_text("utf-8"))).adaptive:
-            study = commit_study(h, message, status)
+            study = build_study(ScienceStore(h.run), message, status)
             tex, pdf, missing = write_study(h, study)
     except Exception as exc:
         message = repr(exc)

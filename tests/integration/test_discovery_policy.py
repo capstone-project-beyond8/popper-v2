@@ -4,15 +4,16 @@ from typing import Any
 
 import pytest
 
-from popper.discover.policy import make_attempt, propose_moves, select_move, selected_move
-from popper.discover.state import commit_snapshot, rebuild_state
+from popper.discover.policy import make_attempt, propose_moves, select_move
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import Candidate
+from popper.science.state import commit_snapshot, rebuild_state
 from popper.science.store import ScienceStore
+from popper.science.transitions import selected_move
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = pytest.mark.integration
@@ -41,7 +42,7 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
     if corrected:
         candidates.append(candidate.model_copy(update={"id": "hypothesis-002"}))
     ScienceStore(h.run).commit("candidates", {"candidates": [c.model_dump(mode="json") for c in candidates]})
-    snapshot = commit_snapshot(h, rebuild_state(h))
+    snapshot = commit_snapshot(ScienceStore(h.run), rebuild_state(ScienceStore(h.run)))
     prep = h.run.write_json("prep.json", {})
     h.run.commit_artifact("prep", prep)
     preparation_manifest = h.run.write_json("prep-manifest.json", {})
@@ -91,10 +92,10 @@ def test_sourced_tool_proposals_and_idempotent_schedule(tmp_path: Path, correcte
     h.llm = FakeLLM(respond)
     proposals = propose_moves(h, snapshot)
     selection = select_move(h, snapshot, proposals)
-    move = selected_move(h, selection)
+    move = selected_move(ScienceStore(h.run), selection)
     first = make_attempt(h, move, None)
     assert make_attempt(h, move, None) == first
-    assert rebuild_state(h).counters == {"moves": 1, "hypothesis-001": 1}
+    assert rebuild_state(ScienceStore(h.run)).counters == {"moves": 1, "hypothesis-001": 1}
     assert move.test is not None
     assert resolve_artifact(h.run, move.test).is_file()
     executable = json.loads(resolve_artifact(h.run, move.test).read_text())
@@ -165,7 +166,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
     monkeypatch.setattr("popper.coordinator.discovery.load_foundation", lambda _: foundation)
 
     def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
-        state = rebuild_state(h)
+        state = rebuild_state(ScienceStore(h.run))
         if req.tag in {"candidate_challenge", "interpret_result"}:
             return _respond(req)
         if req.tag == "research_moves":
@@ -280,7 +281,7 @@ def test_scheduler_resumes_committed_boundary_without_duplicate_work(
         exploration=exploration,
     )
     assert output.is_file()
-    state = rebuild_state(h)
+    state = rebuild_state(ScienceStore(h.run))
     assert len(state.attempts) == 1 and len(state.results) == 1
     assert state.counters["moves"] == 1 and len(state.observations) == 2
     assert len(state.challenges) == 1 and len(state.interpretations) == 1

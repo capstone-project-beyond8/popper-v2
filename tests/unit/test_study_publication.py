@@ -1,13 +1,13 @@
 from pathlib import Path
 
 from popper.communicate.paper import write_study
-from popper.coordinator.discovery import commit_study
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import Challenge, Interpretation
-from popper.science.output import CandidateView, StudyOutput
+from popper.science.output import CandidateView, StudyOutput, build_study
+from popper.science.store import ScienceStore
 
 
 def test_no_budget_diagnostic_uses_common_template_and_exact_cache(tmp_path: Path) -> None:
@@ -18,7 +18,7 @@ def test_no_budget_diagnostic_uses_common_template_and_exact_cache(tmp_path: Pat
         FakeLLM(lambda _: (_ for _ in ()).throw(AssertionError("no model calls"))),
         RunStore(tmp_path),
     )
-    study = commit_study(h, "Budget exhausted before findings", "budget_exceeded")
+    study = build_study(ScienceStore(h.run), "Budget exhausted before findings", "budget_exceeded")
     tex, _, missing = write_study(h, study)
     contents = tex.read_text("utf-8")
     assert "No accepted usable measurements" in contents

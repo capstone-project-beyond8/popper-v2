@@ -7,7 +7,6 @@ import pytest
 
 from popper.discover.experiment import ExperimentRequest, experiment
 from popper.discover.feedback import interpret_result
-from popper.discover.state import rebuild_state
 from popper.harness.config import load_config
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
@@ -15,6 +14,7 @@ from popper.harness.store import RunStore
 from popper.science.contracts import Attempt, AttemptResult
 from popper.science.contracts import ExperimentSpec as ScientificTest
 from popper.science.evidence import resolve_measurement
+from popper.science.state import rebuild_state
 from popper.science.store import ScienceStore
 from tests.unit.test_test_identity import spec_payload
 
@@ -47,7 +47,7 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
 
         def respond(req: LLMRequest, payload: dict[str, Any] = payload) -> str | tuple[ToolCall, ...]:
             if req.tag == "interpret_result":
-                outcome = rebuild_state(h).results[-1]
+                outcome = rebuild_state(ScienceStore(h.run)).results[-1]
                 return (ToolCall("interpret", "submit_interpretation", {
                     "summary": "The usable negative interval contradicts the positive prediction.",
                     "rivals": ["The opposing association"],
@@ -81,8 +81,8 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         assert main.support == "not_supported"
         assert resolve_measurement(h.run, main.ref).value == -2.
         original_result = path.read_bytes()
-        interpretation = interpret_result(h, rebuild_state(h).results[-1].ref)
-        state = rebuild_state(h)
+        interpretation = interpret_result(h, rebuild_state(ScienceStore(h.run)).results[-1].ref)
+        state = rebuild_state(ScienceStore(h.run))
         assert interpretation is not None and path.read_bytes() == original_result
         assert state.interpretations[-1].record.result == state.results[-1].ref
         assert state.results[-1].record.status == result.status

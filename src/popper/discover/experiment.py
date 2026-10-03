@@ -19,7 +19,6 @@ from popper.discover.robustness import (
     plan_robustness,
     schedule_context,
 )
-from popper.discover.state import compute_support
 from popper.harness.context import RESEARCH_CHARS, part
 from popper.harness.prompts import load_prompt
 from popper.harness.records import ArtifactRef, IntegrityError, resolve_artifact
@@ -38,6 +37,7 @@ from popper.science.contracts import (
     classify_change,
 )
 from popper.science.evidence import node_measurement, resolve_measurement
+from popper.science.state import compute_support
 from popper.science.store import ScienceStore
 from popper.treesearch.engine import (
     AttemptSpec,

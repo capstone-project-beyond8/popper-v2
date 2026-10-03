@@ -4,12 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from popper.discover.policy import eligible_candidates, propose_moves, validate_moves
-from popper.discover.state import ResearchState, commit_snapshot
 from popper.harness.config import Discovery, load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
 from popper.harness.store import RunStore
 from popper.science.contracts import MoveProposal
+from popper.science.state import ResearchState, commit_snapshot
+from popper.science.store import ScienceStore
 
 
 def test_invalid_move_cannot_be_executable() -> None:
@@ -37,7 +38,7 @@ def test_permanently_incomplete_proposal_stops_after_bounded_correction(tmp_path
     from popper.harness.llm import ToolCall
     fake = FakeLLM(lambda _: (ToolCall("bad", "submit_moves", {"moves": [{"action": "test"}]}),))
     h = Harness(load_config(env={}), fake, RunStore(tmp_path))
-    snapshot = commit_snapshot(h, ResearchState())
+    snapshot = commit_snapshot(ScienceStore(h.run), ResearchState())
     ref = propose_moves(h, snapshot)
     import json
 
