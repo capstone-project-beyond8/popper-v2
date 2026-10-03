@@ -41,7 +41,14 @@ def test_report_numbers_exclude_scratch_results(tmp_path: Path, historical_manif
     assert "999" not in tex.read_text("utf-8")
 
 
-def test_no_budget_diagnostic_uses_common_template_and_exact_cache(tmp_path: Path) -> None:
+@pytest.mark.parametrize("boundary", [None, "report", "identity"])
+def test_no_budget_diagnostic_uses_common_template_and_exact_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str | None,
+) -> None:
+    import json
+
+    from popper.stages.communicate import compiler
+
     config = load_config(env={})
     config.budget.max_usd = 0
     h = Harness(
@@ -50,13 +57,35 @@ def test_no_budget_diagnostic_uses_common_template_and_exact_cache(tmp_path: Pat
         RunStore(tmp_path),
     )
     study = build_study(ScienceStore(h.run), "Budget exhausted before findings", "budget_exceeded")
+    compile_calls = 0
+    def compile_report(_: Path) -> None:
+        nonlocal compile_calls
+        compile_calls += 1
+    monkeypatch.setattr(compiler, "compile_pdf", compile_report)
+    identity = h.run.artifact_ref("study").sha256
+    if boundary:
+        original = RunStore.commit_artifact
+        def interrupt(store: RunStore, name: str, path: Path) -> None:
+            original(store, name, path)
+            if name == ("report" if boundary == "report" else f"report:{identity}"):
+                raise KeyboardInterrupt()
+        monkeypatch.setattr(RunStore, "commit_artifact", interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            write_study(h, study)
+        accepted = h.run.committed("report") or h.run.committed(f"report:{identity}")
+        assert accepted is not None
+        accepted_tex = h.run.path(json.loads(accepted.read_text("utf-8"))["tex"])
+        monkeypatch.setattr(RunStore, "commit_artifact", original)
     tex, _, missing = write_study(h, study)
+    if boundary:
+        assert tex == accepted_tex
     contents = tex.read_text("utf-8")
     assert "No accepted usable measurements" in contents
     assert "Budget exhausted before findings" in contents
     assert "Computed stability" not in contents and "non-supporting" not in contents
     assert missing == []
     assert write_study(h, study)[0] == tex
+    assert compile_calls == 1
     assert h.run.committed("report") is not None
 
 

@@ -64,6 +64,9 @@ def propose_moves(
     def submit(proposal: Proposals) -> str:
         if any(m.action in {"frame", "ground", "explore", "candidates", "challenge"} for m in proposal.moves):
             raise ValueError("prerequisite actions are selected by the bootstrap playbook")
+        unavailable = {move.action for move in proposal.moves} - resources.available_routes - {"pivot", "reframe", "acquisition"}
+        if unavailable:
+            raise ValueError(f"unavailable research routes: {sorted(unavailable)}")
         eligible = resources.eligible_hypotheses
         proposed = {m.hypothesis_id for m in proposal.moves}
         missing = set(eligible) - proposed - proposal.omitted.keys()

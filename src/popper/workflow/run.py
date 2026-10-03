@@ -260,8 +260,9 @@ def dispatch_selected(h: Harness, request: CapabilityRequest) -> CapabilityReque
                     outputs = [synthesize_state(h, science, work.snapshot)]
                 case "publish":
                     study = build_study(science, move.stopping_condition, key=f"publication:{admission.record_id}")
+                    study_ref = h.run.artifact_ref("study")
                     publish_study(h, study)
-                    outputs = [h.run.artifact_ref("report")]
+                    outputs = [h.run.artifact_ref(f"report:{study_ref.sha256}")]
                 case "frame":
                     research, report = prepare_description(science)
                     if request.guidance:
@@ -291,6 +292,9 @@ def dispatch_selected(h: Harness, request: CapabilityRequest) -> CapabilityReque
                 bind_stage_output(science, admission, outputs)
             outputs = stage_outputs(science, admission)
             assert outputs is not None
+        except EligibilityError as exc:
+            complete_stage(science, admission, "deferred", [], str(exc))
+            return finish_episode(science, str(exc), key=f"finish:{admission.record_id}")
         except StageFailed:
             complete_stage(science, admission, "failed", [], f"No accepted {request.kind} output")
             raise

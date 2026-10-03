@@ -76,6 +76,9 @@ def write_study(
     identity = ref.sha256
     committed = h.run.committed(f"report:{identity}")
     if committed:
+        committed = resolve_artifact(h.run, h.run.artifact_ref(f"report:{identity}"))
+        if h.run.committed("report") != committed:
+            h.run.commit_artifact("report", committed)
         record = json.loads(committed.read_text("utf-8"))
         return (
             h.run.path(record["tex"]),

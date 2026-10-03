@@ -244,3 +244,90 @@ def test_selected_non_experimental_work_retains_sources_and_questions(tmp_path: 
         assert result.subject is not None
         output = StudyOutput.model_validate(science.read(result.subject))
         assert output.validation_standing == "unavailable"
+
+
+@pytest.mark.parametrize("action", ["audit", "synthesize", "communicate"])
+def test_saved_policy_corrects_unavailable_actions(tmp_path: Path, action: str) -> None:
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.moves import propose_moves
+    from popper.workflow.resources import resource_view
+
+    h = candidate_state(tmp_path)
+    h.run.write_json("run.json", {"format_version": 5, "config": h.config.model_dump(mode="json")})
+    science = ScienceStore(h.run)
+    source = h.run.artifact_ref("science:candidates:initial")
+    snapshot = commit_snapshot(science, rebuild_state(science))
+    submissions = 0
+
+    def respond(_: LLMRequest) -> tuple[ToolCall, ...]:
+        nonlocal submissions
+        submissions += 1
+        return (ToolCall("move", "submit_moves", {"moves": [{
+            "action": action if submissions == 1 else "stop", "objective": "Retain the rival",
+            "trigger_refs": [source.model_dump(mode="json")], "cost_usd": 0,
+            "stopping_condition": "No justified empirical work",
+        }], "omitted": {"h1": "Need data", "h2": "Need data"}}),)
+
+    h.llm = FakeLLM(respond)
+    resources = resource_view(h, load_options(h.run), rebuild_state(science))
+    proposals = propose_moves(h, science, snapshot, resources)
+    assert [move["action"] for move in science.read(proposals)["moves"]] == ["stop"]
+    assert submissions == 2
+    assert propose_moves(h, science, snapshot, resources) == proposals
+    assert submissions == 2 and not rebuild_state(science).stage_admissions
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_synthesis_exhaustion_terminalizes_sourced_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool,
+) -> None:
+    from popper.scientific.runtime.lifecycle.contracts import Question
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.scientist.episode import request_move
+    from popper.scientific.scientist.moves import propose_moves, select_move
+    from popper.workflow.resources import resource_view
+    from popper.workflow.run import dispatch_selected
+
+    h = candidate_state(tmp_path)
+    h.run.write_json("run.json", {"format_version": 6, "config": h.config.model_dump(mode="json")})
+    science = ScienceStore(h.run)
+    source = h.run.artifact_ref("science:candidates:initial")
+    science.commit("question", Question(text="Can the rival be distinguished?", author="theorist", sources=[source]))
+    snapshot = commit_snapshot(science, rebuild_state(science))
+
+    def respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
+        if req.tag == "research_moves":
+            return (ToolCall("move", "submit_moves", {"moves": [{"action": "synthesize",
+                "objective": "Retain the rival", "trigger_refs": [source.model_dump(mode="json")],
+                "cost_usd": 0, "stopping_condition": "Evidence incomplete"}],
+                "omitted": {"h1": "Need data", "h2": "Need data"}}),)
+        if req.tag == "select_move":
+            proposed = science.read(h.run.artifact_ref(f"science:proposals:{snapshot.record_id}"))
+            return json.dumps({"proposal_id": proposed["moves"][0]["id"], "rationale": "Retain the rival"})
+        return (ToolCall("bad", "submit_synthesis", {}),)
+
+    h.llm = FakeLLM(respond)
+    proposals = propose_moves(h, science, snapshot, resource_view(h, load_options(h.run), rebuild_state(science)))
+    request = request_move(science, select_move(h, science, snapshot, proposals))
+    if interrupted:
+        original_commit = RunStore.commit_artifact
+        def interrupt(store: RunStore, name: str, path: Path) -> None:
+            original_commit(store, name, path)
+            if name.startswith("science:disposition:synthesize_state:"):
+                raise KeyboardInterrupt()
+        monkeypatch.setattr(RunStore, "commit_artifact", interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            dispatch_selected(h, request)
+        monkeypatch.setattr(RunStore, "commit_artifact", original_commit)
+    outcome = dispatch_selected(h, request)
+    assert outcome is not None and outcome.kind == "finish"
+    state = rebuild_state(science)
+    assert not state.pending_admissions and len(state.stage_history) == 1
+    assert state.stage_history[0].record.status == "deferred"
+    assert state.stage_history[0].record.outputs == []
+    assert state.dispositions[-1].record.sources == [snapshot]
+    assert state.questions[0].record.text == "Can the rival be distinguished?"
+    assert not state.questions[0].record.resolved and not state.syntheses
+    before_calls = len(h.llm.calls)
+    assert dispatch_selected(h, request) == outcome
+    assert len(h.llm.calls) == before_calls and len(rebuild_state(science).stage_history) == 1

@@ -342,7 +342,7 @@ def _commit_report(
             **({"study_identity": identity} if identity else {}),
         },
     )
-    h.run.commit_artifact("report", record_path)
     if identity:
         h.run.commit_artifact(f"report:{identity}", record_path)
+    h.run.commit_artifact("report", record_path)
     return path, pdf, missing
