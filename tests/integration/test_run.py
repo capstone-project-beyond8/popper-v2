@@ -9,15 +9,15 @@ from typing import Any, cast
 import pandas as pd
 import pytest
 
-from popper.communicate.paper import compile_pdf
 from popper.config import Config, load_config
-from popper.coordinator.run import resume, run
 from popper.harness.llm import Completion, FakeLLM, LLMRequest, ToolCall
-from popper.harness.recovery import load_state, read_events, recorded_spend
-from popper.harness.store import RunStore
-from popper.science.inputs import read_holdout
-from popper.science.research import parse_research
-from popper.science.store import ScienceStore
+from popper.harness.storage.recovery import load_state, read_events, recorded_spend
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.data.inputs import read_holdout
+from popper.scientific.runtime.data.research import parse_research
+from popper.scientific.runtime.store import ScienceStore
+from popper.stages.communicate.compiler import compile_pdf
+from popper.workflow.run import resume, run
 
 pytestmark = pytest.mark.integration
 
@@ -280,7 +280,8 @@ def _respond(req: LLMRequest) -> str | tuple[ToolCall, ...]:
     if tag.startswith("judge:"):
         return json.dumps({**FEEDBACK, **({"fidelity_status": "consistent", "fidelity_reason": "Declared log contrast implemented with resampling", "fidelity_requirements": ["contrast", "interval"], "fidelity_evidence": ["code: bootstrap", "output: contrast"]} if "hypothesis-" in tag else {})})
     if tag == "writeup" and "committed study" in req.prompt:
-        names, _ = json.JSONDecoder().raw_decode(req.prompt.split("Named numbers: ", 1)[1])
+        number_section = req.prompt.split("## Named numbers\n", 1)[1]
+        names, _ = json.JSONDecoder().raw_decode(number_section.split("<untrusted>\n", 1)[1])
         key = next(k for k in names if ".main.primary_estimate" in k and not k.endswith((".ci", ".n")))
         return json.dumps({**WRITEUP, "results": rf"Contrast \R{{{key}}} and unknown \R{{main.nope}}.", "figures": []})
     return json.dumps(
@@ -322,7 +323,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     stopped = resume(waiting.run_dir, llm=llm, progress=lines.append)
     assert stopped.status == "budget_exceeded"
     store = RunStore(stopped.run_dir)
-    from popper.harness.recovery import Journal
+    from popper.harness.storage.recovery import Journal
     # A publication stop belongs to this source, never to a later resumed study.
     Journal(store.path("journal.jsonl")).write("publication_budget_stop", study_identity=store.artifact_ref("study").sha256)
     prior_spend = recorded_spend(store)
@@ -356,7 +357,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
         return _respond(req)
 
     fake = FakeLLM(respond)
-    monkeypatch.setattr("popper.communicate.paper.compile_pdf", interrupted_compile)
+    monkeypatch.setattr("popper.stages.communicate.compiler.compile_pdf", interrupted_compile)
     with pytest.raises(KeyboardInterrupt):
         resume(root, llm=fake)
     assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in prefix.items())
@@ -379,7 +380,7 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
         p: p.read_bytes() for p in root.rglob("*") if p.is_file() and p.name != "journal.jsonl"
     }
 
-    monkeypatch.setattr("popper.communicate.paper.compile_pdf", compile_pdf)
+    monkeypatch.setattr("popper.stages.communicate.compiler.compile_pdf", compile_pdf)
     # The scientific frontier is unchanged by a publication-only resource stop.
     Journal(store.path("journal.jsonl")).write("publication_budget_stop", study_identity=store.artifact_ref("study").sha256)
     no_calls = FakeLLM(lambda req: pytest.fail("completed publication inputs must not replay"))
@@ -404,15 +405,22 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     assert hypotheses_path is not None
     hypotheses = json.loads(hypotheses_path.read_text(encoding="utf-8"))["candidates"]
     assert len(hypotheses) == 3 and all(x["origins"] for x in hypotheses)
-    from popper.science.state import rebuild_state
+    from popper.scientific.runtime.projections.state import rebuild_state
     state = rebuild_state(ScienceStore(store))
     assert len(state.attempts) == 2 and state.observations
     assert len(state.challenges) == 1 and len(state.interpretations) == 2
+    assert state.challenges[0].record.author == "judge"
+    assert state.challenges[0].record.candidates == store.artifact_ref("science:candidates:initial")
+    assert all(i.record.author == "theorist" for i in state.interpretations)
+    recorded_calls = [e for e in read_events(root) if e["event"] == "llm_call"]
+    assert sum(e["tag"] == "candidates" for e in recorded_calls) == 1
+    assert sum(e["tag"] == "candidate_challenge" for e in recorded_calls) == 1
+    assert sum(e["tag"] == "interpret_result" for e in recorded_calls) == 2
     assert {a.hypothesis_id for a in state.challenges[0].record.assessments} == {"hypothesis-001", "hypothesis-002", "hypothesis-003"}
     assert state.questions and state.interpretations[0].record.rivals == ["Prior-attainment selection"]
     assert state.attempts[1].record.hypothesis_id == "hypothesis-002"
-    from popper.harness.records import resolve_artifact
-    from popper.science.contracts import ResearchMove
+    from popper.harness.storage.records import resolve_artifact
+    from popper.scientific.runtime.lifecycle.contracts import ResearchMove
     move = ResearchMove.model_validate_json(resolve_artifact(store, state.attempts[1].record.move).read_text("utf-8"))
     assert state.interpretations[0].ref in move.trigger_refs
     study_path = store.committed("study")
@@ -451,7 +459,11 @@ def test_end_to_end_survives_interruptions(tmp_path: Path, monkeypatch: pytest.M
     held_only = set(read_holdout(store).student_id) - raw_ids
     assert held_only  # duplicated source rows may share ids across the split; the rest may not
     assert set(pd.read_parquet(data / "processed.parquet").student_id) <= raw_ids
-    assert not any("holdout" in req.prompt for req in (*llm.calls, *fake.calls))
+    assert not any(
+        identifier in req.prompt
+        for req in (*llm.calls, *fake.calls)
+        for identifier in held_only
+    )
     sources = sorted(out.run_dir.glob("tree/*/*/execution/code.py"))
     ground_sources = sorted(out.run_dir.glob("ground/**/execution/code.py"))
     assert sources and ground_sources

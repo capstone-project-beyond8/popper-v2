@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 
 from popper.harness.config import Search
-from popper.treesearch.engine import Node, choose_action, select_best
+from popper.strategies.treesearch.engine import Node, choose_action, select_best
 
 
 class _Rng(random.Random):

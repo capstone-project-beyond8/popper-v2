@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
-from popper.harness import interpreter
-from popper.harness.interpreter import ExecResult, run_script
-from popper.science.inputs import read_holdout
+from popper.harness.execution import interpreter
+from popper.harness.execution.interpreter import ExecResult, run_script
+from popper.scientific.runtime.data.inputs import read_holdout
+from popper.workflow.run import create_run
 
 pytestmark = pytest.mark.integration
 

@@ -6,8 +6,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from popper.harness.recovery import load_state, read_events
-from popper.harness.store import RunStore
+from popper.harness.storage.recovery import load_state, read_events
+from popper.harness.storage.store import RunStore
 
 _TOKENS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 

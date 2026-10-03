@@ -10,9 +10,10 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from popper.harness.config import HarnessConfig, Role
-from popper.harness.context import UNTRUSTED_NOTE, fence
-from popper.harness.execution import ExecutionBinding
-from popper.harness.interpreter import ExecResult, run_script
+from popper.harness.context.rendering import UNTRUSTED_NOTE, fence
+from popper.harness.context.validation import format_errors
+from popper.harness.execution.bindings import ExecutionBinding
+from popper.harness.execution.interpreter import ExecResult, run_script
 from popper.harness.llm import (
     LLM,
     Completion,
@@ -21,9 +22,8 @@ from popper.harness.llm import (
     ToolSpec,
     TransientLLMError,
 )
-from popper.harness.recovery import Journal, read_events
-from popper.harness.store import RunStore, file_hash
-from popper.harness.validation import format_errors
+from popper.harness.storage.recovery import Journal, read_events
+from popper.harness.storage.store import RunStore, file_hash
 
 T = TypeVar("T", bound=BaseModel)
 _MAX_ATTEMPTS = 5

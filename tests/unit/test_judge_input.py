@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from popper.harness.interpreter import ExecResult
-from popper.harness.recovery import Journal, read_events
-from popper.treesearch.engine import Node, StageSpec
-from popper.treesearch.judge import _blinded_code, judge_input, validate_image
+from popper.harness.execution.interpreter import ExecResult
+from popper.harness.storage.recovery import Journal, read_events
+from popper.strategies.treesearch.engine import Node, StageSpec
+from popper.strategies.treesearch.judge import _blinded_code, judge_input, validate_image
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII="

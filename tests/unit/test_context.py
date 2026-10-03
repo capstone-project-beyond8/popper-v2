@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from popper.harness.context import fence, head, part, tail
-from popper.harness.recovery import Journal, read_events
+from popper.harness.context.rendering import fence, head, part, tail
+from popper.harness.storage.recovery import Journal, read_events
 
 
 def test_cut_parts_are_journaled_at_the_boundary(tmp_path: Path) -> None:

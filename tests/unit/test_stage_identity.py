@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from popper.treesearch.engine import StageSpec
+from popper.strategies.treesearch.engine import StageSpec
 
 
 def test_stage_identity_defaults_to_role() -> None:

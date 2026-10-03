@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from popper.discover.experiment import declared_procedure_reference, method_reference
-from popper.harness.interpreter import ExecResult
-from popper.science.contracts import ExperimentSpec as ScientificTest
-from popper.treesearch.engine import Node, StageSpec
-from popper.treesearch.judge import judge_input
+from popper.harness.execution.interpreter import ExecResult
+from popper.scientific.runtime.lifecycle.contracts import ExperimentSpec as ScientificTest
+from popper.stages.discover.experiment import declared_procedure_reference, method_reference
+from popper.strategies.treesearch.engine import Node, StageSpec
+from popper.strategies.treesearch.judge import judge_input
 from tests.unit.test_hypothesis import ESTIMAND, PROPOSAL
 from tests.unit.test_judge_input import PNG
 from tests.unit.test_test_identity import spec_payload

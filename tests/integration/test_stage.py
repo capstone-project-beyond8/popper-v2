@@ -6,12 +6,18 @@ from pathlib import Path
 import pytest
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
 from popper.harness.llm import FakeLLM, LLMError, LLMRequest, ToolCall
-from popper.harness.recovery import read_events
 from popper.harness.session import Harness
-from popper.science.results import validate_results
-from popper.treesearch.engine import AttemptSpec, StageFailed, StageSpec, load_nodes, run_stage
+from popper.harness.storage.recovery import read_events
+from popper.scientific.runtime.evidence.results import validate_results
+from popper.strategies.treesearch.engine import (
+    AttemptSpec,
+    StageFailed,
+    StageSpec,
+    load_nodes,
+    run_stage,
+)
+from popper.workflow.run import create_run
 
 pytestmark = pytest.mark.integration
 
@@ -46,6 +52,18 @@ def _harness(tmp_path: Path, analyst: list[Reply], judge: list[Reply] | None = N
     h.config.search.steps_per_stage = 4
     h.config.search.max_turns = 3
     return h
+
+
+def test_stage_without_artifact_scope_denies_named_required_output(tmp_path: Path) -> None:
+    h = _harness(tmp_path, [
+        _tool("read_artifact", path="tree/seed/results.json"),
+        _submit("import json\njson.dump({'m': {'value': 1}}, open('results.json','w'))\nopen('out.txt','w').write('ok')"),
+    ])
+    h.run.write_json("tree/seed/results.json", {"private": {"value": 99}})
+    best = run_stage(h, SPEC)
+    assert best.status == "ok"
+    reads = [e for e in read_events(h.run.root) if e["event"] == "tool_call" and e.get("tool") == "read_artifact"]
+    assert len(reads) == 1 and reads[0]["status"] == "error"
 
 
 def test_recovers_through_debug(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 import pytest
 
-from popper.science.compatibility import decode_policy
+from popper.scientific.runtime.compatibility import decode_policy
 
 
 def test_historical_policy_ignores_new_defaults() -> None:

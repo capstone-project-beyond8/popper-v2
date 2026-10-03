@@ -1,8 +1,8 @@
 import pytest
 
-from popper.science.contracts import SupportRule
-from popper.science.evidence import compute_support
-from popper.science.results import ResultEntry
+from popper.scientific.runtime.evidence.outcomes import compute_support
+from popper.scientific.runtime.evidence.results import ResultEntry
+from popper.scientific.runtime.lifecycle.contracts import SupportRule
 
 
 @pytest.mark.parametrize(("kind", "direction", "ci", "expected"), [

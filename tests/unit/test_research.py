@@ -1,6 +1,6 @@
 import pytest
 
-from popper.science.research import (
+from popper.scientific.runtime.data.research import (
     ResearchContext,
     ResearchError,
     check_columns,

@@ -2,9 +2,9 @@ from typing import Any
 
 import pandas as pd
 
-from popper.communicate.limitations import PREPARATION_ACCESS, limitations
-from popper.science.research import ResearchContext, parse_research
-from popper.science.warnings import hypothesis_warnings
+from popper.scientific.runtime.data.research import ResearchContext, parse_research
+from popper.scientific.runtime.warnings import hypothesis_warnings
+from popper.stages.communicate.limitations import PREPARATION_ACCESS, limitations
 
 GOOD = """---
 variables:

@@ -8,10 +8,10 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
-from popper.harness.agent import Tool, agent_loop
+from popper.harness.agents.loop import Tool, agent_loop
 from popper.harness.llm import LLM, Completion, FakeLLM, LLMRequest, ToolCall, _to_converse
 from popper.harness.session import BudgetExceeded, Harness
+from popper.workflow.run import create_run
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 
@@ -22,8 +22,8 @@ def _harness(tmp_path: Path, llm: LLM) -> Harness:
 
 
 def test_integrity_failure_is_recorded_and_blocks_tool_retry(tmp_path: Path) -> None:
-    from popper.harness.records import IntegrityError
-    from popper.harness.recovery import read_events
+    from popper.harness.storage.records import IntegrityError
+    from popper.harness.storage.recovery import read_events
 
     fake = FakeLLM(lambda _: (ToolCall("read", "echo", {}),))
     h = _harness(tmp_path, fake)
@@ -298,7 +298,7 @@ def test_typed_tool_reports_nested_errors_before_running_handler(tmp_path: Path)
 
 
 def test_long_errors_and_arguments_are_preserved_and_readable(tmp_path: Path) -> None:
-    from popper.treesearch.tools import node_tools
+    from popper.strategies.treesearch.tools import node_tools
 
     diagnostic = "\n".join(f"field_{i}: invalid; fix this field" for i in range(500))
     args = {"code": "x" * 4000 + "LAST_ARGUMENT"}
@@ -327,7 +327,7 @@ def test_long_errors_and_arguments_are_preserved_and_readable(tmp_path: Path) ->
     assert "field_0: invalid; fix this field" in feedback
     kept = feedback.split("\n[", 1)[0].splitlines()
     assert all(line.endswith("invalid; fix this field") for line in kept)
-    reader = next(t for t in node_tools(h, {}, h.run.path("tree", "node")) if t.name == "read_artifact")
+    reader = next(t for t in node_tools(h, {}, h.run.path("tree", "node"), artifact_roots={}) if t.name == "read_artifact")
     assert reader.handler is not None
     page = str(reader.handler({"path": event["diagnostic"], "offset": 8000}))
     assert '"offset": 16000' in page

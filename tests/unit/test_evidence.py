@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from popper.communicate.evidence import evidence_rows, load_evidence
+from popper.stages.communicate.evidence import evidence_rows, load_evidence
 
 
 def _manifest(root: Path, *, scoped: bool = False) -> Path:

@@ -3,15 +3,10 @@ from typing import cast
 
 import pytest
 
-from popper.communicate.limitations import PREPARATION_ACCESS
-from popper.communicate.paper import (
-    FigureRef,
-    Writeup,
-    _problems,
-    _render_report,
-    _select_figures,
-)
-from popper.treesearch.engine import Node
+from popper.stages.communicate.limitations import PREPARATION_ACCESS
+from popper.stages.communicate.rendering import _problems, _render_report, _select_figures
+from popper.stages.communicate.schema import FigureRef, Writeup
+from popper.strategies.treesearch.engine import Node
 from tests.integration.test_run import WRITEUP
 
 

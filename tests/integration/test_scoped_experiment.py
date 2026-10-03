@@ -6,17 +6,17 @@ import pandas as pd
 import pytest
 
 from popper.config import load_config
-from popper.discover.experiment import experiment
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.science.contracts import Attempt, AttemptResult
-from popper.science.contracts import ExperimentSpec as ScientificTest
-from popper.science.evidence import resolve_measurement
-from popper.science.requests import ExperimentRequest
-from popper.science.state import rebuild_state
-from popper.science.store import ScienceStore
-from popper.scientist.feedback import interpret_result
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.evidence.references import resolve_measurement
+from popper.scientific.runtime.lifecycle.contracts import Attempt, AttemptResult
+from popper.scientific.runtime.lifecycle.contracts import ExperimentSpec as ScientificTest
+from popper.scientific.runtime.lifecycle.requests import ExperimentRequest
+from popper.scientific.runtime.projections.state import rebuild_state
+from popper.scientific.runtime.store import ScienceStore
+from popper.scientific.scientist.feedback import interpret_result
+from popper.stages.discover.experiment import experiment
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -75,8 +75,8 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
         assert len(result.variant_tests) == (3 if overflow else int(failed_variant))
         if overflow:
             assert result.coverage["requested"] == 3 and result.coverage["completed"] == 1
-            from popper.harness.records import resolve_artifact
-            from popper.science.contracts import Diagnosis
+            from popper.harness.storage.records import resolve_artifact
+            from popper.scientific.runtime.lifecycle.contracts import Diagnosis
             assert any(Diagnosis.model_validate_json(resolve_artifact(h.run, ref).read_text()).category == "resource" for ref in result.diagnoses)
         main = next(m for m in result.measurements if m.role == "main")
         assert main.support == "not_supported"
@@ -101,9 +101,9 @@ def test_scoped_negative_measurements_and_resume(tmp_path: Path, failed_variant:
 def test_failed_main_retains_declared_missing_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import importlib
 
-    from popper.treesearch.engine import StageFailed
+    from popper.strategies.treesearch.engine import StageFailed
 
-    module = importlib.import_module("popper.discover.experiment")
+    module = importlib.import_module("popper.stages.discover.experiment")
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
     prep = h.run.write_json("prep.json", {})
     h.run.commit_artifact("prep", prep)

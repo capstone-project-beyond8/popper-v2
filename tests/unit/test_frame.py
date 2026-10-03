@@ -9,14 +9,12 @@ import pytest
 from pydantic import ValidationError
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
 from popper.harness.llm import FakeLLM, ToolCall
 from popper.harness.session import Harness
-from popper.science.descriptive import DescriptiveReport, describe_table
-from popper.science.research import ResearchContext, parse_research
-from popper.science.settings import load_options
-from popper.treesearch.engine import StageFailed
-from popper.understand.frame import (
+from popper.scientific.runtime.data.descriptive import DescriptiveReport, describe_table
+from popper.scientific.runtime.data.research import ResearchContext, parse_research
+from popper.scientific.runtime.settings import load_options
+from popper.stages.understand.frame import (
     FramePatch,
     Framing,
     apply_patch,
@@ -24,6 +22,8 @@ from popper.understand.frame import (
     framing_warnings,
     understand,
 )
+from popper.strategies.treesearch.engine import StageFailed
+from popper.workflow.run import create_run
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 BODY = "Study time may drive exam scores."
@@ -259,8 +259,8 @@ def test_patch_reports_every_invalid_attribute_of_a_variable() -> None:
 
 
 def test_theorist_reader_denies_execution_logs_and_other_phase_diagnostics(tmp_path: Path) -> None:
-    from popper.harness.diagnostics import error_feedback
-    from popper.understand.frame import _tools
+    from popper.harness.context.diagnostics import error_feedback
+    from popper.stages.understand.frame import _tools
 
     ctx, ida = _context()
     h = _harness(tmp_path, FakeLLM(lambda _: ""))
@@ -279,7 +279,7 @@ def test_theorist_reader_denies_execution_logs_and_other_phase_diagnostics(tmp_p
 
 
 def test_theorist_reader_only_reads_its_own_framing_artifacts(tmp_path: Path) -> None:
-    from popper.understand.frame import _tools
+    from popper.stages.understand.frame import _tools
 
     ctx, ida = _context()
     h = _harness(tmp_path, FakeLLM(lambda _: ""))

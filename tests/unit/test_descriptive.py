@@ -4,14 +4,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from popper.science.descriptive import (
+from popper.scientific.runtime.data.descriptive import (
     DescriptiveReport,
     describe_table,
     format_description,
     read_table,
 )
-from popper.science.research import ResearchContext, parse_research
-from popper.science.results import validate_results
+from popper.scientific.runtime.data.research import ResearchContext, parse_research
+from popper.scientific.runtime.evidence.results import validate_results
 
 
 def research(front: str) -> ResearchContext:

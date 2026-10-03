@@ -10,7 +10,7 @@ import yaml
 from pydantic import Field, model_validator
 
 from popper.harness.config import HarnessConfig
-from popper.science.settings import (
+from popper.scientific.runtime.settings import (
     DataConfig,
     Discovery,
     Ground,

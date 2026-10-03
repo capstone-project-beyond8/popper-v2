@@ -2,22 +2,22 @@ from pathlib import Path
 
 import pytest
 
-from popper.communicate.paper import write_study
 from popper.config import load_config
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.science.contracts import Challenge, Interpretation
-from popper.science.output import CandidateView, StudyOutput, build_study
-from popper.science.store import ScienceStore
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.lifecycle.contracts import Challenge, Interpretation
+from popper.scientific.runtime.projections.output import CandidateView, StudyOutput, build_study
+from popper.scientific.runtime.store import ScienceStore
+from popper.stages.communicate.paper import write_study
 
 
 @pytest.mark.parametrize("historical_manifest", [False, True])
 def test_report_numbers_exclude_scratch_results(tmp_path: Path, historical_manifest: bool) -> None:
-    from popper.communicate.paper import diagnostic_writeup
-    from popper.harness.recovery import Journal
-    from popper.harness.store import file_hash
-    from popper.science.views import node_ref, record_exploration
+    from popper.harness.storage.recovery import Journal
+    from popper.harness.storage.store import file_hash
+    from popper.scientific.runtime.projections.views import node_ref, record_exploration
+    from popper.stages.communicate.paper import diagnostic_writeup
 
     config = load_config(env={})
     config.budget.max_usd = 0

@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
 from popper.config import load_config
 from popper.harness.config import Search
-from popper.science.compatibility import HypothesisProposal
-from popper.science.execution import check_estimate
+from popper.scientific.runtime.compatibility import HypothesisProposal
+from popper.scientific.runtime.lifecycle.execution import check_estimate
 
 ESTIMAND = {
     "outcome": "score",
@@ -98,3 +99,21 @@ def test_roles_must_be_distinct_processed_columns() -> None:
     for ctx in (context, None):
         with pytest.raises(ValueError, match="different columns"):
             HypothesisProposal.model_validate(same, context=ctx)
+
+
+def test_discovery_request_subject_and_snapshot_invariants() -> None:
+    from popper.harness.storage.records import ArtifactRef
+    from popper.scientific.runtime.lifecycle.requests import CapabilityRequest
+
+    ref = ArtifactRef(path="subject.json", sha256="a" * 64, producer="science:candidates", record_id="r1")
+    assert CapabilityRequest("candidates", ref).subject == ref
+    assert CapabilityRequest("challenge", ref, snapshot=ref).snapshot == ref
+    for kind in ("candidates", "challenge"):
+        with pytest.raises(ValueError, match="subject"):
+            CapabilityRequest(kind)
+    with pytest.raises(ValueError, match="snapshot"):
+        CapabilityRequest("challenge", ref)
+    kinds: tuple[Literal["candidates", "experiment", "publish", "frame"], ...] = ("candidates", "experiment", "publish", "frame")
+    for kind in kinds:
+        with pytest.raises(ValueError, match="snapshot"):
+            CapabilityRequest(kind, ref, snapshot=ref)

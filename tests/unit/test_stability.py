@@ -1,7 +1,7 @@
 import pytest
 
-from popper.science.historical import compute_stability
-from popper.science.results import ResultEntry
+from popper.scientific.runtime.evidence.historical import compute_stability
+from popper.scientific.runtime.evidence.results import ResultEntry
 
 
 def estimate(value: float, interval: tuple[float, float] = (1, 3)) -> ResultEntry:

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from popper.harness.recovery import Journal, load_state, read_events, recorded_spend
-from popper.harness.store import RunStore
+from popper.harness.storage.recovery import Journal, load_state, read_events, recorded_spend
+from popper.harness.storage.store import RunStore
 
 
 def test_only_committed_snapshots_are_loaded(tmp_path: Path) -> None:

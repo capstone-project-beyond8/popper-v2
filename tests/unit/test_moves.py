@@ -4,16 +4,20 @@ import pytest
 from pydantic import ValidationError
 
 from popper.config import load_config
-from popper.coordinator.resources import eligible_candidates, resource_view
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.science.contracts import MoveProposal
-from popper.science.settings import Discovery, load_options
-from popper.science.state import ResearchState, commit_snapshot, rebuild_state
-from popper.science.store import ScienceStore
-from popper.science.transitions import validate_moves
-from popper.scientist.moves import propose_moves
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.lifecycle.contracts import MoveProposal
+from popper.scientific.runtime.lifecycle.transitions import validate_moves
+from popper.scientific.runtime.projections.state import (
+    ResearchState,
+    commit_snapshot,
+    rebuild_state,
+)
+from popper.scientific.runtime.settings import Discovery, load_options
+from popper.scientific.runtime.store import ScienceStore
+from popper.scientific.scientist.moves import propose_moves
+from popper.workflow.resources import admit_move, eligible_candidates, resource_view
 
 
 def test_invalid_move_cannot_be_executable() -> None:
@@ -58,18 +62,53 @@ def test_permanently_incomplete_proposal_stops_after_bounded_correction(tmp_path
     ref = propose_moves(h, ScienceStore(h.run), snapshot, resource_view(h, load_options(h.run), rebuild_state(ScienceStore(h.run))))
     import json
 
-    from popper.harness.records import resolve_artifact
+    from popper.harness.storage.records import resolve_artifact
     assert json.loads(resolve_artifact(h.run, ref).read_text())["moves"] == []
     assert len(fake.calls) == 2
     assert h.run.committed(f"science:disposition:{snapshot.record_id}") is not None
 
 
 def test_scientific_commit_rejects_conflicting_key(tmp_path: Path) -> None:
-    from popper.harness.records import IntegrityError
-    from popper.science.store import ScienceStore
+    from popper.harness.storage.records import IntegrityError
+    from popper.scientific.runtime.store import ScienceStore
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
     original = ScienceStore(h.run).commit("test", {"inference": 1000}, key="test-1")
     assert ScienceStore(h.run).commit("test", {"inference": 1000}, key="test-1") == original
     with pytest.raises(IntegrityError, match="conflicting"):
         ScienceStore(h.run).commit("test", {"inference": 100}, key="test-1")
+
+
+@pytest.mark.parametrize(("moves", "visits", "eligible"), [(3, 1, True), (4, 1, False), (3, 2, False)])
+def test_candidate_eligibility_and_refreshed_admission_agree(
+    tmp_path: Path, moves: int, visits: int, eligible: bool
+) -> None:
+    from popper.harness.storage.records import ArtifactRef
+    from popper.scientific.runtime.lifecycle.contracts import Candidate, ResearchMove
+    from popper.scientific.runtime.lifecycle.transitions import EligibilityError
+    from popper.scientific.runtime.projections.state import Sourced
+    from tests.unit.test_test_identity import spec_payload
+
+    ref = ArtifactRef(path="test.json", sha256="a" * 64, producer="test", record_id="t1")
+    payload = spec_payload()
+    candidate = Candidate(id="h1", statement="x predicts y", rationale="association",
+        primary_estimand=payload["primary_estimand"], methods=payload["methods"], expected_direction="positive",
+        refuting_result="negative", planned_test="contrast", origins=[ref], exposure=[ref])
+    state = ResearchState(candidates=[Sourced(ref=ref, record=candidate)], counters={"moves": moves, "h1": visits})
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    options = load_options(h.run)
+    limits = options.discovery
+    resources = resource_view(h, options, state)
+    move = ResearchMove(id="m1", snapshot=ref, action="test", objective="estimate", trigger_refs=[ref],
+        hypothesis_id="h1", test=ref, cost_usd=0, stopping_condition="one test", discriminating_outcomes=["positive", "negative"])
+    assert ("h1" in eligible_candidates(state, limits)) is eligible
+    if eligible:
+        admit_move(resources, state, move)
+        refreshed = resources.model_copy(update={"max_moves": moves})
+        with pytest.raises(EligibilityError, match="scheduled move cap"):
+            admit_move(refreshed, state, move)
+        with pytest.raises(EligibilityError, match="revisit"):
+            admit_move(resources.model_copy(update={"max_revisits": 0}), state, move)
+    else:
+        with pytest.raises(EligibilityError):
+            admit_move(resources, state, move)

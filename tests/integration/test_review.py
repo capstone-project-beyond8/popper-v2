@@ -5,10 +5,10 @@ from typing import Any
 import pytest
 import yaml
 
-from popper.coordinator.run import RunOutcome, resume, run
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.recovery import load_state
-from popper.harness.store import RunStore
+from popper.harness.storage.recovery import load_state
+from popper.harness.storage.store import RunStore
+from popper.workflow.run import RunOutcome, resume, run
 from tests.integration.test_run import EXAMPLE, FRAMING, _config, _respond
 
 pytestmark = pytest.mark.integration

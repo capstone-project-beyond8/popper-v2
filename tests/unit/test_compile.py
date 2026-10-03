@@ -5,14 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from popper.communicate.paper import compile_pdf
+from popper.stages.communicate.compiler import compile_pdf
 
 
-def test_compile_returns_none_without_any_engine(
+def test_compile_returns_none_without_pdflatex(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(shutil, "which", lambda _name: None)
-    assert compile_pdf(tmp_path / "p.tex") is None
+    monkeypatch.setattr(
+        shutil, "which", lambda name: None if name == "pdflatex" else sys.executable
+    )
+    tex = tmp_path / "p.tex"
+    tex.write_text("x", encoding="utf-8")
+    assert compile_pdf(tex) is None
+    assert not list(tmp_path.glob("build-*"))
 
 
 def test_compile_returns_none_on_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -22,12 +27,10 @@ def test_compile_returns_none_on_failure(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert compile_pdf(tex) is None
 
 
-def test_compile_falls_back_to_pdflatex_and_runs_it_twice(
+def test_compile_uses_pdflatex_and_runs_it_twice(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(
-        shutil, "which", lambda name: "/bin/pdflatex" if name == "pdflatex" else None
-    )
+    monkeypatch.setattr(shutil, "which", lambda name: f"/bin/{name}")
     tex = tmp_path / "p.tex"
     tex.write_text("x", encoding="utf-8")
     calls: list[list[str]] = []

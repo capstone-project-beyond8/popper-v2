@@ -2,18 +2,18 @@
 
 Popper is developing toward a persistent AI Scientist backed by Scientific Runtime and Agent Harness. The current implementation works within a bounded tabular-data Run: it grounds researcher intent, retains multiple sourced quantitative candidates, challenges them from a fresh context, selects a ResearchMove, and freshly executes its committed specification. It records interpretations, surviving rivals, limitations and open questions before choosing another move. Cross-run Program continuity and candidate maturation remain target capabilities.
 
-The `scientist` package owns scientific decisions and the current playbook. `science` owns scientific records, evidence and state; Harness/code search executes declared work, and the coordinator handles dispatch and resources. Scientific snapshots exclude live budgets; resume takes spend and cap raises from the journal.
+`scientific.scientist` owns scientific decisions and the current playbook. `scientific.runtime` owns scientific records, evidence and state; `stages` owns specialist capabilities, Harness/code search executes declared work, and `workflow` handles dispatch and resources. Scientific snapshots exclude live budgets; resume takes spend and cap raises from the journal.
 
 Reports distinguish coverage, attributed fidelity, sensitivity and computed prospective support, and retain scientific feedback beside the evidence. Negative, incomplete and untested work remain visible. Challenge and interpretation are attributed reasoning; standing remains exploratory and reserved data is not used for validation.
 
-Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/ROADMAP.md](docs/ROADMAP.md) · Contributing: [AGENTS.md](AGENTS.md)
+Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Contributing: [AGENTS.md](AGENTS.md)
 
 ## Setup
 
 Requirements:
 - Python 3.13 and [uv](https://docs.astral.sh/uv/)
 - Amazon Bedrock access
-- Optional: a LaTeX engine for PDF output. [tectonic](https://tectonic-typesetting.github.io/) is recommended (`winget install tectonic`); MiKTeX or TeX Live with `latexmk` or `pdflatex` also work. Without one, runs still produce `paper.tex`.
+- Optional: `pdflatex` from MiKTeX or TeX Live, available on `PATH`, for PDF output. Without it, runs still produce `paper.tex`.
 
 ```sh
 uv sync
@@ -56,6 +56,8 @@ Resume uses the saved config and all recorded costs; it never resets step or mon
 Generated Python uses a local access guard: mounted discovery files and Python/library resources may be read; only the current execution folder may be written. Holdout, sibling evidence and ordinary credential files are denied; credentials are removed from script environments. This guards accidental Python file access, not hostile native code, network access or multi-user use. Code-assessment sessions receive masked source/structural results and code-generated sample-count diagnostics, never result plots or estimates; original figures remain available to reporting. Scientific challenge uses a separate fresh, read-only session over exact committed records. Interpretations may read accepted named results; neither assessment can change empirical values or evidence standing.
 
 ## Develop
+
+Source owners live under `src/popper/`: `workflow/` dispatches requests, `stages/` implements specialist work, `scientific/runtime/` owns scientific records and integrity, `scientific/scientist/` chooses and interprets research work, `harness/` provides generic execution and storage, and `strategies/treesearch/` provides search mechanics. The CLI and aggregate configuration remain at the package root.
 
 ```sh
 uv sync

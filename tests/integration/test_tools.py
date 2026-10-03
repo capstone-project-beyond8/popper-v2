@@ -5,12 +5,12 @@ from typing import Any
 import pytest
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
-from popper.harness.agent import Tool
+from popper.harness.agents.loop import Tool
 from popper.harness.llm import FakeLLM
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.treesearch.tools import node_tools
+from popper.harness.storage.store import RunStore
+from popper.strategies.treesearch.tools import node_tools
+from popper.workflow.run import create_run
 
 pytestmark = pytest.mark.integration
 
@@ -22,7 +22,7 @@ def _setup(tmp_path: Path) -> tuple[Harness, dict[str, Tool], Path]:
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
     node_dir = run.path("tree", "data", "data-001")
     run.write_json("tree/seed/results.json", {"seed": {"value": 1}})
-    tools = {t.name: t for t in node_tools(h, {"data": EXAMPLE / "data.csv"}, node_dir)}
+    tools = {t.name: t for t in node_tools(h, {"data": EXAMPLE / "data.csv"}, node_dir, artifact_roots={"results.json": h.run.root, "analysis.md": h.run.root})}
     return h, tools, node_dir
 
 
@@ -42,10 +42,10 @@ def test_inspect_data_lists_columns(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("defect", [None, "changed", "missing", "metadata"])
 def test_execution_binding_enforces_inputs_and_owned_identity(tmp_path: Path, defect: str | None) -> None:
-    from popper.harness.execution import ExecutionBinding
-    from popper.harness.records import IntegrityError
-    from popper.harness.recovery import read_events
-    from popper.harness.store import file_hash
+    from popper.harness.execution.bindings import ExecutionBinding
+    from popper.harness.storage.records import IntegrityError
+    from popper.harness.storage.recovery import read_events
+    from popper.harness.storage.store import file_hash
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
     source = h.run.write_json("opaque.json", {"purpose": "generic execution"})
@@ -128,6 +128,25 @@ def test_read_artifact_reads_parent_results(tmp_path: Path) -> None:
     assert '"value": 1' in out
 
 
+@pytest.mark.parametrize("scoped", [False, True])
+def test_artifact_scope_controls_names_and_directory(tmp_path: Path, scoped: bool) -> None:
+    h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
+    h.run.write_json("allowed/results.json", {"m": {"value": 1}})
+    h.run.write_json("elsewhere/results.json", {"m": {"value": 99}})
+    h.run.write_json("allowed/estimand.json", {"outcome": "private"})
+    roots = {"results.json": h.run.path("allowed")} if scoped else {}
+    tools = {t.name: t for t in node_tools(h, {}, h.run.path("node"), artifact_roots=roots)}
+    if scoped:
+        assert '"value": 1' in str(_call(tools, "read_artifact", path="allowed/results.json"))
+    else:
+        with pytest.raises(ValueError):
+            _call(tools, "read_artifact", path="allowed/results.json")
+    for path in ("elsewhere/results.json", "allowed/estimand.json"):
+        with pytest.raises(ValueError):
+            _call(tools, "read_artifact", path=path)
+        assert path not in tools["read_artifact"].description
+
+
 def test_read_artifact_pages_without_losing_text(tmp_path: Path) -> None:
     h, tools, _ = _setup(tmp_path)
     h.run.write_text("tree/data/data-000/analysis.md", "a" * 8000 + "FINAL_DETAIL")
@@ -157,10 +176,10 @@ def test_failed_scratch_exposes_full_logs_through_reader(tmp_path: Path) -> None
 
 def test_artifact_tool_only_advertises_available_paths(tmp_path: Path) -> None:
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))
-    initial = {t.name: t for t in node_tools(h, {}, tmp_path / "node")}
+    initial = {t.name: t for t in node_tools(h, {}, tmp_path / "node", artifact_roots={"results.json": h.run.root, "analysis.md": h.run.root})}
     assert "results.json" not in initial["read_artifact"].description
     h.run.write_json("tree/seed/results.json", {"x": {"value": 1}})
-    tools = {t.name: t for t in node_tools(h, {}, tmp_path / "node")}
+    tools = {t.name: t for t in node_tools(h, {}, tmp_path / "node", artifact_roots={"results.json": h.run.root, "analysis.md": h.run.root})}
     assert "tree/seed/results.json" in tools["read_artifact"].description
     assert "framing.json" not in tools["read_artifact"].description
 
@@ -173,7 +192,7 @@ def test_artifact_discovery_uses_the_resolved_read_policy(tmp_path: Path) -> Non
         alias.symlink_to(secret)
     except OSError:
         pytest.skip("symlinks unavailable")
-    initial = {t.name: t for t in node_tools(h, {}, tmp_path / "node")}
+    initial = {t.name: t for t in node_tools(h, {}, tmp_path / "node", artifact_roots={"results.json": h.run.root, "analysis.md": h.run.root})}
     assert "results.json" not in initial["read_artifact"].description
 
 
@@ -198,7 +217,7 @@ def test_run_python_cannot_overwrite_run_inputs(tmp_path: Path) -> None:
     h, _, node_dir = _setup(tmp_path)
     raw = h.run.path("data", "raw.csv")
     before = raw.read_bytes()
-    tools = {t.name: t for t in node_tools(h, {"raw": raw}, node_dir)}
+    tools = {t.name: t for t in node_tools(h, {"raw": raw}, node_dir, artifact_roots={"results.json": h.run.root, "analysis.md": h.run.root})}
     code = "import os\nopen(os.environ['POPPER_INPUT_RAW'], 'w').write('x')"
     with pytest.raises(ValueError, match="denied"):
         _call(tools, "run_python", code=code)

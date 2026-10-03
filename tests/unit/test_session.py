@@ -6,11 +6,11 @@ import pytest
 from pydantic import BaseModel
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
-from popper.harness.context import UNTRUSTED_NOTE
+from popper.harness.context.rendering import UNTRUSTED_NOTE
 from popper.harness.llm import Completion, FakeLLM, LLMRequest, Message, TransientLLMError
-from popper.harness.recovery import read_events
 from popper.harness.session import BudgetExceeded, Harness
+from popper.harness.storage.recovery import read_events
+from popper.workflow.run import create_run
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "student_performance"
 

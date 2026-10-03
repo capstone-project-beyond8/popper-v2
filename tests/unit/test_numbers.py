@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 from typing import Any, cast
 
-from popper.communicate.numbers import collect_values, explain_missing, fill_numbers
-from popper.treesearch.engine import Node
+from popper.stages.communicate.numbers import collect_values, explain_missing, fill_numbers
+from popper.strategies.treesearch.engine import Node
 
 
 def test_fill_known_and_unknown() -> None:

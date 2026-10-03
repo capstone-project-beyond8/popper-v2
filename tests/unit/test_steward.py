@@ -7,19 +7,19 @@ import pytest
 from pydantic import ValidationError
 
 from popper.config import load_config
-from popper.ground.steward import (
+from popper.harness.agents.loop import _run as run_tool
+from popper.harness.llm import FakeLLM, ToolCall
+from popper.harness.session import Harness
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.data.descriptive import DescriptiveReport
+from popper.scientific.runtime.data.research import ResearchContext
+from popper.stages.ground.steward import (
     Concern,
     Operationalization,
     check_submission,
     describe_submission,
     readiness,
 )
-from popper.harness.agent import _run as run_tool
-from popper.harness.llm import FakeLLM, ToolCall
-from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.science.descriptive import DescriptiveReport
-from popper.science.research import ResearchContext
 
 IDA = DescriptiveReport({"c000_mean": {"value": 1.0}}, {})
 MAPPING = [
@@ -198,7 +198,7 @@ def test_operationalization_strength_must_match_columns_and_concepts_be_unique(
 
 
 def test_ground_validates_all_nested_input_before_execution(tmp_path: Path) -> None:
-    from popper.ground.steward import _tools
+    from popper.stages.ground.steward import _tools
 
     run = RunStore(tmp_path)
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)
@@ -224,7 +224,7 @@ def test_ground_validates_all_nested_input_before_execution(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("code", ["", " \n  "])
 def test_blank_ground_code_is_rejected_before_execution(tmp_path: Path, code: str) -> None:
-    from popper.ground.steward import _tools
+    from popper.stages.ground.steward import _tools
 
     run = RunStore(tmp_path)
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), run)

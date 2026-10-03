@@ -7,21 +7,21 @@
 
 | Path | Owns |
 |---|---|
-| `src/popper/science/` | Program/Run contracts, research ingest, scientific options, experiment identity, evidence and derived state |
-| `src/popper/scientist/` | Scientific playbook, next-move decisions, candidates, challenge and interpretation |
+| `src/popper/scientific/runtime/` | Program/Run contracts, research ingest, scientific options, experiment identity, evidence and derived state |
+| `src/popper/scientific/scientist/` | Scientific playbook, next-move decisions and interpretation |
 | `src/popper/config.py` | Application configuration composition; defaults in `default_config.yaml` |
 | `src/popper/harness/` | Model access, agent loop and tools, context assembly, script execution, run store, journal, budget, permissions, recovery and runtime config. No research logic |
-| `src/popper/treesearch/` | Generic stage engine: nodes, draft/debug/improve steps, scoring, best-node selection |
-| `src/popper/understand/` | Ideation & framing: data profile, framing |
-| `src/popper/ground/` | Data phase: preparation stage goals and checks |
-| `src/popper/discover/` | Exploration and experiment implementation; local code search |
-| `src/popper/communicate/` | Publication: LaTeX write-up, figure aggregation, review |
-| `src/popper/coordinator/` | Thin request dispatch, resource admission, run/resume and operational checkpoints |
+| `src/popper/strategies/treesearch/` | Generic stage engine: nodes, draft/debug/improve steps, scoring, best-node selection |
+| `src/popper/stages/understand/` | Ideation & framing: data profile, framing |
+| `src/popper/stages/ground/` | Data phase: preparation stage goals and checks |
+| `src/popper/stages/discover/` | Candidate generation and challenge, exploration and experiment implementation; local code search |
+| `src/popper/stages/communicate/` | Publication: LaTeX write-up, figure aggregation, review |
+| `src/popper/workflow/` | Thin request dispatch, resource admission, run/resume and operational checkpoints |
 | `src/popper/cli.py` | Entry point |
 | `examples/` | Briefs and datasets for demos and evaluation |
 | `evals/` | Evaluation suites and comparisons (production code never imports it) |
 
-Function packages import only `science`, `harness` and `treesearch`, and never each other. `science` uses generic Harness storage/records and never imports model sessions or capabilities. `scientist` imports only `science` and `harness`, never capabilities or `treesearch`. `harness` imports only itself; `treesearch` imports only itself and `harness`. Prompts live in `<package>/prompts/`.
+Stage packages import only their own stage, `scientific.runtime`, `harness` and `strategies.treesearch`, and never each other. Runtime uses generic Harness storage/records and never imports model sessions or capabilities. Scientist imports only itself, Runtime and Harness, never stages or tree search. Harness imports only itself; tree search imports only itself and Harness. Workflow routes capability requests. Prompts live in `<package>/prompts/`. Grouping package initializers remain minimal and have no forwarding exports.
 
 ## Rules
 
@@ -53,7 +53,7 @@ uv run ruff check .
 uv run mypy
 uv run pytest <changed test files>          # while working
 uv run pytest -m "not slow"                 # before handing off a change
-uv run pytest -n 8 --dist worksteal         # before merging, or after changing harness/, treesearch/ or coordinator/
+uv run pytest -n 8 --dist worksteal         # before merging, or after changing Harness, tree search or workflow
 ```
 
 Run ruff, mypy and the matching pytest tier before handing off. Report what ran and what failed. Run tests through the project environment (`uv run`), not `uv run --with`: the script sandbox only reads the project environment's libraries.

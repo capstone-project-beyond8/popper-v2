@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from popper.harness.records import ArtifactRef, resolve_artifact
-from popper.harness.recovery import Journal
-from popper.harness.store import RunStore, file_hash
-from popper.science.evidence import MeasurementRef, resolve_measurement
+from popper.harness.storage.records import ArtifactRef, resolve_artifact
+from popper.harness.storage.recovery import Journal
+from popper.harness.storage.store import RunStore, file_hash
+from popper.scientific.runtime.evidence.references import MeasurementRef, resolve_measurement
 
 
 def test_exact_commit_history_and_uncommitted_rejection(tmp_path: Path) -> None:
@@ -73,8 +73,8 @@ def test_independently_encoded_historical_artifact_reference(tmp_path: Path) -> 
     store.write_text("journal.jsonl", json.dumps({"event": "artifact_commit", "name": "hypothesis", "path": "old.json", "sha256": file_hash(source)}) + "\n")
     before = source.read_bytes()
     assert resolve_artifact(store, store.artifact_ref("hypothesis")) == source
-    from popper.science.store import ScienceStore
-    from popper.science.views import latest
+    from popper.scientific.runtime.projections.views import latest
+    from popper.scientific.runtime.store import ScienceStore
     science = ScienceStore(store)
     assert science.commits() == [("hypothesis", store.artifact_ref("hypothesis"))]
     assert latest(science, "hypothesis") == "hypothesis"

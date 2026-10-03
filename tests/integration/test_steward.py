@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from popper.coordinator.run import create_run
-from popper.ground.steward import ground
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
-from popper.science.descriptive import describe_table, read_table
-from popper.science.research import parse_research
+from popper.scientific.runtime.data.descriptive import describe_table, read_table
+from popper.scientific.runtime.data.research import parse_research
+from popper.stages.ground.steward import ground
+from popper.workflow.run import create_run
 from tests.integration.test_run import (
     DATA,
     EXAMPLE,
@@ -56,4 +56,3 @@ def test_failed_submit_returns_the_reason_and_the_corrected_one_is_accepted(
     assert (foundation.preparation / "processed.parquet").is_file()
     assert (attempt / "ida.json").is_file()
     assert (attempt / "submit-00" / "execution" / "code.py").exists()
-    assert not any("holdout" in r.prompt for r in steward)

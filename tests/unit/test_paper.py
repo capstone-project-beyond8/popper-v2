@@ -4,15 +4,14 @@ from typing import cast
 
 import pytest
 
-from popper.communicate.paper import (
-    FigureRef,
-    Writeup,
+from popper.stages.communicate.rendering import (
     _best_attempt,
     _problems,
     _unknown_figures,
     _violations,
 )
-from popper.treesearch.engine import Node
+from popper.stages.communicate.schema import FigureRef, Writeup
+from popper.strategies.treesearch.engine import Node
 
 SECTIONS = ("abstract", "introduction", "data", "exploration", "hypothesis", "methods")
 

@@ -19,9 +19,9 @@ from popper.harness.llm import (
     _from_converse,
     _to_converse,
 )
-from popper.harness.recovery import read_events
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
+from popper.harness.storage.recovery import read_events
+from popper.harness.storage.store import RunStore
 
 
 def test_structured_reply_preserves_open_maps() -> None:

@@ -6,10 +6,10 @@ import pandas as pd
 import pytest
 
 from popper.config import load_config
-from popper.coordinator.run import create_run
-from popper.discover.experiment import experiment, run_experiment_stage
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
 from popper.harness.session import Harness
+from popper.stages.discover.experiment import experiment, run_experiment_stage
+from popper.workflow.run import create_run
 from tests.unit.test_hypothesis import ESTIMAND, PROPOSAL
 
 pytestmark = pytest.mark.integration

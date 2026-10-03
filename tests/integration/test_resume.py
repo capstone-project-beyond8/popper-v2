@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 
 from popper.config import load_config
-from popper.coordinator.run import create_run, resume, run
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.recovery import Journal, load_state, read_events
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.treesearch.engine import StageSpec, load_nodes, run_stage
+from popper.harness.storage.recovery import Journal, load_state, read_events
+from popper.harness.storage.store import RunStore
+from popper.strategies.treesearch.engine import StageSpec, load_nodes, run_stage
+from popper.workflow.run import create_run, resume, run
 from tests.integration.test_run import EXAMPLE, FRAMING, _config
 
 pytestmark = pytest.mark.integration
@@ -58,8 +58,8 @@ def test_historical_stage_records_preserve_identity(
     assert node.execution_dir == h.run.root / "tree/main/main-000/execution"
     assert node.results == {"m": {"value": 1.5}}
     assert node.score == 7 and node.goal_met
-    from popper.science.store import ScienceStore
-    from popper.science.views import node_results, stage_outcome
+    from popper.scientific.runtime.projections.views import node_results, stage_outcome
+    from popper.scientific.runtime.store import ScienceStore
     science = ScienceStore(h.run)
     outcome = stage_outcome(science, "main")
     assert outcome is not None
@@ -72,7 +72,7 @@ def test_historical_stage_records_preserve_identity(
 def test_historical_evidence_retains_interrupted_work_without_accepting_results(
     historical_stage: tuple[Harness, dict[Path, bytes]],
 ) -> None:
-    from popper.discover.robustness import collect_evidence
+    from popper.stages.discover.robustness import collect_evidence
     from tests.unit.test_robustness_plan import schedule
 
     h, _ = historical_stage
@@ -182,7 +182,7 @@ def test_budget_raise_survives_failure_before_its_checkpoint(
     cfg.budget.max_usd = 0
     store = create_run(tmp_path, EXAMPLE / "research.md", EXAMPLE / "data.csv", config=cfg)
     Journal(store.path("journal.jsonl")).write("llm_call", usd=0.2)
-    from popper.science.state import ResearchState
+    from popper.scientific.runtime.projections.state import ResearchState
     snapshot = store.write_json("old-snapshot.json", {
         **ResearchState().model_dump(mode="json"), "version": 1,
         "budget": {"spent_usd": 0, "max_usd": 100},
@@ -206,11 +206,11 @@ def test_budget_raise_survives_failure_before_its_checkpoint(
     with pytest.raises(KeyboardInterrupt):
         resume(store.root, llm=llm)
     assert len(llm.calls) == 1
-    from popper.coordinator.resources import resource_view
     from popper.harness.session import BudgetExceeded
-    from popper.science.settings import load_options
-    from popper.science.state import load_snapshot
-    from popper.science.store import ScienceStore
+    from popper.scientific.runtime.projections.state import load_snapshot
+    from popper.scientific.runtime.settings import load_options
+    from popper.scientific.runtime.store import ScienceStore
+    from popper.workflow.resources import resource_view
     restored = load_snapshot(ScienceStore(store), store.artifact_ref("science:snapshot"))
     cfg.budget.max_usd = 1
     exhausted = Harness(cfg, FakeLLM(lambda _: pytest.fail("no extra model work")), store, spent_usd=1)

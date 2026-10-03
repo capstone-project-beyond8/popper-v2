@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 
 from popper import __version__
-from popper.communicate.paper import compile_pdf
 from popper.config import load_config
-from popper.coordinator.run import RunOutcome, resume, run
 from popper.harness.llm import BedrockLLM
-from popper.harness.store import RunStore
-from popper.science.research import ResearchError
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.data.research import ResearchError
+from popper.stages.communicate.compiler import compile_pdf
+from popper.workflow.run import RunOutcome, resume, run
 
-_NO_PDF = "PDF not built (install tectonic, latexmk or pdflatex, or see {log})"
+_NO_PDF = "PDF not built (install pdflatex, or see {log})"
 
 
 def _build_parser() -> argparse.ArgumentParser:

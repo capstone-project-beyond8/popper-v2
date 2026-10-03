@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from popper.coordinator.resources import admit_move
-from popper.harness.records import ArtifactRef
-from popper.science.contracts import ResearchMove, RunResources
-from popper.science.state import ResearchState
-from popper.science.transitions import EligibilityError
+from popper.harness.storage.records import ArtifactRef
+from popper.scientific.runtime.lifecycle.contracts import ResearchMove, RunResources
+from popper.scientific.runtime.lifecycle.transitions import EligibilityError
+from popper.scientific.runtime.projections.state import ResearchState
+from popper.workflow.resources import admit_move
 
 
 def test_scheduled_attempts_bound_revisits(tmp_path: Path) -> None:
@@ -24,14 +24,14 @@ def test_scheduled_attempts_bound_revisits(tmp_path: Path) -> None:
 def test_refinement_requires_an_attributed_observation(tmp_path: Path) -> None:
     from popper.config import load_config
     from popper.harness.llm import FakeLLM
-    from popper.harness.records import resolve_artifact
     from popper.harness.session import Harness
-    from popper.harness.store import RunStore
-    from popper.science.contracts import Attempt, AttemptResult
-    from popper.science.contracts import ExperimentSpec as ScientificTest
-    from popper.science.state import commit_snapshot, rebuild_state
-    from popper.science.store import ScienceStore
-    from popper.science.transitions import schedule_attempt
+    from popper.harness.storage.records import resolve_artifact
+    from popper.harness.storage.store import RunStore
+    from popper.scientific.runtime.lifecycle.contracts import Attempt, AttemptResult
+    from popper.scientific.runtime.lifecycle.contracts import ExperimentSpec as ScientificTest
+    from popper.scientific.runtime.lifecycle.transitions import schedule_attempt
+    from popper.scientific.runtime.projections.state import commit_snapshot, rebuild_state
+    from popper.scientific.runtime.store import ScienceStore
     from tests.unit.test_test_identity import spec_payload
 
     h = Harness(load_config(env={}), FakeLLM(lambda _: ""), RunStore(tmp_path))

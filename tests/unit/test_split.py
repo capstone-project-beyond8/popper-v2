@@ -4,10 +4,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from popper.coordinator.run import create_run
-from popper.harness.store import RunStore
-from popper.science.inputs import read_holdout, split_rows
-from popper.science.settings import DataConfig
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.data.inputs import read_holdout, split_rows
+from popper.scientific.runtime.settings import DataConfig
+from popper.workflow.run import create_run
 
 
 def test_split_is_seeded_and_preserves_rows() -> None:
@@ -62,7 +62,7 @@ def test_discovery_files_keep_source_cells_exactly(tmp_path: Path) -> None:
     research = tmp_path / "research.md"
     research.write_text("study")
     store = create_run(tmp_path / "runs", research, source)
-    from popper.science.inputs import load_episode
+    from popper.scientific.runtime.data.inputs import load_episode
     program, episode = load_episode(store)
     assert program.binding == "single_run"
     assert episode.program_id == program.id

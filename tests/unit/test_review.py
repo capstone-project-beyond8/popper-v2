@@ -5,10 +5,9 @@ from typing import Any
 import pytest
 import yaml
 
-from popper.coordinator.run import create_run
-from popper.science.research import parse_research
-from popper.understand.frame import Frame, Framing
-from popper.understand.review import (
+from popper.scientific.runtime.data.research import parse_research
+from popper.stages.understand.frame import Frame, Framing
+from popper.stages.understand.review import (
     Review,
     Signal,
     apply_review,
@@ -16,6 +15,7 @@ from popper.understand.review import (
     load_review,
     write_review,
 )
+from popper.workflow.run import create_run
 
 COLUMNS = ["score", "hours", "school"]
 CTX = parse_research(

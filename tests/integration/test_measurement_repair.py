@@ -5,19 +5,24 @@ import pandas as pd
 import pytest
 
 from popper.config import load_config
-from popper.discover.experiment import experiment
 from popper.harness.llm import FakeLLM, LLMRequest, ToolCall
-from popper.harness.records import resolve_artifact
 from popper.harness.session import Harness
-from popper.harness.store import RunStore
-from popper.science.contracts import Attempt, Diagnosis, Invalidation, ResearchMove
-from popper.science.contracts import ExperimentSpec as ScientificTest
-from popper.science.evidence import resolve_measurement
-from popper.science.requests import ExperimentRequest
-from popper.science.state import commit_snapshot, rebuild_state
-from popper.science.store import ScienceStore
-from popper.science.transitions import schedule_attempt
-from popper.scientist.feedback import interpret_result
+from popper.harness.storage.records import resolve_artifact
+from popper.harness.storage.store import RunStore
+from popper.scientific.runtime.evidence.references import resolve_measurement
+from popper.scientific.runtime.lifecycle.contracts import (
+    Attempt,
+    Diagnosis,
+    Invalidation,
+    ResearchMove,
+)
+from popper.scientific.runtime.lifecycle.contracts import ExperimentSpec as ScientificTest
+from popper.scientific.runtime.lifecycle.requests import ExperimentRequest
+from popper.scientific.runtime.lifecycle.transitions import schedule_attempt
+from popper.scientific.runtime.projections.state import commit_snapshot, rebuild_state
+from popper.scientific.runtime.store import ScienceStore
+from popper.scientific.scientist.feedback import interpret_result
+from popper.stages.discover.experiment import experiment
 from tests.unit.test_test_identity import spec_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -100,8 +105,8 @@ def test_measurement_repair_retains_parent_and_reuses_unaffected_baseline(tmp_pa
     bad = next(m.record.ref for m in state.history if m.record.role == affected_role)
     assert resolve_measurement(h.run, bad).value == (200 if affected_role == "main" else 2)
     assert len(state.observations) == (0 if other_defect else 1)
-    from popper.communicate.paper import write_study
-    from popper.science.output import build_study
+    from popper.scientific.runtime.projections.output import build_study
+    from popper.stages.communicate.paper import write_study
 
     h.config.budget.max_usd = 0
     old_source = write_study(h, build_study(ScienceStore(h.run), "measurement defect", "budget_exceeded"))[0]
